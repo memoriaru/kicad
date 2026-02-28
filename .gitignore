@@ -1,0 +1,39 @@
+# atopile build outputs
+build/
+dist/
+*.net
+*.pcb
+*.kicad_pcb
+*.pro
+*.sch
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+local_config.ato
+secrets.ato
+
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
