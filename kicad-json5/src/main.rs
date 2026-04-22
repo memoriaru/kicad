@@ -29,7 +29,10 @@ impl std::str::FromStr for OutputFormat {
 /// KiCad S-expression / JSON5 bidirectional compiler
 #[derive(Parser, Debug)]
 #[command(name = "kicad-json5")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about = "Bidirectional KiCad S-expression ↔ JSON5 compiler\n\n\
+  Forward:  .kicad_sch → JSON5         kicad-json5 input.kicad_sch -o output.json5\n\
+  Reverse:  JSON5 → .kicad_sch         kicad-json5 input.json5 -o output.kicad_sch\n\
+  Topology: extract circuit topology    kicad-json5 input.kicad_sch -t", long_about = None)]
 struct Args {
     /// Input file (.kicad_sch or .json5)
     input: PathBuf,
