@@ -37,4 +37,7 @@ pub enum Error {
 
     #[error("Invalid UUID: {0}")]
     InvalidUuid(String),
+
+    #[error("JSON5 parse error: {0}")]
+    Json5Parse(String),
 }
