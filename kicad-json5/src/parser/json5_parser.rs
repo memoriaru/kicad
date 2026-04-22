@@ -34,8 +34,9 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
     let mut schematic = Schematic::new();
 
     // Version & generator (top level)
-    schematic.metadata.version = get_str(obj, "version").unwrap_or_else(|| "20231120".into());
-    schematic.metadata.generator = get_str(obj, "generator").unwrap_or_else(|| "eeschema".into());
+    schematic.metadata.version = get_str(obj, "version").unwrap_or_default();
+    schematic.metadata.generator = get_str(obj, "generator").unwrap_or_else(|| "kicad-json5".into());
+    schematic.metadata.generator_version = get_str(obj, "generator_version");
 
     // Metadata block
     if let Some(meta) = obj.get("metadata").and_then(|v| v.as_object()) {
@@ -162,6 +163,19 @@ fn value_to_symbol(value: &Value) -> Symbol {
         symbol.is_power = o.get("power").and_then(|v| v.as_bool()).unwrap_or(false);
         symbol.in_bom = o.get("in_bom").and_then(|v| v.as_bool()).unwrap_or(true);
         symbol.on_board = o.get("on_board").and_then(|v| v.as_bool()).unwrap_or(true);
+        symbol.exclude_from_sim = o.get("exclude_from_sim").and_then(|v| v.as_bool()).unwrap_or(false);
+        symbol.in_pos_files = o.get("in_pos_files").and_then(|v| v.as_bool()).unwrap_or(true);
+        symbol.duplicate_pin_numbers_are_jumpers = o.get("duplicate_pin_numbers_are_jumpers").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        // properties
+        if let Some(props) = o.get("properties").and_then(|v| v.as_object()) {
+            for (key, val) in props {
+                if let Some(v) = val.as_str() {
+                    use crate::ir::Property;
+                    symbol.properties.push(Property::new(key, v));
+                }
+            }
+        }
 
         // pins
         if let Some(pins) = o.get("pins").and_then(|v| v.as_array()) {
@@ -235,6 +249,38 @@ fn value_to_component(value: &Value, net_map: &HashMap<u32, String>) -> SymbolIn
             .get("unit")
             .and_then(|v| v.as_u64())
             .unwrap_or(1) as u32;
+
+        // KiCad 8+ flags
+        comp.exclude_from_sim = o.get("exclude_from_sim").and_then(|v| v.as_bool()).unwrap_or(false);
+        comp.in_bom = o.get("in_bom").and_then(|v| v.as_bool()).unwrap_or(true);
+        comp.on_board = o.get("on_board").and_then(|v| v.as_bool()).unwrap_or(true);
+        comp.dnp = o.get("dnp").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        // instances
+        if let Some(insts) = o.get("instances").and_then(|v| v.as_array()) {
+            use crate::ir::{InstancePath, InstanceProject};
+            for inst_val in insts {
+                if let Some(proj_obj) = inst_val.as_object() {
+                    let proj_name = get_str(proj_obj, "project").unwrap_or_default();
+                    let mut project = InstanceProject {
+                        name: proj_name,
+                        paths: Vec::new(),
+                    };
+                    if let Some(paths) = proj_obj.get("paths").and_then(|v| v.as_array()) {
+                        for path_val in paths {
+                            if let Some(path_obj) = path_val.as_object() {
+                                project.paths.push(InstancePath {
+                                    path: get_str(path_obj, "path").unwrap_or_default(),
+                                    reference: get_str(path_obj, "reference").unwrap_or_default(),
+                                    unit: path_obj.get("unit").and_then(|v| v.as_u64()).unwrap_or(1) as u32,
+                                });
+                            }
+                        }
+                    }
+                    comp.instances.projects.push(project);
+                }
+            }
+        }
 
         // properties (simple map)
         if let Some(props) = o.get("properties").and_then(|v| v.as_object()) {

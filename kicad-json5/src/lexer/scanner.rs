@@ -5,6 +5,7 @@ use crate::error::{Error, Result};
 
 /// Lexer for KiCad S-expression format
 pub struct Lexer<'a> {
+    #[allow(dead_code)]
     source: &'a str,
     chars: Vec<char>,
     pos: usize,
