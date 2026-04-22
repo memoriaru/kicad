@@ -1,7 +1,7 @@
 //! JSON5 code generator
 
 use crate::error::Result;
-use crate::ir::{Junction, Label, Net, Schematic, Symbol, SymbolInstance, Wire};
+use crate::ir::{Net, Schematic, Symbol, SymbolInstance};
 
 /// JSON5 generator configuration
 #[derive(Debug, Clone)]
@@ -27,6 +27,7 @@ impl Default for Json5Config {
 /// JSON5 generator
 pub struct Json5Generator {
     config: Json5Config,
+    #[allow(dead_code)]
     indent_level: usize,
 }
 
@@ -262,13 +263,33 @@ impl Json5Generator {
         self.write_field_no_comma(output, "rotation", &component.position.2.to_string(), 4);
         output.push_str(&format!("{}}},\n", self.indent(3)));
 
+        // Mirror
+        let mirror_str = match component.mirror {
+            crate::ir::Mirror::None => "none",
+            crate::ir::Mirror::X => "x",
+            crate::ir::Mirror::Y => "y",
+        };
+        if component.mirror != crate::ir::Mirror::None {
+            self.write_field(output, "mirror", &format!("\"{}\"", mirror_str), 3);
+        }
+
+        // UUID
+        if let Some(uuid) = &component.uuid {
+            self.write_field(output, "uuid", &format!("\"{}\"", uuid), 3);
+        }
+
+        // Unit
+        if component.unit != 1 {
+            self.write_field(output, "unit", &component.unit.to_string(), 3);
+        }
+
         // Properties
         if !component.properties.is_empty() {
             output.push_str(&format!("{}properties: {{\n", self.indent(3)));
             for (key, value) in &component.properties {
-                output.push_str(&format!("{}{}: \"{}\",\n",
+                output.push_str(&format!("{}\"{}\": \"{}\",\n",
                     self.indent(4),
-                    key,
+                    self.escape_string(key),
                     self.escape_string(value)
                 ));
             }
