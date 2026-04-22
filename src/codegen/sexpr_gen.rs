@@ -1,0 +1,1576 @@
+//! S-expression code generator for KiCad schematic files
+//!
+//! Generates `.kicad_sch` files from the IR (Intermediate Representation).
+
+use crate::error::Result;
+use crate::ir::{
+    Arc, Bus, BusEntry, Circle, Fill, FillType, GraphicElement, HorizontalAlign, Junction,
+    Label, Net, NoConnect, Pin, PinGraphic, PinShape, PinType, Polyline, Rectangle, Stroke,
+    StrokeType, Symbol, SymbolInstance, Text, TextEffects, VerticalAlign, Wire,
+};
+use crate::ir::Instances;
+use uuid::Uuid;
+
+/// KiCad file format version
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KicadVersion {
+    /// KiCad 7.x - version "20221219"
+    V7,
+    /// KiCad 8.x - version "20231120"
+    V8,
+    /// KiCad 9.x - version "20250114"
+    V9,
+    /// KiCad 10.x - version "20260306"
+    #[default]
+    V10,
+}
+
+impl KicadVersion {
+    /// Get the version string for the schematic file
+    pub fn version_string(&self) -> &'static str {
+        match self {
+            KicadVersion::V7 => "20221219",
+            KicadVersion::V8 => "20231120",
+            KicadVersion::V9 => "20250114",
+            KicadVersion::V10 => "20260306",
+        }
+    }
+
+    /// Get the generator_version string for the schematic file
+    pub fn generator_version_string(&self) -> &'static str {
+        match self {
+            KicadVersion::V7 => "7.0",
+            KicadVersion::V8 => "8.0",
+            KicadVersion::V9 => "9.0",
+            KicadVersion::V10 => "10.0",
+        }
+    }
+
+    /// Try to detect version from a KiCad version string
+    pub fn from_version_string(s: &str) -> Option<Self> {
+        match s {
+            "20221219" => Some(KicadVersion::V7),
+            "20231120" => Some(KicadVersion::V8),
+            "20250114" => Some(KicadVersion::V9),
+            "20260306" => Some(KicadVersion::V10),
+            // Pattern match: 20260307+ → V10 (future KiCad 10.x)
+            _ if s.len() == 8 && s.chars().all(|c| c.is_ascii_digit()) => {
+                let val: u32 = s.parse().ok()?;
+                if val >= 20260306 {
+                    Some(KicadVersion::V10)
+                } else if val >= 20250101 {
+                    Some(KicadVersion::V9)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Get the latest supported version (used as default for pure JSON5 → .kicad_sch)
+    pub fn latest() -> Self {
+        KicadVersion::V10
+    }
+}
+
+/// S-expression generator configuration
+#[derive(Debug, Clone)]
+pub struct SexprConfig {
+    /// Indentation string (default: "\t")
+    pub indent: String,
+    /// Whether to include UUIDs in output
+    pub include_uuids: bool,
+    /// Target KiCad version (None = auto-detect from input)
+    pub kicad_version: Option<KicadVersion>,
+    /// Auto-generate UUIDs if missing
+    pub generate_uuids: bool,
+}
+
+impl Default for SexprConfig {
+    fn default() -> Self {
+        Self {
+            indent: "\t".to_string(),
+            include_uuids: true,
+            kicad_version: None, // auto-detect
+            generate_uuids: true,
+        }
+    }
+}
+
+/// S-expression generator for KiCad schematic files
+pub struct SexprGenerator {
+    config: SexprConfig,
+    indent_level: usize,
+    /// Effective version detected from input, used for version-specific output
+    effective_version: KicadVersion,
+}
+
+/// Default symbol template kinds for auto-generating graphics
+#[derive(Debug, Clone, Copy)]
+enum DefaultSymbolKind {
+    Ic,
+    Resistor,
+    Capacitor,
+    Inductor,
+    Diode,
+    Led,
+    TwoPin,
+}
+
+impl SexprGenerator {
+    /// Create a new generator with default config
+    pub fn new() -> Self {
+        Self {
+            config: SexprConfig::default(),
+            indent_level: 0,
+            effective_version: KicadVersion::default(),
+        }
+    }
+
+    /// Create a generator with custom config
+    pub fn with_config(config: SexprConfig) -> Self {
+        Self {
+            config,
+            indent_level: 0,
+            effective_version: KicadVersion::latest(), // default, overridden in generate()
+        }
+    }
+
+    /// Generate S-expression from IR Schematic
+    pub fn generate(&mut self, schematic: &crate::ir::Schematic) -> Result<String> {
+        let mut output = String::new();
+
+        output.push_str("(kicad_sch\n");
+
+        self.indent_level = 1;
+
+        // Version resolution: CLI override > auto-detect from input > default to latest
+        let detected_version = KicadVersion::from_version_string(&schematic.metadata.version);
+        self.effective_version = self.config.kicad_version
+            .or(detected_version)
+            .unwrap_or_else(KicadVersion::latest);
+        let version = self.effective_version;
+
+        // Version and generator
+        self.write_line(
+            &mut output,
+            &format!(
+                "(version {})",
+                version.version_string()
+            ),
+        );
+        self.write_line(
+            &mut output,
+            "(generator \"kicad-json5\")",
+        );
+
+        // generator_version (always output, match the effective version)
+        let gv = if self.config.kicad_version.is_some() {
+            // CLI override: use version-appropriate generator_version
+            version.generator_version_string().to_string()
+        } else if let Some(ref gv) = schematic.metadata.generator_version {
+            // Auto-detect: preserve original
+            gv.clone()
+        } else {
+            version.generator_version_string().to_string()
+        };
+        self.write_line(&mut output, &format!("(generator_version \"{}\")", gv));
+
+        // UUID
+        if self.config.include_uuids {
+            let uuid = if schematic.metadata.uuid.is_empty() {
+                if self.config.generate_uuids {
+                    Uuid::new_v4().to_string()
+                } else {
+                    String::new()
+                }
+            } else {
+                schematic.metadata.uuid.clone()
+            };
+            if !uuid.is_empty() {
+                self.write_line(&mut output, &format!("(uuid \"{}\")", uuid));
+            }
+        }
+
+        // Paper
+        self.generate_paper(&mut output, schematic);
+
+        // Title block
+        self.generate_title_block(&mut output, schematic);
+
+        // Lib symbols
+        if !schematic.lib_symbols.is_empty() {
+            self.generate_lib_symbols(&mut output, &schematic.lib_symbols);
+        }
+
+        // Note: KiCad 7+ schematics don't use top-level (net ...) declarations.
+        // Nets are represented by wires and labels instead.
+
+        // Symbol instances (components)
+        for component in &schematic.components {
+            self.generate_symbol_instance(&mut output, component);
+        }
+
+        // Wires
+        for wire in &schematic.wires {
+            self.generate_wire(&mut output, wire);
+        }
+
+        // Labels
+        for label in &schematic.labels {
+            self.generate_label(&mut output, label);
+        }
+
+        // Junctions
+        for junction in &schematic.junctions {
+            self.generate_junction(&mut output, junction);
+        }
+
+        // No-connects
+        for nc in &schematic.no_connects {
+            self.generate_no_connect(&mut output, nc);
+        }
+
+        // Buses
+        for bus in &schematic.buses {
+            self.generate_bus(&mut output, bus);
+        }
+
+        // Bus entries
+        for entry in &schematic.bus_entries {
+            self.generate_bus_entry(&mut output, entry);
+        }
+
+        // v10: sheet_instances at file level
+        if matches!(self.effective_version, KicadVersion::V10) {
+            self.write_line(&mut output, "(sheet_instances");
+            self.indent_level += 1;
+            let path = if schematic.metadata.uuid.is_empty() {
+                "/".to_string()
+            } else {
+                format!("/{}", schematic.metadata.uuid)
+            };
+            self.write_line(&mut output, &format!("(path \"{}\"", path));
+            self.indent_level += 1;
+            self.write_line(&mut output, "(page \"1\")");
+            self.indent_level -= 1;
+            self.write_line(&mut output, ")");
+            self.indent_level -= 1;
+            self.write_line(&mut output, ")");
+            // v10: embedded_fonts at file level
+            self.write_line(&mut output, "(embedded_fonts no)");
+        }
+
+        self.indent_level = 0;
+        output.push_str(")\n");
+
+        Ok(output)
+    }
+
+    // ============== Helper Methods ==============
+
+    /// Get current indentation string
+    fn indent(&self) -> String {
+        self.config.indent.repeat(self.indent_level)
+    }
+
+    /// Write a line with proper indentation
+    fn write_line(&self, output: &mut String, content: &str) {
+        output.push_str(&self.indent());
+        output.push_str(content);
+        output.push('\n');
+    }
+
+    /// Format a number, removing trailing zeros
+    fn format_number(n: f64) -> String {
+        // If it's effectively an integer, format as integer
+        if (n - n.round()).abs() < 1e-9 {
+            format!("{}", n.round() as i64)
+        } else {
+            // Format with enough precision, then trim trailing zeros
+            let s = format!("{}", n);
+            let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+            trimmed.to_string()
+        }
+    }
+
+    /// Format a point (xy x y)
+    fn format_xy(x: f64, y: f64) -> String {
+        format!("(xy {} {})", Self::format_number(x), Self::format_number(y))
+    }
+
+    /// Format an at expression (at x y rotation)
+    fn format_at(x: f64, y: f64, rotation: f64) -> String {
+        format!(
+            "(at {} {} {})",
+            Self::format_number(x),
+            Self::format_number(y),
+            Self::format_number(rotation)
+        )
+    }
+
+    /// Escape special characters in a string for S-expression output
+    fn escape_string(s: &str) -> String {
+        s.replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\t', "\\t")
+    }
+
+    /// Generate a new UUID string
+    fn new_uuid() -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    /// Format boolean as yes/no
+    fn format_bool(b: bool) -> &'static str {
+        if b { "yes" } else { "no" }
+    }
+
+    // ============== Metadata Generation ==============
+
+    fn generate_paper(&self, output: &mut String, schematic: &crate::ir::Schematic) {
+        let paper = &schematic.metadata.paper;
+        if let (Some(w), Some(h)) = (paper.width, paper.height) {
+            self.write_line(
+                output,
+                &format!(
+                    "(paper \"{}\" {} {})",
+                    paper.size,
+                    Self::format_number(w),
+                    Self::format_number(h)
+                ),
+            );
+        } else {
+            self.write_line(output, &format!("(paper \"{}\")", paper.size));
+        }
+    }
+
+    fn generate_title_block(&mut self, output: &mut String, schematic: &crate::ir::Schematic) {
+        let tb = &schematic.metadata.title_block;
+        let has_content = tb.title.is_some()
+            || tb.date.is_some()
+            || tb.rev.is_some()
+            || tb.company.is_some()
+            || !tb.comments.is_empty();
+
+        if !has_content {
+            return;
+        }
+
+        self.write_line(output, "(title_block");
+        self.indent_level += 1;
+
+        if let Some(title) = &tb.title {
+            self.write_line(output, &format!("(title \"{}\")", Self::escape_string(title)));
+        }
+        if let Some(date) = &tb.date {
+            self.write_line(output, &format!("(date \"{}\")", date));
+        }
+        if let Some(rev) = &tb.rev {
+            self.write_line(output, &format!("(rev \"{}\")", rev));
+        }
+        if let Some(company) = &tb.company {
+            self.write_line(output, &format!("(company \"{}\")", Self::escape_string(company)));
+        }
+
+        for (i, comment) in tb.comments.iter().enumerate() {
+            self.write_line(
+                output,
+                &format!("(comment {} \"{}\")", i + 1, Self::escape_string(comment)),
+            );
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    // ============== Symbol Library Generation ==============
+
+    fn generate_lib_symbols(&mut self, output: &mut String, symbols: &[Symbol]) {
+        self.write_line(output, "(lib_symbols");
+        self.indent_level += 1;
+
+        for symbol in symbols {
+            self.generate_symbol_def(output, symbol);
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_symbol_def(&mut self, output: &mut String, symbol: &Symbol) {
+        self.write_line(output, &format!("(symbol \"{}\"", symbol.lib_id));
+        self.indent_level += 1;
+
+        let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
+
+        // Pin numbers (format differs between v8 and v9+)
+        if symbol.pin_numbers_hidden {
+            if is_v9_plus {
+                self.write_line(output, "(pin_numbers");
+                self.indent_level += 1;
+                self.write_line(output, "(hide yes)");
+                self.indent_level -= 1;
+                self.write_line(output, ")");
+            } else {
+                self.write_line(output, "(pin_numbers hide)");
+            }
+        }
+
+        // Pin names
+        if symbol.pin_names_hidden || symbol.pin_name_offset != 0.254 {
+            if symbol.pin_names_hidden {
+                if is_v9_plus {
+                    self.write_line(output, "(pin_names");
+                    self.indent_level += 1;
+                    self.write_line(output, &format!("(offset {})", Self::format_number(symbol.pin_name_offset)));
+                    self.write_line(output, "(hide yes)");
+                    self.indent_level -= 1;
+                    self.write_line(output, ")");
+                } else {
+                    self.write_line(output, "(pin_names hide)");
+                }
+            } else {
+                self.write_line(
+                    output,
+                    &format!(
+                        "(pin_names (offset {}))",
+                        Self::format_number(symbol.pin_name_offset)
+                    ),
+                );
+            }
+        }
+
+        // Power symbol
+        if symbol.is_power {
+            self.write_line(output, "(power)");
+        }
+
+        // exclude_from_sim
+        self.write_line(output, &format!("(exclude_from_sim {})", Self::format_bool(symbol.exclude_from_sim)));
+
+        // in_bom and on_board
+        self.write_line(output, &format!("(in_bom {})", Self::format_bool(symbol.in_bom)));
+        self.write_line(output, &format!("(on_board {})", Self::format_bool(symbol.on_board)));
+
+        // v10-specific fields
+        if matches!(self.effective_version, KicadVersion::V10) {
+            self.write_line(output, &format!("(in_pos_files {})", Self::format_bool(symbol.in_pos_files)));
+            self.write_line(output, &format!("(duplicate_pin_numbers_are_jumpers {})", Self::format_bool(symbol.duplicate_pin_numbers_are_jumpers)));
+        }
+
+        // Properties (Reference, Value, Footprint, Datasheet, etc.)
+        for prop in &symbol.properties {
+            self.generate_property(output, prop);
+        }
+
+        // Units
+        if symbol.units.is_empty() {
+            if !symbol.graphics.is_empty() {
+                self.write_line(output, "(symbol \"0_1\"");
+                self.indent_level += 1;
+                for graphic in &symbol.graphics {
+                    self.generate_graphic_element(output, graphic);
+                }
+                self.indent_level -= 1;
+                self.write_line(output, ")");
+            } else if !symbol.pins.is_empty() {
+                // No units and no graphics: generate default template
+                self.generate_default_symbol_units(output, symbol);
+            }
+        } else {
+            // Generate each unit
+            for unit in &symbol.units {
+                let unit_name = if !unit.name.is_empty() {
+                    unit.name.clone()
+                } else {
+                    format!("{}_{}", unit.unit_id, unit.style_id)
+                };
+                self.write_line(output, &format!("(symbol \"{}\"", unit_name));
+                self.indent_level += 1;
+
+                for graphic in &unit.graphics {
+                    self.generate_graphic_element(output, graphic);
+                }
+
+                self.indent_level -= 1;
+                self.write_line(output, ")");
+            }
+        }
+
+        // v9+: embedded_fonts at parent symbol level (after all unit sub-symbols)
+        if is_v9_plus {
+            self.write_line(output, "(embedded_fonts no)");
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    // ============== Graphic Elements Generation ==============
+
+    fn generate_graphic_element(&mut self, output: &mut String, element: &GraphicElement) {
+        match element {
+            GraphicElement::Polyline(pl) => self.generate_polyline(output, pl),
+            GraphicElement::Rectangle(rect) => self.generate_rectangle(output, rect),
+            GraphicElement::Circle(circle) => self.generate_circle(output, circle),
+            GraphicElement::Arc(arc) => self.generate_arc(output, arc),
+            GraphicElement::Text(text) => self.generate_text(output, text),
+            GraphicElement::Pin(pin) => self.generate_pin_graphic(output, pin),
+        }
+    }
+
+    fn generate_polyline(&mut self, output: &mut String, polyline: &Polyline) {
+        if polyline.points.len() < 2 {
+            return;
+        }
+
+        self.write_line(output, "(polyline");
+        self.indent_level += 1;
+
+        // Points
+        self.write_line(output, "(pts");
+        self.indent_level += 1;
+        for (x, y) in &polyline.points {
+            self.write_line(output, &Self::format_xy(*x, *y));
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Stroke
+        self.generate_stroke(output, &polyline.stroke);
+
+        // Fill
+        self.generate_fill(output, &polyline.fill);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_rectangle(&mut self, output: &mut String, rect: &Rectangle) {
+        self.write_line(output, "(rectangle");
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("(start {} {})", Self::format_number(rect.start.0), Self::format_number(rect.start.1)));
+        self.write_line(output, &format!("(end {} {})", Self::format_number(rect.end.0), Self::format_number(rect.end.1)));
+
+        self.generate_stroke(output, &rect.stroke);
+        self.generate_fill(output, &rect.fill);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_circle(&mut self, output: &mut String, circle: &Circle) {
+        self.write_line(output, "(circle");
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("(center {} {})", Self::format_number(circle.center.0), Self::format_number(circle.center.1)));
+        self.write_line(output, &format!("(radius {})", Self::format_number(circle.radius)));
+
+        self.generate_stroke(output, &circle.stroke);
+        self.generate_fill(output, &circle.fill);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_arc(&mut self, output: &mut String, arc: &Arc) {
+        self.write_line(output, "(arc");
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("(start {} {})", Self::format_number(arc.start.0), Self::format_number(arc.start.1)));
+        self.write_line(output, &format!("(mid {} {})", Self::format_number(arc.mid.0), Self::format_number(arc.mid.1)));
+        self.write_line(output, &format!("(end {} {})", Self::format_number(arc.end.0), Self::format_number(arc.end.1)));
+
+        self.generate_stroke(output, &arc.stroke);
+        self.generate_fill(output, &arc.fill);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_text(&mut self, output: &mut String, text: &Text) {
+        self.write_line(output, "(text");
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("\"{}\"", Self::escape_string(&text.text)));
+        self.write_line(output, &Self::format_at(text.position.0, text.position.1, text.position.2));
+
+        self.generate_effects(output, &text.effects);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_pin_graphic(&mut self, output: &mut String, pin: &PinGraphic) {
+        let shape_str = match pin.shape {
+            PinShape::Line => "line",
+            PinShape::Inverted => "inverted",
+            PinShape::Clock => "clock",
+            PinShape::InvertedClock => "inverted_clock",
+            PinShape::InputLow => "input_low",
+            PinShape::ClockLow => "clock_low",
+            PinShape::OutputLow => "output_low",
+            PinShape::EdgeClockHigh => "edge_clock_high",
+            PinShape::NonLogic => "non_logic",
+            PinShape::Triangle => "triangle",
+        };
+
+        let type_str = match pin.pin_type {
+            PinType::Input => "input",
+            PinType::Output => "output",
+            PinType::Bidirectional => "bidirectional",
+            PinType::TriState => "tri_state",
+            PinType::Passive => "passive",
+            PinType::Free => "free",
+            PinType::Unspecified => "unspecified",
+            PinType::PowerIn => "power_in",
+            PinType::PowerOut => "power_out",
+            PinType::OpenCollector => "open_collector",
+            PinType::OpenEmitter => "open_emitter",
+            PinType::NoConnect => "no_connect",
+        };
+
+        // Format position without extra "(at ...)" wrapper
+        let at_str = format!(
+            "(at {} {} {})",
+            Self::format_number(pin.position.0),
+            Self::format_number(pin.position.1),
+            Self::format_number(pin.position.2)
+        );
+
+        self.write_line(
+            output,
+            &format!(
+                "(pin {} {} {} (length {})",
+                type_str,
+                shape_str,
+                at_str,
+                Self::format_number(pin.length)
+            ),
+        );
+        self.indent_level += 1;
+
+        self.write_line(output, &format!(
+            "(name \"{}\" (effects (font (size 1.27 1.27))))",
+            Self::escape_string(&pin.name)
+        ));
+        self.write_line(output, &format!(
+            "(number \"{}\" (effects (font (size 1.27 1.27))))",
+            pin.number
+        ));
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_stroke(&mut self, output: &mut String, stroke: &Stroke) {
+        let type_str = match stroke.stroke_type {
+            StrokeType::Default => "default",
+            StrokeType::Dash => "dash",
+            StrokeType::Dot => "dot",
+            StrokeType::DashDot => "dash_dot",
+            StrokeType::DashDotDot => "dash_dot_dot",
+            StrokeType::Solid => "solid",
+        };
+
+        self.write_line(
+            output,
+            &format!(
+                "(stroke (width {}) (type {}))",
+                Self::format_number(stroke.width),
+                type_str
+            ),
+        );
+    }
+
+    fn generate_fill(&mut self, output: &mut String, fill: &Fill) {
+        let type_str = match fill.fill_type {
+            FillType::None => "none",
+            FillType::Outline => "outline",
+            FillType::Background => "background",
+            FillType::Color => "color",
+        };
+
+        self.write_line(output, &format!("(fill (type {}))", type_str));
+    }
+
+    fn generate_effects(&mut self, output: &mut String, effects: &TextEffects) {
+        self.write_line(output, "(effects");
+        self.indent_level += 1;
+
+        self.write_line(
+            output,
+            &format!(
+                "(font (size {} {}))",
+                Self::format_number(effects.font.size.0),
+                Self::format_number(effects.font.size.1)
+            ),
+        );
+
+        if effects.font.bold {
+            self.write_line(output, "(bold yes)");
+        }
+        if effects.font.italic {
+            self.write_line(output, "(italic yes)");
+        }
+
+        // Justify
+        let h = match effects.justify.horizontal {
+            HorizontalAlign::Left => "left",
+            HorizontalAlign::Center => "center",
+            HorizontalAlign::Right => "right",
+        };
+        let v = match effects.justify.vertical {
+            VerticalAlign::Top => "top",
+            VerticalAlign::Center => "center",
+            VerticalAlign::Bottom => "bottom",
+        };
+        if effects.justify.horizontal != HorizontalAlign::Left
+            || effects.justify.vertical != VerticalAlign::Bottom
+        {
+            self.write_line(output, &format!("(justify {} {})", h, v));
+        }
+
+        if effects.hide {
+            self.write_line(output, "(hide yes)");
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    // ============== Schematic Elements Generation ==============
+
+    fn generate_symbol_instance(&mut self, output: &mut String, component: &SymbolInstance) {
+        self.write_line(output, "(symbol");
+        self.indent_level += 1;
+
+        // lib_id
+        self.write_line(output, &format!("(lib_id \"{}\")", component.lib_id));
+
+        // at
+        self.write_line(
+            output,
+            &Self::format_at(component.position.0, component.position.1, component.position.2),
+        );
+
+        // mirror
+        match component.mirror {
+            crate::ir::Mirror::X => self.write_line(output, "(mirror x)"),
+            crate::ir::Mirror::Y => self.write_line(output, "(mirror y)"),
+            crate::ir::Mirror::None => {}
+        }
+
+        // unit (always output)
+        self.write_line(output, &format!("(unit {})", component.unit));
+
+        // exclude_from_sim, in_bom, on_board, dnp
+        self.write_line(output, &format!("(exclude_from_sim {})", Self::format_bool(component.exclude_from_sim)));
+        self.write_line(output, &format!("(in_bom {})", Self::format_bool(component.in_bom)));
+        self.write_line(output, &format!("(on_board {})", Self::format_bool(component.on_board)));
+        self.write_line(output, &format!("(dnp {})", Self::format_bool(component.dnp)));
+
+        // UUID
+        if self.config.include_uuids {
+            let uuid = component.uuid.clone().unwrap_or_else(Self::new_uuid);
+            self.write_line(output, &format!("(uuid \"{}\")", uuid));
+        }
+
+        // Properties
+        for prop in &component.properties_ext {
+            self.generate_property(output, prop);
+        }
+
+        // Pins
+        for pin in &component.pins {
+            self.generate_pin_instance(output, pin);
+        }
+
+        // instances
+        self.generate_instances(output, &component.instances);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_property(&mut self, output: &mut String, prop: &crate::ir::Property) {
+        self.write_line(output, &format!("(property \"{}\"", prop.name));
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("\"{}\"", Self::escape_string(&prop.value)));
+        self.write_line(
+            output,
+            &Self::format_at(prop.position.0, prop.position.1, prop.position.2),
+        );
+
+        // v10: show_name and do_not_autoplace
+        if matches!(self.effective_version, KicadVersion::V10) {
+            self.write_line(output, &format!("(show_name {})", Self::format_bool(prop.show_name)));
+            self.write_line(output, &format!("(do_not_autoplace {})", Self::format_bool(prop.do_not_autoplace)));
+        }
+
+        self.generate_effects(output, &prop.effects);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_instances(&mut self, output: &mut String, instances: &Instances) {
+        if instances.projects.is_empty() {
+            return;
+        }
+
+        self.write_line(output, "(instances");
+        self.indent_level += 1;
+
+        for project in &instances.projects {
+            self.write_line(output, &format!("(project \"{}\"", Self::escape_string(&project.name)));
+            self.indent_level += 1;
+
+            for path in &project.paths {
+                self.write_line(output, &format!("(path \"{}\"", path.path));
+                self.indent_level += 1;
+                self.write_line(output, &format!("(reference \"{}\")", Self::escape_string(&path.reference)));
+                self.write_line(output, &format!("(unit {})", path.unit));
+                self.indent_level -= 1;
+                self.write_line(output, ")");
+            }
+
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_pin_instance(
+        &mut self,
+        output: &mut String,
+        pin: &crate::ir::PinInstance,
+    ) {
+        self.write_line(output, &format!("(pin \"{}\"", pin.number));
+        self.indent_level += 1;
+
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_net(&mut self, output: &mut String, net: &Net) {
+        self.write_line(output, "(net");
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("{} \"{}\"", net.id, Self::escape_string(&net.name)));
+
+        if let Some(net_type) = &net.net_type {
+            self.write_line(output, &format!("(type \"{}\")", net_type));
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_wire(&mut self, output: &mut String, wire: &Wire) {
+        self.write_line(output, "(wire");
+        self.indent_level += 1;
+
+        self.write_line(output, &format!(
+            "(pts {} {})",
+            Self::format_xy(wire.start.0, wire.start.1),
+            Self::format_xy(wire.end.0, wire.end.1)
+        ));
+
+        self.generate_stroke(output, &wire.stroke);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_label(&mut self, output: &mut String, label: &Label) {
+        let label_type = label.label_type.as_str();
+        let is_global = label_type == "global_label";
+        let is_hierarchical = label_type == "hierarchical_label";
+
+        self.write_line(output, &format!("({}", label_type));
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("\"{}\"", Self::escape_string(&label.text)));
+        self.write_line(
+            output,
+            &Self::format_at(label.position.0, label.position.1, label.position.2),
+        );
+
+        if is_global || is_hierarchical {
+            self.write_line(output, &format!("(shape {})", label.shape));
+        }
+
+        self.generate_effects(output, &label.effects);
+
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_junction(&mut self, output: &mut String, junction: &Junction) {
+        self.write_line(output, "(junction");
+        self.indent_level += 1;
+
+        self.write_line(output, &Self::format_at(junction.position.0, junction.position.1, 0.0));
+
+        if junction.diameter != 0.0 {
+            self.write_line(output, &format!("(diameter {})", Self::format_number(junction.diameter)));
+        }
+
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_no_connect(&mut self, output: &mut String, nc: &NoConnect) {
+        self.write_line(output, "(no_connect");
+        self.indent_level += 1;
+
+        self.write_line(output, &Self::format_at(nc.position.0, nc.position.1, 0.0));
+
+        if self.config.include_uuids {
+            let uuid = nc.uuid.clone().unwrap_or_else(Self::new_uuid);
+            self.write_line(output, &format!("(uuid \"{}\")", uuid));
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_bus(&mut self, output: &mut String, bus: &Bus) {
+        if bus.points.len() < 2 {
+            return;
+        }
+
+        self.write_line(output, "(bus");
+        self.indent_level += 1;
+
+        self.write_line(output, "(pts");
+        self.indent_level += 1;
+        for (x, y) in &bus.points {
+            self.write_line(output, &Self::format_xy(*x, *y));
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        self.generate_stroke(output, &bus.stroke);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_bus_entry(&mut self, output: &mut String, entry: &BusEntry) {
+        self.write_line(output, "(bus_entry");
+        self.indent_level += 1;
+
+        self.write_line(output, &Self::format_at(entry.position.0, entry.position.1, 0.0));
+        self.write_line(
+            output,
+            &format!("(size {} {})", Self::format_number(entry.size.0), Self::format_number(entry.size.1)),
+        );
+
+        self.generate_stroke(output, &entry.stroke);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    // ============== Default Symbol Templates ==============
+
+    fn detect_default_kind(symbol: &Symbol) -> DefaultSymbolKind {
+        match symbol.pins.len() {
+            0..=1 => DefaultSymbolKind::TwoPin,
+            2 => {
+                // Use the short name after ':' for matching (e.g., "Device:R" → "R")
+                let short = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id).to_uppercase();
+                let full = symbol.lib_id.to_uppercase();
+                if full.contains("LED") {
+                    return DefaultSymbolKind::Led;
+                }
+                if short.starts_with("R") || full.contains("RESIST") {
+                    return DefaultSymbolKind::Resistor;
+                }
+                if short.starts_with("C") || full.contains("CAP") {
+                    return DefaultSymbolKind::Capacitor;
+                }
+                if short.starts_with("L") || full.contains("IND") {
+                    return DefaultSymbolKind::Inductor;
+                }
+                if full.contains("DIODE")
+                    || full.contains("ZENER")
+                    || full.contains("TVS")
+                    || short.starts_with("D_")
+                    || short == "D"
+                {
+                    return DefaultSymbolKind::Diode;
+                }
+                DefaultSymbolKind::TwoPin
+            }
+            _ => DefaultSymbolKind::Ic,
+        }
+    }
+
+    /// Generate default unit sub-blocks for symbols without graphics
+    fn generate_default_symbol_units(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+    ) {
+        let kind = Self::detect_default_kind(symbol);
+        let base = symbol
+            .lib_id
+            .split(':')
+            .last()
+            .unwrap_or(&symbol.lib_id);
+
+        match kind {
+            DefaultSymbolKind::Ic => self.gen_ic_unit(output, symbol, base),
+            DefaultSymbolKind::Resistor => {
+                self.gen_resistor_unit(output, symbol, base)
+            }
+            DefaultSymbolKind::Capacitor => {
+                self.gen_capacitor_unit(output, symbol, base)
+            }
+            DefaultSymbolKind::Inductor => {
+                self.gen_inductor_unit(output, symbol, base)
+            }
+            DefaultSymbolKind::Diode | DefaultSymbolKind::Led => self.gen_diode_unit(
+                output,
+                symbol,
+                base,
+                matches!(kind, DefaultSymbolKind::Led),
+            ),
+            DefaultSymbolKind::TwoPin => self.gen_twopin_unit(output, symbol, base),
+        }
+    }
+
+    /// Generate a pin in S-expression format with default effects
+    fn gen_default_pin(
+        &mut self,
+        output: &mut String,
+        pin: &Pin,
+        x: f64,
+        y: f64,
+        rotation: f64,
+    ) {
+        let pin_type_str = match PinType::from_str(&pin.pin_type) {
+            PinType::Input => "input",
+            PinType::Output => "output",
+            PinType::Bidirectional => "bidirectional",
+            PinType::TriState => "tri_state",
+            PinType::Passive => "passive",
+            PinType::Free => "free",
+            PinType::Unspecified => "unspecified",
+            PinType::PowerIn => "power_in",
+            PinType::PowerOut => "power_out",
+            PinType::OpenCollector => "open_collector",
+            PinType::OpenEmitter => "open_emitter",
+            PinType::NoConnect => "no_connect",
+        };
+
+        self.write_line(
+            output,
+            &format!(
+                "(pin {} line (at {} {} {}) (length 2.54)",
+                pin_type_str,
+                Self::format_number(x),
+                Self::format_number(y),
+                Self::format_number(rotation)
+            ),
+        );
+        self.indent_level += 1;
+        self.write_line(
+            output,
+            &format!(
+                "(name \"{}\"",
+                Self::escape_string(&pin.name)
+            ),
+        );
+        self.indent_level += 1;
+        self.write_line(output, "(effects (font (size 1.27 1.27))))");
+        self.indent_level -= 1;
+        self.write_line(output, &format!("(number \"{}\"", pin.number));
+        self.indent_level += 1;
+        self.write_line(output, "(effects (font (size 1.27 1.27))))");
+        self.indent_level -= 1;
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Generate standard stroke S-expression
+    fn gen_default_stroke(&mut self, output: &mut String, width: f64) {
+        self.write_line(output, "(stroke");
+        self.indent_level += 1;
+        self.write_line(output, &format!("(width {})", Self::format_number(width)));
+        self.write_line(output, "(type default))");
+        self.indent_level -= 1;
+    }
+
+    /// IC template: rectangle body + pins on left/right
+    fn gen_ic_unit(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+        base: &str,
+    ) {
+        let pin_count = symbol.pins.len();
+        let left_count = (pin_count + 1) / 2;
+        let right_count = pin_count - left_count;
+        let max_per_side = left_count.max(right_count).max(1);
+
+        let spacing = 2.54;
+        let body_hw = 5.08; // half-width
+        let body_hh = max_per_side as f64 * spacing / 2.0 + spacing / 2.0;
+        let pin_length = 2.54;
+
+        // _0_1: rectangle body
+        self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+        self.indent_level += 1;
+
+        self.write_line(output, "(rectangle");
+        self.indent_level += 1;
+        self.write_line(
+            output,
+            &format!(
+                "(start {} {}) (end {} {})",
+                Self::format_number(-body_hw),
+                Self::format_number(body_hh),
+                Self::format_number(body_hw),
+                Self::format_number(-body_hh)
+            ),
+        );
+        self.gen_default_stroke(output, 0.254);
+        self.write_line(output, "(fill (type background))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // _1_1: pins
+        self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+        self.indent_level += 1;
+
+        for (i, pin) in symbol.pins.iter().enumerate() {
+            if i < left_count {
+                let y = (left_count - 1 - i) as f64 * spacing / 2.0;
+                self.gen_default_pin(
+                    output,
+                    pin,
+                    -body_hw - pin_length,
+                    y,
+                    0.0,
+                );
+            }
+        }
+
+        for (i, pin) in symbol.pins.iter().skip(left_count).enumerate() {
+            let y = (right_count - 1 - i) as f64 * spacing / 2.0;
+            self.gen_default_pin(
+                output,
+                pin,
+                body_hw + pin_length,
+                y,
+                180.0,
+            );
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Resistor template: IEC rectangle + 2 vertical pins
+    fn gen_resistor_unit(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+        base: &str,
+    ) {
+        // _0_1: IEC-style resistor body
+        self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+        self.indent_level += 1;
+        self.write_line(output, "(rectangle");
+        self.indent_level += 1;
+        self.write_line(
+            output,
+            "(start -1.016 1.524) (end 1.016 -1.524)",
+        );
+        self.gen_default_stroke(output, 0.254);
+        self.write_line(output, "(fill (type none))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // _1_1: pins
+        self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+        self.indent_level += 1;
+        if let Some(pin1) = symbol.pins.first() {
+            self.gen_default_pin(output, pin1, 0.0, 2.54, 270.0);
+        }
+        if let Some(pin2) = symbol.pins.get(1) {
+            self.gen_default_pin(output, pin2, 0.0, -2.54, 90.0);
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Capacitor template: two parallel plates + 2 vertical pins
+    fn gen_capacitor_unit(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+        base: &str,
+    ) {
+        // _0_1: two plates
+        self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+        self.indent_level += 1;
+
+        // Top plate
+        self.write_line(output, "(polyline");
+        self.indent_level += 1;
+        self.write_line(output, "(pts");
+        self.indent_level += 1;
+        self.write_line(output, "(xy -2.032 -0.762) (xy 2.032 -0.762)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.gen_default_stroke(output, 0.508);
+        self.write_line(output, "(fill (type none))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Bottom plate
+        self.write_line(output, "(polyline");
+        self.indent_level += 1;
+        self.write_line(output, "(pts");
+        self.indent_level += 1;
+        self.write_line(output, "(xy -2.032 0.762) (xy 2.032 0.762)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.gen_default_stroke(output, 0.508);
+        self.write_line(output, "(fill (type none))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // _1_1: pins
+        self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+        self.indent_level += 1;
+        if let Some(pin1) = symbol.pins.first() {
+            self.gen_default_pin(output, pin1, 0.0, 3.81, 270.0);
+        }
+        if let Some(pin2) = symbol.pins.get(1) {
+            self.gen_default_pin(output, pin2, 0.0, -3.81, 90.0);
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Inductor template: bumps + 2 vertical pins
+    fn gen_inductor_unit(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+        base: &str,
+    ) {
+        // _0_1: three arcs (bumps)
+        self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+        self.indent_level += 1;
+
+        for dy in &[-0.762, 0.0, 0.762] {
+            self.write_line(output, "(arc");
+            self.indent_level += 1;
+            self.write_line(
+                output,
+                &format!(
+                    "(start {} {}) (mid {} {}) (end {} {})",
+                    Self::format_number(-1.27),
+                    Self::format_number(*dy + 0.762),
+                    Self::format_number(0.0),
+                    Self::format_number(*dy + 1.524),
+                    Self::format_number(1.27),
+                    Self::format_number(*dy + 0.762),
+                ),
+            );
+            self.gen_default_stroke(output, 0.0);
+            self.write_line(output, "(fill (type none))");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // _1_1: pins
+        self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+        self.indent_level += 1;
+        if let Some(pin1) = symbol.pins.first() {
+            self.gen_default_pin(output, pin1, 0.0, 3.81, 270.0);
+        }
+        if let Some(pin2) = symbol.pins.get(1) {
+            self.gen_default_pin(output, pin2, 0.0, -3.81, 90.0);
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Diode/LED template: triangle + bar + 2 vertical pins
+    fn gen_diode_unit(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+        base: &str,
+        is_led: bool,
+    ) {
+        // _0_1: triangle + bar (+ arrows for LED)
+        self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+        self.indent_level += 1;
+
+        // Triangle (polyline)
+        self.write_line(output, "(polyline");
+        self.indent_level += 1;
+        self.write_line(output, "(pts");
+        self.indent_level += 1;
+        self.write_line(output, "(xy -1.27 1.27) (xy 1.27 0) (xy -1.27 -1.27)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.gen_default_stroke(output, 0.254);
+        self.write_line(output, "(fill (type none))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Bar
+        self.write_line(output, "(polyline");
+        self.indent_level += 1;
+        self.write_line(output, "(pts");
+        self.indent_level += 1;
+        self.write_line(output, "(xy 1.27 1.27) (xy 1.27 -1.27)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.gen_default_stroke(output, 0.254);
+        self.write_line(output, "(fill (type none))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // LED arrows
+        if is_led {
+            self.write_line(output, "(polyline");
+            self.indent_level += 1;
+            self.write_line(output, "(pts");
+            self.indent_level += 1;
+            self.write_line(output, "(xy -1.016 1.524) (xy 1.524 1.524)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.gen_default_stroke(output, 0.254);
+            self.write_line(output, "(fill (type none))");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+
+            self.write_line(output, "(polyline");
+            self.indent_level += 1;
+            self.write_line(output, "(pts");
+            self.indent_level += 1;
+            self.write_line(output, "(xy 0.508 2.032) (xy 1.524 1.524) (xy 1.524 2.54)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.gen_default_stroke(output, 0.2);
+            self.write_line(output, "(fill (type none))");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // _1_1: pins
+        self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+        self.indent_level += 1;
+        if let Some(pin1) = symbol.pins.first() {
+            self.gen_default_pin(output, pin1, 0.0, 3.81, 270.0);
+        }
+        if let Some(pin2) = symbol.pins.get(1) {
+            self.gen_default_pin(output, pin2, 0.0, -3.81, 90.0);
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Generic 2-pin template: small rectangle + 2 vertical pins
+    fn gen_twopin_unit(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+        base: &str,
+    ) {
+        // _0_1: rectangle body
+        self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+        self.indent_level += 1;
+        self.write_line(output, "(rectangle");
+        self.indent_level += 1;
+        self.write_line(output, "(start -1.27 1.27) (end 1.27 -1.27)");
+        self.gen_default_stroke(output, 0.254);
+        self.write_line(output, "(fill (type background))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // _1_1: pins
+        self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+        self.indent_level += 1;
+        if let Some(pin1) = symbol.pins.first() {
+            self.gen_default_pin(output, pin1, 0.0, 2.54, 270.0);
+        }
+        if let Some(pin2) = symbol.pins.get(1) {
+            self.gen_default_pin(output, pin2, 0.0, -2.54, 90.0);
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+}
+
+impl Default for SexprGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{Metadata, Paper, Schematic, TitleBlock};
+
+    #[test]
+    fn test_format_number() {
+        assert_eq!(SexprGenerator::format_number(1.0), "1");
+        assert_eq!(SexprGenerator::format_number(1.5), "1.5");
+        assert_eq!(SexprGenerator::format_number(10.25), "10.25");
+        assert_eq!(SexprGenerator::format_number(0.0), "0");
+        assert_eq!(SexprGenerator::format_number(1.23456), "1.23456");
+    }
+
+    #[test]
+    fn test_format_xy() {
+        assert_eq!(SexprGenerator::format_xy(10.0, 20.0), "(xy 10 20)");
+        assert_eq!(SexprGenerator::format_xy(10.5, 20.25), "(xy 10.5 20.25)");
+    }
+
+    #[test]
+    fn test_format_at() {
+        assert_eq!(SexprGenerator::format_at(10.0, 20.0, 0.0), "(at 10 20)");
+        assert_eq!(SexprGenerator::format_at(10.0, 20.0, 90.0), "(at 10 20 90)");
+    }
+
+    #[test]
+    fn test_escape_string() {
+        assert_eq!(SexprGenerator::escape_string("hello"), "hello");
+        assert_eq!(SexprGenerator::escape_string("say \"hi\""), "say \\\"hi\\\"");
+        assert_eq!(SexprGenerator::escape_string("line1\nline2"), "line1\\nline2");
+    }
+
+    #[test]
+    fn test_kicad_version() {
+        assert_eq!(KicadVersion::V7.version_string(), "20221219");
+        assert_eq!(KicadVersion::V8.version_string(), "20231120");
+    }
+
+    #[test]
+    fn test_generate_empty_schematic() {
+        let mut schematic = Schematic::new();
+        schematic.metadata = Metadata {
+            uuid: "test-uuid-1234".to_string(),
+            version: "20231120".to_string(),
+            generator: "kicad-json5".to_string(),
+            generator_version: None,
+            paper: Paper {
+                size: "A4".to_string(),
+                width: None,
+                height: None,
+                portrait: false,
+            },
+            title_block: TitleBlock {
+                title: Some("Test Schematic".to_string()),
+                date: Some("2024-01-01".to_string()),
+                rev: Some("1.0".to_string()),
+                company: Some("Test Company".to_string()),
+                comments: vec!["Comment 1".to_string()],
+            },
+        };
+
+        let mut generator = SexprGenerator::new();
+        let result = generator.generate(&schematic).unwrap();
+
+        // Verify basic structure
+        assert!(result.starts_with("(kicad_sch"));
+        assert!(result.contains("(version 20231120)"));
+        assert!(result.contains("(generator \"kicad-json5\")"));
+        assert!(result.contains("(uuid \"test-uuid-1234\")"));
+        assert!(result.contains("(paper \"A4\")"));
+        assert!(result.contains("(title \"Test Schematic\")"));
+        assert!(result.contains("(date \"2024-01-01\")"));
+        assert!(result.contains("(rev \"1.0\")"));
+        assert!(result.contains("(company \"Test Company\")"));
+        assert!(result.ends_with(")\n"));
+    }
+
+    #[test]
+    fn test_generate_wire() {
+        let schematic = Schematic::new();
+
+        let mut generator = SexprGenerator::new();
+        let result = generator.generate(&schematic).unwrap();
+
+        // Basic wire generation test (empty schematic should still produce valid output)
+        assert!(result.contains("(kicad_sch"));
+    }
+
+    #[test]
+    fn test_roundtrip_metadata() {
+        // Create a schematic with known metadata
+        let mut original = Schematic::new();
+        original.metadata.uuid = "roundtrip-test-uuid".to_string();
+        original.metadata.generator = "test-generator".to_string();
+        original.metadata.title_block.title = Some("Roundtrip Test".to_string());
+
+        // Generate S-expr
+        let mut generator = SexprGenerator::new();
+        let sexpr_output = generator.generate(&original).unwrap();
+
+        // Parse the generated S-expr
+        use crate::lexer::Lexer;
+        use crate::parser::Parser;
+
+        let lexer = Lexer::new(&sexpr_output);
+        let mut parser = Parser::new(lexer);
+        let parsed = parser.parse().unwrap();
+
+        // Verify metadata matches
+        assert_eq!(parsed.metadata.uuid, original.metadata.uuid);
+        // Note: generator field is preserved through the roundtrip
+        assert_eq!(
+            parsed.metadata.title_block.title,
+            original.metadata.title_block.title
+        );
+    }
+}

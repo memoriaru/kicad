@@ -5,7 +5,12 @@ use std::collections::HashMap;
 use crate::error::{Error, Result};
 use crate::parser::SExpr;
 
-use super::{Junction, Label, Net, Symbol, SymbolInstance, Wire};
+use super::graphic::{
+    Arc, Circle, Fill, FillType, Font, GraphicElement, HorizontalAlign, Justify, PinGraphic,
+    PinType, Polyline, Rectangle, Stroke, StrokeType, SymbolUnit, Text, TextEffects, VerticalAlign,
+};
+use super::{Bus, BusEntry, Junction, Label, Net, NoConnect, Property, Symbol, SymbolInstance, Wire};
+use super::component::{InstancePath, InstanceProject};
 
 /// Paper size definition
 #[derive(Debug, Clone)]
@@ -43,6 +48,7 @@ pub struct Metadata {
     pub uuid: String,
     pub version: String,
     pub generator: String,
+    pub generator_version: Option<String>,
     pub paper: Paper,
     pub title_block: TitleBlock,
 }
@@ -51,8 +57,9 @@ impl Default for Metadata {
     fn default() -> Self {
         Self {
             uuid: String::new(),
-            version: "20211123".to_string(),
-            generator: "eeschema".to_string(),
+            version: String::new(),
+            generator: "kicad-json5".to_string(),
+            generator_version: None,
             paper: Paper::default(),
             title_block: TitleBlock::default(),
         }
@@ -69,6 +76,9 @@ pub struct Schematic {
     pub wires: Vec<Wire>,
     pub labels: Vec<Label>,
     pub junctions: Vec<Junction>,
+    pub no_connects: Vec<NoConnect>,
+    pub buses: Vec<Bus>,
+    pub bus_entries: Vec<BusEntry>,
     /// Net ID to Net name mapping
     net_map: HashMap<u32, String>,
 }
@@ -126,6 +136,11 @@ impl Schematic {
                         schematic.metadata.generator = get_string_or_ident(&list[1]);
                     }
                 }
+                "generator_version" => {
+                    if list.len() >= 2 {
+                        schematic.metadata.generator_version = Some(get_string_or_ident(&list[1]));
+                    }
+                }
                 "uuid" => {
                     if list.len() >= 2 {
                         schematic.metadata.uuid = get_string_or_ident(&list[1]);
@@ -164,6 +179,21 @@ impl Schematic {
                 "junction" => {
                     if let Some(junction) = Self::parse_junction(list) {
                         schematic.junctions.push(junction);
+                    }
+                }
+                "no_connect" => {
+                    if let Some(no_connect) = Self::parse_no_connect(list) {
+                        schematic.no_connects.push(no_connect);
+                    }
+                }
+                "bus" => {
+                    if let Some(bus) = Self::parse_bus(list) {
+                        schematic.buses.push(bus);
+                    }
+                }
+                "bus_entry" => {
+                    if let Some(bus_entry) = Self::parse_bus_entry(list) {
+                        schematic.bus_entries.push(bus_entry);
                     }
                 }
                 _ => {}
@@ -258,13 +288,33 @@ impl Schematic {
 
                 match key {
                     "pin_numbers" => {
-                        symbol.pin_numbers_hidden = sub_list.iter().any(|s| s.is_ident("hide"));
+                        // v8: (pin_numbers hide) / v9: (pin_numbers (hide yes))
+                        symbol.pin_numbers_hidden = sub_list.iter().any(|s| {
+                            s.is_ident("hide") ||
+                            (s.is_list() && s.as_list().unwrap().first().map_or(false, |f| f.is_ident("hide")))
+                        });
                     }
                     "pin_names" => {
-                        symbol.pin_names_hidden = sub_list.iter().any(|s| s.is_ident("hide"));
+                        // v8: (pin_names hide) / v9: (pin_names (offset ...) (hide yes))
+                        symbol.pin_names_hidden = sub_list.iter().any(|s| {
+                            s.is_ident("hide") ||
+                            (s.is_list() && s.as_list().unwrap().first().map_or(false, |f| f.is_ident("hide")))
+                        });
+                        // Check for offset
+                        for sub_item in &sub_list[1..] {
+                            if let SExpr::List(offset_list) = sub_item {
+                                if offset_list.first().map_or(false, |f| f.is_ident("offset")) {
+                                    symbol.pin_name_offset =
+                                        offset_list.get(1).and_then(get_number).unwrap_or(0.254);
+                                }
+                            }
+                        }
                     }
                     "power" => {
                         symbol.is_power = true;
+                    }
+                    "exclude_from_sim" => {
+                        symbol.exclude_from_sim = sub_list.get(1).and_then(get_bool).unwrap_or(false);
                     }
                     "in_bom" => {
                         symbol.in_bom = sub_list.get(1).and_then(get_bool).unwrap_or(true);
@@ -272,12 +322,617 @@ impl Schematic {
                     "on_board" => {
                         symbol.on_board = sub_list.get(1).and_then(get_bool).unwrap_or(true);
                     }
+                    "in_pos_files" => {
+                        symbol.in_pos_files = sub_list.get(1).and_then(get_bool).unwrap_or(true);
+                    }
+                    "duplicate_pin_numbers_are_jumpers" => {
+                        symbol.duplicate_pin_numbers_are_jumpers = sub_list.get(1).and_then(get_bool).unwrap_or(false);
+                    }
+                    // Parse graphic elements
+                    "polyline" => {
+                        if let Some(polyline) = Self::parse_polyline(sub_list) {
+                            symbol.graphics.push(GraphicElement::Polyline(polyline));
+                        }
+                    }
+                    "rectangle" => {
+                        if let Some(rect) = Self::parse_rectangle(sub_list) {
+                            symbol.graphics.push(GraphicElement::Rectangle(rect));
+                        }
+                    }
+                    "circle" => {
+                        if let Some(circle) = Self::parse_circle(sub_list) {
+                            symbol.graphics.push(GraphicElement::Circle(circle));
+                        }
+                    }
+                    "arc" => {
+                        if let Some(arc) = Self::parse_arc(sub_list) {
+                            symbol.graphics.push(GraphicElement::Arc(arc));
+                        }
+                    }
+                    "text" => {
+                        if let Some(text) = Self::parse_text(sub_list) {
+                            symbol.graphics.push(GraphicElement::Text(text));
+                        }
+                    }
+                    "pin" => {
+                        if let Some(pin) = Self::parse_pin_graphic(sub_list) {
+                            symbol.graphics.push(GraphicElement::Pin(pin));
+                        }
+                    }
+                    "property" => {
+                        if sub_list.len() >= 3 {
+                            let prop_name = get_string_or_ident(&sub_list[1]);
+                            let prop_value = get_string_or_ident(&sub_list[2]);
+                            let mut prop = Property::new(&prop_name, &prop_value);
+                            for prop_item in &sub_list[3..] {
+                                if let SExpr::List(prop_sub) = prop_item {
+                                    if prop_sub.is_empty() { continue; }
+                                    match get_ident(&prop_sub[0]) {
+                                        Some("at") => {
+                                            prop.position = (
+                                                prop_sub.get(1).and_then(get_number).unwrap_or(0.0),
+                                                prop_sub.get(2).and_then(get_number).unwrap_or(0.0),
+                                                prop_sub.get(3).and_then(get_number).unwrap_or(0.0),
+                                            );
+                                        }
+                                        Some("effects") => {
+                                            prop.effects = Self::parse_effects(prop_sub);
+                                        }
+                                        Some("show_name") => {
+                                            prop.show_name = prop_sub.get(1).and_then(get_bool).unwrap_or(false);
+                                        }
+                                        Some("do_not_autoplace") => {
+                                            prop.do_not_autoplace = prop_sub.get(1).and_then(get_bool).unwrap_or(false);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            match prop_name.as_str() {
+                                "Reference" => symbol.reference = prop_value,
+                                "Value" => symbol.value = Some(prop_value),
+                                _ => {}
+                            }
+                            symbol.properties.push(prop);
+                        }
+                    }
+                    // Parse symbol units (e.g., "symbol_0_1", "symbol_1_1")
+                    // In KiCad 8, symbol units are nested symbols like (symbol "C_0_1" ...)
+                    "symbol" => {
+                        // Check if this is a unit definition (has a name like "C_0_1")
+                        if sub_list.len() >= 2 {
+                            let unit_name = get_string_or_ident(&sub_list[1]);
+                            // Unit names typically contain underscores like "C_0_1"
+                            if unit_name.contains('_') {
+                                if let Some(unit) = Self::parse_symbol_unit(sub_list, &unit_name) {
+                                    symbol.units.push(unit);
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
         }
 
         Some(symbol)
+    }
+
+    fn parse_polyline(list: &[SExpr]) -> Option<Polyline> {
+        let mut polyline = Polyline::new();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "pts" => {
+                        for pt in &sub_list[1..] {
+                            if let SExpr::List(pt_list) = pt {
+                                if pt_list.len() >= 3 && pt_list[0].is_ident("xy") {
+                                    let x = get_number(&pt_list[1])?;
+                                    let y = get_number(&pt_list[2])?;
+                                    polyline.points.push((x, y));
+                                }
+                            }
+                        }
+                    }
+                    "stroke" => {
+                        polyline.stroke = Self::parse_stroke(sub_list);
+                    }
+                    "fill" => {
+                        polyline.fill = Self::parse_fill(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if polyline.points.is_empty() {
+            return None;
+        }
+        Some(polyline)
+    }
+
+    fn parse_rectangle(list: &[SExpr]) -> Option<Rectangle> {
+        let mut start: Option<(f64, f64)> = None;
+        let mut end: Option<(f64, f64)> = None;
+        let mut stroke = Stroke::default();
+        let mut fill = Fill::none();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "start" => {
+                        let x = get_number(sub_list.get(1)?)?;
+                        let y = get_number(sub_list.get(2)?)?;
+                        start = Some((x, y));
+                    }
+                    "end" => {
+                        let x = get_number(sub_list.get(1)?)?;
+                        let y = get_number(sub_list.get(2)?)?;
+                        end = Some((x, y));
+                    }
+                    "stroke" => {
+                        stroke = Self::parse_stroke(sub_list);
+                    }
+                    "fill" => {
+                        fill = Self::parse_fill(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(Rectangle {
+            start: start?,
+            end: end?,
+            stroke,
+            fill,
+        })
+    }
+
+    fn parse_circle(list: &[SExpr]) -> Option<Circle> {
+        let mut center: Option<(f64, f64)> = None;
+        let mut radius: Option<f64> = None;
+        let mut stroke = Stroke::default();
+        let mut fill = Fill::none();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "center" => {
+                        let x = get_number(sub_list.get(1)?)?;
+                        let y = get_number(sub_list.get(2)?)?;
+                        center = Some((x, y));
+                    }
+                    "radius" => {
+                        radius = get_number(sub_list.get(1)?);
+                    }
+                    "stroke" => {
+                        stroke = Self::parse_stroke(sub_list);
+                    }
+                    "fill" => {
+                        fill = Self::parse_fill(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(Circle {
+            center: center?,
+            radius: radius?,
+            stroke,
+            fill,
+        })
+    }
+
+    fn parse_arc(list: &[SExpr]) -> Option<Arc> {
+        let mut start: Option<(f64, f64)> = None;
+        let mut mid: Option<(f64, f64)> = None;
+        let mut end: Option<(f64, f64)> = None;
+        let mut stroke = Stroke::default();
+        let mut fill = Fill::none();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "start" => {
+                        let x = get_number(sub_list.get(1)?)?;
+                        let y = get_number(sub_list.get(2)?)?;
+                        start = Some((x, y));
+                    }
+                    "mid" => {
+                        let x = get_number(sub_list.get(1)?)?;
+                        let y = get_number(sub_list.get(2)?)?;
+                        mid = Some((x, y));
+                    }
+                    "end" => {
+                        let x = get_number(sub_list.get(1)?)?;
+                        let y = get_number(sub_list.get(2)?)?;
+                        end = Some((x, y));
+                    }
+                    "stroke" => {
+                        stroke = Self::parse_stroke(sub_list);
+                    }
+                    "fill" => {
+                        fill = Self::parse_fill(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(Arc {
+            start: start?,
+            mid: mid?,
+            end: end?,
+            stroke,
+            fill,
+        })
+    }
+
+    fn parse_text(list: &[SExpr]) -> Option<Text> {
+        let text = get_string_or_ident(list.get(1)?);
+        let mut position = (0.0, 0.0, 0.0);
+        let mut effects = TextEffects::default();
+
+        for item in &list[2..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "at" => {
+                        let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                        let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                        let rot = sub_list.get(3).and_then(get_number).unwrap_or(0.0);
+                        position = (x, y, rot);
+                    }
+                    "effects" => {
+                        effects = Self::parse_effects(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let mut text_elem = Text::new(text, position);
+        text_elem.effects = effects;
+        Some(text_elem)
+    }
+
+    fn parse_pin_graphic(list: &[SExpr]) -> Option<PinGraphic> {
+        if list.len() < 3 {
+            return None;
+        }
+
+        let pin_type = PinType::from_str(get_ident(&list[1]).unwrap_or("passive"));
+        let mut pin = PinGraphic::new("", "");
+        pin.pin_type = pin_type;
+
+        for item in &list[2..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "name" => {
+                        pin.name = sub_list.get(1).and_then(get_string).unwrap_or_default();
+                        pin.name_effects = Self::parse_effects_from_list(sub_list);
+                    }
+                    "number" => {
+                        pin.number = sub_list.get(1).and_then(get_string).unwrap_or_default();
+                        pin.number_effects = Self::parse_effects_from_list(sub_list);
+                    }
+                    "at" => {
+                        let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                        let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                        let rot = sub_list.get(3).and_then(get_number).unwrap_or(0.0);
+                        pin.position = (x, y, rot);
+                    }
+                    "length" => {
+                        pin.length = sub_list.get(1).and_then(get_number).unwrap_or(2.54);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(pin)
+    }
+
+    fn parse_symbol_unit(list: &[SExpr], key: &str) -> Option<SymbolUnit> {
+        // Parse "C_0_1" format where 0 is unit_id and 1 is style_id
+        let parts: Vec<&str> = key.split('_').collect();
+        if parts.len() < 3 {
+            return None;
+        }
+        // The format is "Name_Unit_Style", so we need the last two parts
+        let style_id = parts.last()?.parse().ok()?;
+        let unit_id = parts.get(parts.len() - 2)?.parse().ok()?;
+
+        let mut unit = SymbolUnit::new(unit_id, style_id);
+        unit.name = key.to_string();
+
+        // In KiCad 8, format is (symbol "C_0_1" (polyline ...) (pin ...))
+        // So we skip list[0] ("symbol") and list[1] ("C_0_1")
+        for item in &list[2..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let elem_key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match elem_key {
+                    "polyline" => {
+                        if let Some(polyline) = Self::parse_polyline(sub_list) {
+                            unit.graphics.push(GraphicElement::Polyline(polyline));
+                        }
+                    }
+                    "rectangle" => {
+                        if let Some(rect) = Self::parse_rectangle(sub_list) {
+                            unit.graphics.push(GraphicElement::Rectangle(rect));
+                        }
+                    }
+                    "circle" => {
+                        if let Some(circle) = Self::parse_circle(sub_list) {
+                            unit.graphics.push(GraphicElement::Circle(circle));
+                        }
+                    }
+                    "arc" => {
+                        if let Some(arc) = Self::parse_arc(sub_list) {
+                            unit.graphics.push(GraphicElement::Arc(arc));
+                        }
+                    }
+                    "text" => {
+                        if let Some(text) = Self::parse_text(sub_list) {
+                            unit.graphics.push(GraphicElement::Text(text));
+                        }
+                    }
+                    "pin" => {
+                        if let Some(pin) = Self::parse_pin_graphic(sub_list) {
+                            unit.graphics.push(GraphicElement::Pin(pin));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(unit)
+    }
+
+    fn parse_stroke(list: &[SExpr]) -> Stroke {
+        let mut stroke = Stroke::default();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "width" => {
+                        stroke.width = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                    }
+                    "type" => {
+                        if let Some(type_str) = sub_list.get(1).and_then(get_ident) {
+                            stroke.stroke_type = StrokeType::from_str(type_str);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        stroke
+    }
+
+    fn parse_fill(list: &[SExpr]) -> Fill {
+        let mut fill = Fill::none();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "type" => {
+                        if let Some(type_str) = sub_list.get(1).and_then(get_ident) {
+                            fill.fill_type = FillType::from_str(type_str);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        fill
+    }
+
+    fn parse_effects(list: &[SExpr]) -> TextEffects {
+        let mut effects = TextEffects::default();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "font" => {
+                        effects.font = Self::parse_font(sub_list);
+                    }
+                    "justify" => {
+                        effects.justify = Self::parse_justify(sub_list);
+                    }
+                    "hide" => {
+                        effects.hide = sub_list.get(1).and_then(get_bool).unwrap_or(true);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        effects
+    }
+
+    fn parse_effects_from_list(list: &[SExpr]) -> TextEffects {
+        let mut effects = TextEffects::default();
+
+        for item in &list[2..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "font" => {
+                        effects.font = Self::parse_font(sub_list);
+                    }
+                    "justify" => {
+                        effects.justify = Self::parse_justify(sub_list);
+                    }
+                    "hide" => {
+                        effects.hide = sub_list.get(1).and_then(get_bool).unwrap_or(true);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        effects
+    }
+
+    fn parse_font(list: &[SExpr]) -> Font {
+        let mut font = Font::default();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "size" => {
+                        let h = sub_list.get(1).and_then(get_number).unwrap_or(1.27);
+                        let w = sub_list.get(2).and_then(get_number).unwrap_or(1.27);
+                        font.size = (w, h);
+                    }
+                    _ => {}
+                }
+            }
+
+            // Check for bold/italic flags directly
+            if item.is_ident("bold") {
+                font.bold = true;
+            }
+            if item.is_ident("italic") {
+                font.italic = true;
+            }
+        }
+
+        font
+    }
+
+    fn parse_justify(list: &[SExpr]) -> Justify {
+        let mut justify = Justify::default();
+
+        for item in &list[1..] {
+            if item.is_ident("left") {
+                justify.horizontal = HorizontalAlign::Left;
+            } else if item.is_ident("center") {
+                justify.horizontal = HorizontalAlign::Center;
+            } else if item.is_ident("right") {
+                justify.horizontal = HorizontalAlign::Right;
+            } else if item.is_ident("top") {
+                justify.vertical = VerticalAlign::Top;
+            } else if item.is_ident("bottom") {
+                justify.vertical = VerticalAlign::Bottom;
+            } else if item.is_ident("mirror") {
+                justify.mirror = true;
+            }
+        }
+
+        justify
     }
 
     fn parse_net(list: &[SExpr]) -> Option<Net> {
@@ -306,7 +961,24 @@ impl Schematic {
             return None;
         }
 
-        let lib_id = get_string_or_ident(&list[1]);
+        // In KiCad 8 format, lib_id is a sub-list: (lib_id "Device:C")
+        // Find lib_id by iterating through sub-lists
+        let mut lib_id = String::new();
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.first().map_or(false, |f| f.is_ident("lib_id")) {
+                    if let Some(id) = sub_list.get(1).and_then(get_string) {
+                        lib_id = id;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if lib_id.is_empty() {
+            return None;
+        }
+
         let mut component = SymbolInstance::new(&lib_id, "");
 
         for item in &list[2..] {
@@ -321,12 +993,8 @@ impl Schematic {
                 };
 
                 match key {
-                    "reference" => {
-                        component.reference = sub_list.get(1).and_then(get_string).unwrap_or_default();
-                    }
-                    "value" => {
-                        component.value = sub_list.get(1).and_then(get_string).unwrap_or_default();
-                    }
+                    // Note: "reference" and "value" are not separate keys in KiCad 8
+                    // They are handled in the "property" branch below
                     "footprint" => {
                         component.footprint = sub_list.get(1).and_then(get_string);
                     }
@@ -336,11 +1004,32 @@ impl Schematic {
                         let rot = sub_list.get(3).and_then(get_number).unwrap_or(0.0);
                         component.position = (x, y, rot);
                     }
+                    "mirror" => {
+                        if let Some(mirror_str) = sub_list.get(1).and_then(get_ident) {
+                            component.mirror = match mirror_str {
+                                "x" => super::Mirror::X,
+                                "y" => super::Mirror::Y,
+                                _ => super::Mirror::None,
+                            };
+                        }
+                    }
                     "uuid" => {
                         component.uuid = sub_list.get(1).and_then(get_string);
                     }
                     "unit" => {
                         component.unit = sub_list.get(1).and_then(get_number).unwrap_or(1.0) as u32;
+                    }
+                    "exclude_from_sim" => {
+                        component.exclude_from_sim = sub_list.get(1).and_then(get_bool).unwrap_or(false);
+                    }
+                    "in_bom" => {
+                        component.in_bom = sub_list.get(1).and_then(get_bool).unwrap_or(true);
+                    }
+                    "on_board" => {
+                        component.on_board = sub_list.get(1).and_then(get_bool).unwrap_or(true);
+                    }
+                    "dnp" => {
+                        component.dnp = sub_list.get(1).and_then(get_bool).unwrap_or(false);
                     }
                     "pin" => {
                         if let Some(pin) = Self::parse_pin_instance(sub_list, net_map) {
@@ -351,7 +1040,86 @@ impl Schematic {
                         if sub_list.len() >= 3 {
                             let prop_name = get_string_or_ident(&sub_list[1]);
                             let prop_value = get_string_or_ident(&sub_list[2]);
-                            component.properties.insert(prop_name, prop_value);
+                            component.properties.insert(prop_name.clone(), prop_value.clone());
+
+                            // Parse property position and hide status
+                            let mut prop = Property::new(&prop_name, &prop_value);
+                            for prop_item in &sub_list[3..] {
+                                if let SExpr::List(prop_sub) = prop_item {
+                                    if prop_sub.is_empty() {
+                                        continue;
+                                    }
+                                    match get_ident(&prop_sub[0]) {
+                                        Some("at") => {
+                                            prop.position = (
+                                                prop_sub.get(1).and_then(get_number).unwrap_or(0.0),
+                                                prop_sub.get(2).and_then(get_number).unwrap_or(0.0),
+                                                prop_sub.get(3).and_then(get_number).unwrap_or(0.0),
+                                            );
+                                        }
+                                        Some("effects") => {
+                                            prop.effects = Self::parse_effects(prop_sub);
+                                        }
+                                        Some("show_name") => {
+                                            prop.show_name = prop_sub.get(1).and_then(get_bool).unwrap_or(false);
+                                        }
+                                        Some("do_not_autoplace") => {
+                                            prop.do_not_autoplace = prop_sub.get(1).and_then(get_bool).unwrap_or(false);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            component.properties_ext.push(prop);
+
+                            // Also set common properties directly on component
+                            match prop_name.as_str() {
+                                "Reference" => component.reference = prop_value,
+                                "Value" => component.value = prop_value,
+                                "Footprint" => component.footprint = Some(prop_value),
+                                _ => {}
+                            }
+                        }
+                    }
+                    "instances" => {
+                        for inst_item in &sub_list[1..] {
+                            if let SExpr::List(proj_list) = inst_item {
+                                if proj_list.first().map_or(false, |f| f.is_ident("project")) {
+                                    let proj_name = proj_list.get(1).and_then(get_string).unwrap_or_default();
+                                    let mut project = InstanceProject {
+                                        name: proj_name,
+                                        paths: Vec::new(),
+                                    };
+                                    for path_item in &proj_list[2..] {
+                                        if let SExpr::List(path_list) = path_item {
+                                            if path_list.first().map_or(false, |f| f.is_ident("path")) {
+                                                let path_str = path_list.get(1).and_then(get_string).unwrap_or_default();
+                                                let mut ref_str = String::new();
+                                                let mut unit_val = 1u32;
+                                                for path_child in &path_list[2..] {
+                                                    if let SExpr::List(child_list) = path_child {
+                                                        match get_ident(&child_list[0]) {
+                                                            Some("reference") => {
+                                                                ref_str = child_list.get(1).map(|v| get_string_or_ident(v)).unwrap_or_default();
+                                                            }
+                                                            Some("unit") => {
+                                                                unit_val = child_list.get(1).and_then(get_number).unwrap_or(1.0) as u32;
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                                project.paths.push(InstancePath {
+                                                    path: path_str,
+                                                    reference: ref_str,
+                                                    unit: unit_val,
+                                                });
+                                            }
+                                        }
+                                    }
+                                    component.instances.projects.push(project);
+                                }
+                            }
                         }
                     }
                     _ => {}
@@ -449,7 +1217,9 @@ impl Schematic {
                                 if stroke_list[0].is_ident("width") {
                                     wire.stroke.width = stroke_list.get(1).and_then(get_number).unwrap_or(0.0);
                                 } else if stroke_list[0].is_ident("type") {
-                                    wire.stroke.stroke_type = stroke_list.get(1).and_then(get_ident).unwrap_or("default").to_string();
+                                    wire.stroke.stroke_type = stroke_list.get(1).and_then(get_ident)
+                                        .map(StrokeType::from_str)
+                                        .unwrap_or(StrokeType::Default);
                                 }
                             }
                         }
@@ -465,12 +1235,7 @@ impl Schematic {
     fn parse_label(list: &[SExpr], label_type: &str) -> Option<Label> {
         let text = get_string_or_ident(list.get(1)?);
 
-        let mut label = Label {
-            text,
-            position: (0.0, 0.0, 0.0),
-            label_type: label_type.to_string(),
-            net_name: None,
-        };
+        let mut label = Label::new(text, label_type);
 
         for item in &list[2..] {
             if let SExpr::List(sub_list) = item {
@@ -478,11 +1243,25 @@ impl Schematic {
                     continue;
                 }
 
-                if sub_list[0].is_ident("at") {
-                    let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
-                    let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
-                    let rot = sub_list.get(3).and_then(get_number).unwrap_or(0.0);
-                    label.position = (x, y, rot);
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "at" => {
+                        let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                        let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                        let rot = sub_list.get(3).and_then(get_number).unwrap_or(0.0);
+                        label.position = (x, y, rot);
+                    }
+                    "shape" => {
+                        label.shape = sub_list.get(1).and_then(get_ident).unwrap_or("passive").to_string();
+                    }
+                    "effects" => {
+                        label.effects = Self::parse_effects(sub_list);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -514,6 +1293,105 @@ impl Schematic {
 
         Some(junction)
     }
+
+    fn parse_no_connect(list: &[SExpr]) -> Option<NoConnect> {
+        let mut no_connect = NoConnect::new((0.0, 0.0));
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                if sub_list[0].is_ident("at") {
+                    let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                    let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                    no_connect.position = (x, y);
+                } else if sub_list[0].is_ident("uuid") {
+                    no_connect.uuid = sub_list.get(1).and_then(get_string);
+                }
+            }
+        }
+
+        Some(no_connect)
+    }
+
+    fn parse_bus(list: &[SExpr]) -> Option<Bus> {
+        let mut bus = Bus::new();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "pts" => {
+                        for pt in &sub_list[1..] {
+                            if let SExpr::List(pt_list) = pt {
+                                if pt_list.len() >= 3 && pt_list[0].is_ident("xy") {
+                                    let x = get_number(&pt_list[1])?;
+                                    let y = get_number(&pt_list[2])?;
+                                    bus.points.push((x, y));
+                                }
+                            }
+                        }
+                    }
+                    "stroke" => {
+                        bus.stroke = Self::parse_stroke(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if bus.points.len() >= 2 {
+            Some(bus)
+        } else {
+            None
+        }
+    }
+
+    fn parse_bus_entry(list: &[SExpr]) -> Option<BusEntry> {
+        let mut bus_entry = BusEntry::new((0.0, 0.0), (2.54, 2.54));
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "at" => {
+                        let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                        let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                        bus_entry.position = (x, y);
+                    }
+                    "size" => {
+                        let dx = sub_list.get(1).and_then(get_number).unwrap_or(2.54);
+                        let dy = sub_list.get(2).and_then(get_number).unwrap_or(2.54);
+                        bus_entry.size = (dx, dy);
+                    }
+                    "stroke" => {
+                        bus_entry.stroke = Self::parse_stroke(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(bus_entry)
+    }
 }
 
 // Helper functions
@@ -521,6 +1399,13 @@ fn get_string_or_ident(expr: &SExpr) -> String {
     match expr {
         SExpr::Atom(crate::parser::ast::Atom::String(s)) => s.clone(),
         SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.clone(),
+        SExpr::Atom(crate::parser::ast::Atom::Number(n)) => {
+            if (*n - n.round()).abs() < 1e-9 {
+                format!("{}", *n as i64)
+            } else {
+                n.to_string()
+            }
+        }
         _ => String::new(),
     }
 }

@@ -34,6 +34,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Expect a specific token kind
+    #[allow(dead_code)]
     fn expect(&mut self, expected: &TokenKind) -> Result<Token> {
         let token = self.advance()?;
         if std::mem::discriminant(&token.kind) == std::mem::discriminant(expected) {

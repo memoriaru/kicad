@@ -63,6 +63,9 @@ impl Json5Generator {
         // Version and generator
         self.write_field(&mut output, "version", &format!("\"{}\"", schematic.metadata.version), 1);
         self.write_field(&mut output, "generator", &format!("\"{}\"", schematic.metadata.generator), 1);
+        if let Some(ref gv) = schematic.metadata.generator_version {
+            self.write_field(&mut output, "generator_version", &format!("\"{}\"", gv), 1);
+        }
 
         output.push_str("\n");
 
@@ -187,6 +190,22 @@ impl Json5Generator {
 
         self.write_field(output, "in_bom", &symbol.in_bom.to_string(), 3);
         self.write_field(output, "on_board", &symbol.on_board.to_string(), 3);
+        self.write_field(output, "exclude_from_sim", &symbol.exclude_from_sim.to_string(), 3);
+        self.write_field(output, "in_pos_files", &symbol.in_pos_files.to_string(), 3);
+        self.write_field(output, "duplicate_pin_numbers_are_jumpers", &symbol.duplicate_pin_numbers_are_jumpers.to_string(), 3);
+
+        // Properties
+        if !symbol.properties.is_empty() {
+            output.push_str(&format!("{}properties: {{\n", self.indent(3)));
+            for prop in &symbol.properties {
+                output.push_str(&format!("{}\"{}\": \"{}\",\n",
+                    self.indent(4),
+                    self.escape_string(&prop.name),
+                    self.escape_string(&prop.value)
+                ));
+            }
+            output.push_str(&format!("{}}},\n", self.indent(3)));
+        }
 
         // Pins
         if !symbol.pins.is_empty() {
@@ -279,8 +298,32 @@ impl Json5Generator {
         }
 
         // Unit
-        if component.unit != 1 {
-            self.write_field(output, "unit", &component.unit.to_string(), 3);
+        self.write_field(output, "unit", &component.unit.to_string(), 3);
+
+        // KiCad 8+ flags
+        self.write_field(output, "exclude_from_sim", &component.exclude_from_sim.to_string(), 3);
+        self.write_field(output, "in_bom", &component.in_bom.to_string(), 3);
+        self.write_field(output, "on_board", &component.on_board.to_string(), 3);
+        self.write_field(output, "dnp", &component.dnp.to_string(), 3);
+
+        // Instances
+        if !component.instances.projects.is_empty() {
+            output.push_str(&format!("{}instances: [\n", self.indent(3)));
+            for project in &component.instances.projects {
+                output.push_str(&format!("{}{{\n", self.indent(4)));
+                self.write_field(output, "project", &format!("\"{}\"", self.escape_string(&project.name)), 5);
+                output.push_str(&format!("{}paths: [\n", self.indent(5)));
+                for path in &project.paths {
+                    output.push_str(&format!("{}{{\n", self.indent(6)));
+                    self.write_field(output, "path", &format!("\"{}\"", path.path), 7);
+                    self.write_field(output, "reference", &format!("\"{}\"", self.escape_string(&path.reference)), 7);
+                    self.write_field_no_comma(output, "unit", &path.unit.to_string(), 7);
+                    output.push_str(&format!("{}}},\n", self.indent(6)));
+                }
+                output.push_str(&format!("{}],\n", self.indent(5)));
+                output.push_str(&format!("{}}},\n", self.indent(4)));
+            }
+            output.push_str(&format!("{}],\n", self.indent(3)));
         }
 
         // Properties

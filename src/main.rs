@@ -49,9 +49,9 @@ struct Args {
     #[arg(short = 't', long)]
     topology: bool,
 
-    /// Target KiCad version for S-expr output: 7 or 8 (default: 8)
-    #[arg(long, default_value = "8")]
-    kicad_version: u8,
+    /// Target KiCad version for S-expr output: 7, 8, 9, 10... (default: auto-detect from input)
+    #[arg(long)]
+    kicad_version: Option<u8>,
 
     /// Indentation size for JSON5 (default: 2 spaces)
     #[arg(short = 'i', long, default_value = "2")]
@@ -165,12 +165,12 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         }
         OutputFormat::Sexpr => {
             let kicad_version = match args.kicad_version {
-                7 => KicadVersion::V7,
-                8 => KicadVersion::V8,
-                _ => {
-                    eprintln!("Warning: Unknown KiCad version {}, using 8", args.kicad_version);
-                    KicadVersion::V8
-                }
+                Some(7) => Some(KicadVersion::V7),
+                Some(8) => Some(KicadVersion::V8),
+                Some(9) => Some(KicadVersion::V9),
+                Some(v) if v >= 10 => Some(KicadVersion::V10),
+                None => None, // auto-detect from input
+                Some(_) => Some(KicadVersion::V8),
             };
             let config = kicad_json5::codegen::SexprConfig {
                 indent: "\t".to_string(),
