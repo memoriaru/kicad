@@ -194,7 +194,7 @@ pub struct Justify {
 impl Default for Justify {
     fn default() -> Self {
         Self {
-            horizontal: HorizontalAlign::Left,
+            horizontal: HorizontalAlign::Center,
             vertical: VerticalAlign::Bottom,
             mirror: false,
         }
@@ -226,6 +226,8 @@ pub struct PinGraphic {
     pub length: f64,
     pub name_effects: TextEffects,
     pub number_effects: TextEffects,
+    /// Per-pin hide flag — when true, the entire pin (stem, name, number) is hidden.
+    pub hidden: bool,
 }
 
 impl PinGraphic {
@@ -239,6 +241,7 @@ impl PinGraphic {
             length: 2.54, // Default pin length in KiCad
             name_effects: TextEffects::default(),
             number_effects: TextEffects::default(),
+            hidden: false,
         }
     }
 }

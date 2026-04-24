@@ -79,8 +79,20 @@ pub struct Schematic {
     pub no_connects: Vec<NoConnect>,
     pub buses: Vec<Bus>,
     pub bus_entries: Vec<BusEntry>,
+    /// Text notes placed on the schematic
+    pub text_items: Vec<TextItem>,
+    /// Schematic-level graphic polylines (section dividers, etc.)
+    pub polylines: Vec<Polyline>,
     /// Net ID to Net name mapping
     net_map: HashMap<u32, String>,
+}
+
+/// A text note placed directly on the schematic
+#[derive(Debug, Clone)]
+pub struct TextItem {
+    pub text: String,
+    pub position: (f64, f64, f64), // x, y, rotation
+    pub effects: TextEffects,
 }
 
 impl Schematic {
@@ -194,6 +206,16 @@ impl Schematic {
                 "bus_entry" => {
                     if let Some(bus_entry) = Self::parse_bus_entry(list) {
                         schematic.bus_entries.push(bus_entry);
+                    }
+                }
+                "text" => {
+                    if let Some(text) = Self::parse_text_item(list) {
+                        schematic.text_items.push(text);
+                    }
+                }
+                "polyline" => {
+                    if let Some(polyline) = Self::parse_polyline(list) {
+                        schematic.polylines.push(polyline);
                     }
                 }
                 _ => {}
@@ -638,9 +660,42 @@ impl Schematic {
             }
         }
 
-        let mut text_elem = Text::new(text, position);
-        text_elem.effects = effects;
-        Some(text_elem)
+        Some(Text { text, position, effects })
+    }
+
+    /// Parse a top-level schematic text note — same format as symbol text.
+    fn parse_text_item(list: &[SExpr]) -> Option<TextItem> {
+        let text = get_string_or_ident(list.get(1)?);
+        let mut position = (0.0, 0.0, 0.0);
+        let mut effects = TextEffects::default();
+
+        for item in &list[2..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "at" => {
+                        let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                        let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                        let rot = sub_list.get(3).and_then(get_number).unwrap_or(0.0);
+                        position = (x, y, rot);
+                    }
+                    "effects" => {
+                        effects = Self::parse_effects(sub_list);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(TextItem { text, position, effects })
     }
 
     fn parse_pin_graphic(list: &[SExpr]) -> Option<PinGraphic> {
@@ -682,6 +737,10 @@ impl Schematic {
                         pin.length = sub_list.get(1).and_then(get_number).unwrap_or(2.54);
                     }
                     _ => {}
+                }
+            } else if let SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) = item {
+                if s == "hide" {
+                    pin.hidden = true;
                 }
             }
         }
@@ -901,12 +960,29 @@ impl Schematic {
                 }
             }
 
-            // Check for bold/italic flags directly
+            // Check for bold/italic flags: either atom "bold" or list "(bold yes)"
             if item.is_ident("bold") {
                 font.bold = true;
             }
             if item.is_ident("italic") {
                 font.italic = true;
+            }
+            if let SExpr::List(sub_list) = item {
+                if !sub_list.is_empty() {
+                    let key = match &sub_list[0] {
+                        SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                        _ => "",
+                    };
+                    match key {
+                        "bold" => {
+                            font.bold = sub_list.get(1).and_then(get_bool).unwrap_or(true);
+                        }
+                        "italic" => {
+                            font.italic = sub_list.get(1).and_then(get_bool).unwrap_or(true);
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
 
