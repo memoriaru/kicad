@@ -8,6 +8,7 @@ use crate::ir::{
     Label, Net, NoConnect, Pin, PinGraphic, PinShape, PinType, Polyline, Rectangle, Stroke,
     StrokeType, Symbol, SymbolInstance, Text, TextEffects, VerticalAlign, Wire,
 };
+use std::collections::HashMap;
 use crate::ir::Instances;
 use uuid::Uuid;
 
@@ -215,6 +216,11 @@ impl SexprGenerator {
         // Wires
         for wire in &schematic.wires {
             self.generate_wire(&mut output, wire);
+        }
+
+        // Auto-generate wires from net connectivity if no explicit wires
+        if schematic.wires.is_empty() && !schematic.components.is_empty() {
+            self.generate_auto_wires(&mut output, schematic);
         }
 
         // Labels
@@ -1225,10 +1231,10 @@ impl SexprGenerator {
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 2.54, 270.0);
+            self.gen_default_pin(output, pin1, 0.0, 2.54, 90.0);
         }
         if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -2.54, 90.0);
+            self.gen_default_pin(output, pin2, 0.0, -2.54, 270.0);
         }
         self.indent_level -= 1;
         self.write_line(output, ")");
@@ -1278,10 +1284,10 @@ impl SexprGenerator {
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 3.81, 270.0);
+            self.gen_default_pin(output, pin1, 0.0, 3.81, 90.0);
         }
         if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -3.81, 90.0);
+            self.gen_default_pin(output, pin2, 0.0, -3.81, 270.0);
         }
         self.indent_level -= 1;
         self.write_line(output, ")");
@@ -1326,10 +1332,10 @@ impl SexprGenerator {
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 3.81, 270.0);
+            self.gen_default_pin(output, pin1, 0.0, 3.81, 90.0);
         }
         if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -3.81, 90.0);
+            self.gen_default_pin(output, pin2, 0.0, -3.81, 270.0);
         }
         self.indent_level -= 1;
         self.write_line(output, ")");
@@ -1407,10 +1413,10 @@ impl SexprGenerator {
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 3.81, 270.0);
+            self.gen_default_pin(output, pin1, 0.0, 3.81, 90.0);
         }
         if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -3.81, 90.0);
+            self.gen_default_pin(output, pin2, 0.0, -3.81, 270.0);
         }
         self.indent_level -= 1;
         self.write_line(output, ")");
@@ -1440,13 +1446,175 @@ impl SexprGenerator {
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 2.54, 270.0);
+            self.gen_default_pin(output, pin1, 0.0, 2.54, 90.0);
         }
         if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -2.54, 90.0);
+            self.gen_default_pin(output, pin2, 0.0, -2.54, 270.0);
         }
         self.indent_level -= 1;
         self.write_line(output, ")");
+    }
+
+    // ============== Auto Wire Generation ==============
+
+    /// Compute local pin positions for a symbol based on its template type.
+    /// Returns HashMap<pin_number, (local_x, local_y)>.
+    fn compute_pin_positions(symbol: &Symbol) -> HashMap<String, (f64, f64)> {
+        let kind = Self::detect_default_kind(symbol);
+        let mut positions = HashMap::new();
+
+        match kind {
+            DefaultSymbolKind::Ic => {
+                let pin_count = symbol.pins.len();
+                let left_count = (pin_count + 1) / 2;
+                let right_count = pin_count - left_count;
+                let spacing = 2.54;
+                let body_hw = 5.08;
+                let pin_length = 2.54;
+
+                for (i, pin) in symbol.pins.iter().enumerate() {
+                    if i < left_count {
+                        let y = (left_count - 1 - i) as f64 * spacing / 2.0;
+                        positions.insert(pin.number.clone(), (-body_hw - pin_length, y));
+                    } else {
+                        let ri = i - left_count;
+                        let y = (right_count - 1 - ri) as f64 * spacing / 2.0;
+                        positions.insert(pin.number.clone(), (body_hw + pin_length, y));
+                    }
+                }
+            }
+            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin => {
+                if let Some(pin1) = symbol.pins.first() {
+                    positions.insert(pin1.number.clone(), (0.0, 2.54));
+                }
+                if let Some(pin2) = symbol.pins.get(1) {
+                    positions.insert(pin2.number.clone(), (0.0, -2.54));
+                }
+            }
+            DefaultSymbolKind::Capacitor | DefaultSymbolKind::Inductor => {
+                if let Some(pin1) = symbol.pins.first() {
+                    positions.insert(pin1.number.clone(), (0.0, 3.81));
+                }
+                if let Some(pin2) = symbol.pins.get(1) {
+                    positions.insert(pin2.number.clone(), (0.0, -3.81));
+                }
+            }
+            DefaultSymbolKind::Diode | DefaultSymbolKind::Led => {
+                if let Some(pin1) = symbol.pins.first() {
+                    positions.insert(pin1.number.clone(), (0.0, 3.81));
+                }
+                if let Some(pin2) = symbol.pins.get(1) {
+                    positions.insert(pin2.number.clone(), (0.0, -3.81));
+                }
+            }
+        }
+
+        positions
+    }
+
+    /// Rotate a local point by the component's rotation angle (degrees).
+    /// KiCad uses CLOCKWISE rotation: 0=(1,0,0,1), 90=(0,1,-1,0), 180=(-1,0,0,-1), 270=(0,-1,1,0)
+    fn rotate_point(lx: f64, ly: f64, rotation_deg: f64) -> (f64, f64) {
+        match rotation_deg as i32 {
+            0 | 360 => (lx, ly),
+            90 | -270 => (ly, -lx),
+            180 | -180 => (-lx, -ly),
+            270 | -90 => (-ly, lx),
+            _ => {
+                // Generic CW rotation
+                let rad = rotation_deg.to_radians();
+                let c = rad.cos();
+                let s = rad.sin();
+                (lx * c + ly * s, -lx * s + ly * c)
+            }
+        }
+    }
+
+    /// Auto-generate wires from net connectivity.
+    fn generate_auto_wires(
+        &mut self,
+        output: &mut String,
+        schematic: &crate::ir::Schematic,
+    ) {
+        // 1. Build pin position map for each lib_symbol: lib_id -> { pin_number -> (lx, ly) }
+        let mut symbol_pins: HashMap<String, HashMap<String, (f64, f64)>> = HashMap::new();
+        for symbol in &schematic.lib_symbols {
+            let positions = Self::compute_pin_positions(symbol);
+            symbol_pins.insert(symbol.lib_id.clone(), positions);
+        }
+
+        // 2. Build net -> list of absolute pin positions
+        let mut net_endpoints: HashMap<u32, Vec<(f64, f64)>> = HashMap::new();
+        for comp in &schematic.components {
+            let pin_positions = match symbol_pins.get(&comp.lib_id) {
+                Some(p) => p,
+                None => continue,
+            };
+            let (cx, cy, crot) = comp.position;
+
+            for pin in &comp.pins {
+                if let (Some(net_id), Some(&(lx, ly))) = (pin.net_id, pin_positions.get(&pin.number)) {
+                    let (rx, ry) = Self::rotate_point(lx, ly, crot);
+                    net_endpoints
+                        .entry(net_id)
+                        .or_default()
+                        .push((cx + rx, cy + ry));
+                }
+            }
+        }
+
+        // 3. Generate wires for each net using L-shaped connections
+        let default_stroke = Stroke::default();
+
+        let mut sorted_nets: Vec<_> = net_endpoints.into_iter().collect();
+        sorted_nets.sort_by_key(|(id, _)| *id);
+
+        for (_net_id, mut pts) in sorted_nets {
+            if pts.len() < 2 {
+                continue;
+            }
+
+            // Sort by x coordinate, then by y
+            pts.sort_by(|a, b| {
+                a.0.partial_cmp(&b.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            });
+
+            // Connect consecutive pins with L-shaped wires
+            for i in 0..pts.len() - 1 {
+                let (x1, y1) = pts[i];
+                let (x2, y2) = pts[i + 1];
+
+                // Horizontal segment: (x1, y1) -> (x2, y1)
+                if (x1 - x2).abs() > 0.01 {
+                    self.write_line(output, "(wire");
+                    self.indent_level += 1;
+                    self.write_line(output, &format!(
+                        "(pts {} {})",
+                        Self::format_xy(x1, y1),
+                        Self::format_xy(x2, y1)
+                    ));
+                    self.generate_stroke(output, &default_stroke);
+                    self.indent_level -= 1;
+                    self.write_line(output, ")");
+                }
+
+                // Vertical segment: (x2, y1) -> (x2, y2)
+                if (y1 - y2).abs() > 0.01 {
+                    self.write_line(output, "(wire");
+                    self.indent_level += 1;
+                    self.write_line(output, &format!(
+                        "(pts {} {})",
+                        Self::format_xy(x2, y1),
+                        Self::format_xy(x2, y2)
+                    ));
+                    self.generate_stroke(output, &default_stroke);
+                    self.indent_level -= 1;
+                    self.write_line(output, ")");
+                }
+            }
+        }
     }
 }
 
