@@ -1,0 +1,40 @@
+[package]
+name = "kicad-render"
+version = "0.1.0"
+edition = "2021"
+description = "KiCad schematic renderer - 1:1 port from KiCanvas JS"
+authors = ["Developer"]
+
+[dependencies]
+# KiCad IR definitions
+kicad-json5 = { path = "../kicad-json5" }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# WASM support (optional)
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "CanvasRenderingContext2d",
+    "HtmlCanvasElement",
+    "DomMatrix",
+    "DomMatrixReadOnly",
+] }
+js-sys = { version = "0.3", optional = true }
+
+[dev-dependencies]
+# Testing utilities
+approx = "0.5"
+
+[features]
+default = ["svg"]
+svg = []
+wasm = ["wasm-bindgen", "web-sys", "js-sys"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "kicad-render"
+path = "src/main.rs"
