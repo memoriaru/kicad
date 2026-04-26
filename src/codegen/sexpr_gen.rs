@@ -218,9 +218,13 @@ impl SexprGenerator {
             self.generate_wire(&mut output, wire);
         }
 
-        // Auto-generate wires from net connectivity if no explicit wires
-        if schematic.wires.is_empty() && !schematic.components.is_empty() {
-            self.generate_auto_wires(&mut output, schematic);
+        // Auto-generate connections from net connectivity when no explicit wires/labels exist.
+        // When labels ARE present in JSON5, skip auto-wire entirely to avoid conflicts.
+        // When nothing is present, use label-per-pin (better than L-shaped wires).
+        if schematic.wires.is_empty() && schematic.labels.is_empty() && !schematic.components.is_empty() {
+            self.generate_auto_labels(&mut output, schematic);
+        } else if schematic.wires.is_empty() && !schematic.components.is_empty() {
+            // Labels exist from JSON5 — no auto-wire to avoid crossing conflicts
         }
 
         // Labels
@@ -414,7 +418,10 @@ impl SexprGenerator {
         let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
 
         // Pin numbers (format differs between v8 and v9+)
-        if symbol.pin_numbers_hidden {
+        // Auto-hide pin numbers for 2-pin passives (R/C/L/D/LED/NTC) if not explicitly set
+        let should_hide_pin_numbers = symbol.pin_numbers_hidden
+            || (symbol.pins.len() == 2 && Self::is_passive_2pin(symbol));
+        if should_hide_pin_numbers {
             if is_v9_plus {
                 self.write_line(output, "(pin_numbers");
                 self.indent_level += 1;
@@ -1006,6 +1013,19 @@ impl SexprGenerator {
 
     // ============== Default Symbol Templates ==============
 
+    /// Check if a symbol is a 2-pin passive that should hide pin numbers (R/C/L/D/LED/NTC/TH)
+    fn is_passive_2pin(symbol: &Symbol) -> bool {
+        if symbol.pins.len() != 2 {
+            return false;
+        }
+        let full = symbol.lib_id.to_uppercase();
+        full.contains("R") || full.contains("RESIST") || full.contains("NTC") || full.contains("THERM")
+            || full.contains("C") || full.contains("CAP")
+            || full.contains("L") || full.contains("IND")
+            || full.contains("D") || full.contains("DIODE") || full.contains("LED")
+            || full.contains("ZENER") || full.contains("TVS")
+    }
+
     fn detect_default_kind(symbol: &Symbol) -> DefaultSymbolKind {
         match symbol.pins.len() {
             0..=1 => DefaultSymbolKind::TwoPin,
@@ -1578,6 +1598,13 @@ impl SexprGenerator {
                 continue;
             }
 
+            // Snap to 1.27mm (50mil) grid
+            let snap = |v: f64| (v / 1.27).round() * 1.27;
+            for p in &mut pts {
+                p.0 = snap(p.0);
+                p.1 = snap(p.1);
+            }
+
             // Sort by x coordinate, then by y
             pts.sort_by(|a, b| {
                 a.0.partial_cmp(&b.0)
@@ -1620,6 +1647,78 @@ impl SexprGenerator {
             }
         }
     }
+
+    /// Auto-generate labels from net connectivity.
+    /// Instead of L-shaped wires, place a label at each pin's world coordinate.
+    /// Pins sharing the same net_id get the same label text, so KiCad connects them implicitly.
+    fn generate_auto_labels(
+        &mut self,
+        output: &mut String,
+        schematic: &crate::ir::Schematic,
+    ) {
+        // 1. Build pin position map for each lib_symbol
+        let mut symbol_pins: HashMap<String, HashMap<String, (f64, f64)>> = HashMap::new();
+        for symbol in &schematic.lib_symbols {
+            let positions = Self::compute_pin_positions(symbol);
+            symbol_pins.insert(symbol.lib_id.clone(), positions);
+        }
+
+        // 2. Build net_id -> net_name lookup
+        let net_names: HashMap<u32, &str> = schematic.nets.iter()
+            .map(|n| (n.id, n.name.as_str()))
+            .collect();
+
+        // 3. Collect all (x, y, net_name) for pins with net assignments
+        let mut labels_to_place: Vec<(f64, f64, &str)> = Vec::new();
+
+        for comp in &schematic.components {
+            let pin_positions = match symbol_pins.get(&comp.lib_id) {
+                Some(p) => p,
+                None => continue,
+            };
+            let (cx, cy, crot) = comp.position;
+
+            for pin in &comp.pins {
+                if let (Some(net_id), Some(&(lx, ly))) = (pin.net_id, pin_positions.get(&pin.number)) {
+                    if let Some(net_name) = net_names.get(&net_id) {
+                        let (rx, ry) = Self::rotate_point(lx, ly, crot);
+                        let wx = cx + rx;
+                        let wy = cy + ry;
+                        labels_to_place.push((wx, wy, *net_name));
+                    }
+                }
+            }
+        }
+
+        // 4. Sort by net_name then position for deterministic output
+        labels_to_place.sort_by(|a, b| {
+            a.2.cmp(b.2)
+                .then(a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+                .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        });
+
+        // Snap coordinates to 1.27mm (50mil) grid
+        let snap = |v: f64| (v / 1.27).round() * 1.27;
+
+        // 5. Generate one label per pin at its world coordinate.
+        // KiCad connects pins that share the same label text at the same location.
+        let default_effects = TextEffects::default();
+
+        for (x, y, net_name) in &labels_to_place {
+            let sx = snap(*x);
+            let sy = snap(*y);
+            self.write_line(output, "(label");
+            self.indent_level += 1;
+            self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
+            self.write_line(output, &Self::format_at(sx, sy, 0.0));
+            self.generate_effects(output, &default_effects);
+            if self.config.include_uuids {
+                self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+            }
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+        }
+    }
 }
 
 impl Default for SexprGenerator {
@@ -1650,7 +1749,7 @@ mod tests {
 
     #[test]
     fn test_format_at() {
-        assert_eq!(SexprGenerator::format_at(10.0, 20.0, 0.0), "(at 10 20)");
+        assert_eq!(SexprGenerator::format_at(10.0, 20.0, 0.0), "(at 10 20 0)");
         assert_eq!(SexprGenerator::format_at(10.0, 20.0, 90.0), "(at 10 20 90)");
     }
 
