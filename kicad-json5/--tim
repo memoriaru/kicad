@@ -1,0 +1,14 @@
+   Compiling yansi v1.0.1
+   Compiling diff v0.1.13
+   Compiling yansi v1.0.1
+   Compiling diff v0.1.13
+   Compiling kicad-json5 v0.1.0 (/Users/memo/Projects/ClineWorks/AtopileTest/kicad-json5)
+   Compiling kicad-json5 v0.1.0 (/Users/memo/Projects/ClineWorks/AtopileTest/kicad-json5)
+   Compiling pretty_assertions v1.4.1
+   Compiling pretty_assertions v1.4.1
+    Finished `release` profile [optimized] target(s) in 7.19s
+    Finished `release` profile [optimized] target(s) in 7.19s
+     Running unittests src/lib.rs (target/release/deps/kicad_json5-b7de9f9eccd2cf34)
+     Running unittests src/lib.rs (target/release/deps/kicad_json5-b7de9f9eccd2cf34)
+     Running unittests src/main.rs (target/release/deps/kicad_json5-0d0a0257b260c50d)
+     Running unittests src/main.rs (target/release/deps/kicad_json5-0d0a0257b260c50d)
