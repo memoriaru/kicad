@@ -725,21 +725,25 @@ impl SexprGenerator {
             self.write_line(output, "(italic yes)");
         }
 
-        // Justify
+        // Justify — KiCad only accepts: left, right, top, bottom, mirror
+        // "center" is implicit (no keyword). Omit direction if Center.
         let h = match effects.justify.horizontal {
-            HorizontalAlign::Left => "left",
-            HorizontalAlign::Center => "center",
-            HorizontalAlign::Right => "right",
+            HorizontalAlign::Left => Some("left"),
+            HorizontalAlign::Center => None,
+            HorizontalAlign::Right => Some("right"),
         };
         let v = match effects.justify.vertical {
-            VerticalAlign::Top => "top",
-            VerticalAlign::Center => "center",
-            VerticalAlign::Bottom => "bottom",
+            VerticalAlign::Top => Some("top"),
+            VerticalAlign::Center => None,
+            VerticalAlign::Bottom => Some("bottom"),
         };
-        if effects.justify.horizontal != HorizontalAlign::Left
-            || effects.justify.vertical != VerticalAlign::Bottom
-        {
-            self.write_line(output, &format!("(justify {} {})", h, v));
+
+        if h.is_some() || v.is_some() || effects.justify.mirror {
+            let mut parts = Vec::new();
+            if let Some(hv) = h { parts.push(hv); }
+            if let Some(vv) = v { parts.push(vv); }
+            if effects.justify.mirror { parts.push("mirror"); }
+            self.write_line(output, &format!("(justify {})", parts.join(" ")));
         }
 
         if effects.hide {
