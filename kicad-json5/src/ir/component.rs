@@ -123,6 +123,8 @@ pub struct SymbolInstance {
     pub on_board: bool,
     /// Do Not Populate
     pub dnp: bool,
+    /// Whether fields are auto-placed
+    pub fields_autoplaced: bool,
     /// Instance hierarchy (instances block)
     pub instances: Instances,
 }
@@ -145,6 +147,7 @@ impl SymbolInstance {
             in_bom: true,
             on_board: true,
             dnp: false,
+            fields_autoplaced: false,
             instances: Instances::default(),
         }
     }

@@ -786,11 +786,22 @@ impl SexprGenerator {
         // unit (always output)
         self.write_line(output, &format!("(unit {})", component.unit));
 
+        // body_style (DeMorgan style, default 1)
+        let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
+        if is_v9_plus {
+            self.write_line(output, "(body_style 1)");
+        }
+
         // exclude_from_sim, in_bom, on_board, dnp
         self.write_line(output, &format!("(exclude_from_sim {})", Self::format_bool(component.exclude_from_sim)));
         self.write_line(output, &format!("(in_bom {})", Self::format_bool(component.in_bom)));
         self.write_line(output, &format!("(on_board {})", Self::format_bool(component.on_board)));
         self.write_line(output, &format!("(dnp {})", Self::format_bool(component.dnp)));
+
+        // fields_autoplaced
+        if component.fields_autoplaced {
+            self.write_line(output, &format!("(fields_autoplaced yes)"));
+        }
 
         // UUID
         if self.config.include_uuids {
@@ -825,8 +836,13 @@ impl SexprGenerator {
             &Self::format_at(prop.position.0, prop.position.1, prop.position.2),
         );
 
-        // v10: show_name and do_not_autoplace
-        if matches!(self.effective_version, KicadVersion::V10) {
+        if prop.hide {
+            self.write_line(output, &format!("(hide yes)"));
+        }
+
+        // v9+: show_name and do_not_autoplace
+        let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
+        if is_v9_plus {
             self.write_line(output, &format!("(show_name {})", Self::format_bool(prop.show_name)));
             self.write_line(output, &format!("(do_not_autoplace {})", Self::format_bool(prop.do_not_autoplace)));
         }
@@ -913,11 +929,18 @@ impl SexprGenerator {
     }
 
     fn generate_label(&mut self, output: &mut String, label: &Label) {
+        // KiCad uses "netclass_flag" as the token for directive labels
         let label_type = label.label_type.as_str();
-        let is_global = label_type == "global_label";
-        let is_hierarchical = label_type == "hierarchical_label";
+        let effective_type = if label_type == "directive_label" {
+            "netclass_flag"
+        } else {
+            label_type
+        };
+        let is_global = effective_type == "global_label";
+        let is_hierarchical = effective_type == "hierarchical_label";
+        let is_directive = effective_type == "netclass_flag";
 
-        self.write_line(output, &format!("({}", label_type));
+        self.write_line(output, &format!("({}", effective_type));
         self.indent_level += 1;
 
         self.write_line(output, &format!("\"{}\"", Self::escape_string(&label.text)));
@@ -926,7 +949,7 @@ impl SexprGenerator {
             &Self::format_at(label.position.0, label.position.1, label.position.2),
         );
 
-        if is_global || is_hierarchical {
+        if is_global || is_hierarchical || is_directive {
             self.write_line(output, &format!("(shape {})", label.shape));
         }
 
@@ -1554,6 +1577,24 @@ impl SexprGenerator {
         }
     }
 
+    /// Compute label rotation from pin local position and component rotation.
+    /// The label should face the same direction as the pin's wire connection point.
+    fn compute_label_rotation(lx: f64, ly: f64, crot: f64) -> f64 {
+        // Determine pin direction in file coordinates (before component rotation).
+        // In gen_ic_unit/gen_passive_unit:
+        //   Left pins:   x < 0, pin points RIGHT  → label rotation 0
+        //   Right pins:  x > 0, pin points LEFT   → label rotation 180
+        //   Top pins:    y > 0 (file coords), pin points DOWN → label rotation 90
+        //   Bottom pins: y < 0, pin points UP   → label rotation 270
+        let local_rot = if lx.abs() > ly.abs() {
+            if lx < 0.0 { 0.0 } else { 180.0 }
+        } else {
+            if ly > 0.0 { 90.0 } else { 270.0 }
+        };
+        // Apply component rotation
+        (local_rot + crot) % 360.0
+    }
+
     /// Auto-generate wires from net connectivity.
     fn generate_auto_wires(
         &mut self,
@@ -1668,8 +1709,8 @@ impl SexprGenerator {
             .map(|n| (n.id, n.name.as_str()))
             .collect();
 
-        // 3. Collect all (x, y, net_name) for pins with net assignments
-        let mut labels_to_place: Vec<(f64, f64, &str)> = Vec::new();
+        // 3. Collect all (x, y, rotation, net_name) for pins with net assignments
+        let mut labels_to_place: Vec<(f64, f64, f64, &str)> = Vec::new();
 
         for comp in &schematic.components {
             let pin_positions = match symbol_pins.get(&comp.lib_id) {
@@ -1687,7 +1728,14 @@ impl SexprGenerator {
                         let (rx, ry) = Self::rotate_point(lx, -ly, crot);
                         let wx = cx + rx;
                         let wy = cy + ry;
-                        labels_to_place.push((wx, wy, *net_name));
+
+                        // Label rotation: based on pin direction in file coordinates.
+                        // In the file, pin direction points AWAY from the symbol body
+                        // (toward the wire connection end). The label should face the
+                        // same direction as the pin so it reads naturally.
+                        let label_rot = Self::compute_label_rotation(lx, ly, crot);
+
+                        labels_to_place.push((wx, wy, label_rot, *net_name));
                     }
                 }
             }
@@ -1695,7 +1743,7 @@ impl SexprGenerator {
 
         // 4. Sort by net_name then position for deterministic output
         labels_to_place.sort_by(|a, b| {
-            a.2.cmp(b.2)
+            a.3.cmp(b.3)
                 .then(a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
                 .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
         });
@@ -1705,11 +1753,11 @@ impl SexprGenerator {
         // Do NOT snap to grid — the label must be at the exact pin connection point.
         let default_effects = TextEffects::default();
 
-        for (x, y, net_name) in &labels_to_place {
+        for (x, y, rot, net_name) in &labels_to_place {
             self.write_line(output, "(label");
             self.indent_level += 1;
             self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
-            self.write_line(output, &Self::format_at(*x, *y, 0.0));
+            self.write_line(output, &Self::format_at(*x, *y, *rot));
             self.generate_effects(output, &default_effects);
             if self.config.include_uuids {
                 self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
