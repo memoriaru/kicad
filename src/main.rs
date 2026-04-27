@@ -72,6 +72,12 @@ struct Args {
     /// Verbose output
     #[arg(short, long)]
     verbose: bool,
+
+    /// Insert PWR_FLAG symbols for power nets (JSON5→S-expression only).
+    /// Adds power flags on nets with power_in pins but no power_out driver,
+    /// eliminating KiCad ERC power_pin_not_driven warnings.
+    #[arg(long)]
+    power_flags: bool,
 }
 
 fn main() {
@@ -177,6 +183,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 include_uuids: true,
                 kicad_version,
                 generate_uuids: true,
+                insert_power_flags: args.power_flags,
             };
             let mut generator = SexprGenerator::with_config(config);
             generator.generate(&schematic)?

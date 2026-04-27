@@ -374,6 +374,7 @@ fn value_to_component(value: &Value, net_map: &HashMap<u32, String>) -> SymbolIn
                         .unwrap_or_else(|| "passive".into()),
                     net_id,
                     net_name,
+                    nc: po.and_then(|o| o.get("nc")).and_then(|v| v.as_bool()).unwrap_or(false),
                 });
             }
         }

@@ -20,6 +20,7 @@ pub struct PinInstance {
     pub pin_type: String,
     pub net_id: Option<u32>,
     pub net_name: Option<String>,
+    pub nc: bool,
 }
 
 /// Mirror direction for a symbol

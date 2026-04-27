@@ -86,6 +86,10 @@ pub struct SexprConfig {
     pub kicad_version: Option<KicadVersion>,
     /// Auto-generate UUIDs if missing
     pub generate_uuids: bool,
+    /// Insert PWR_FLAG symbols for nets with power_in but no power_out pins.
+    /// Only applies to JSON5→S-expression generation (reverse direction is unaffected).
+    /// This is a kicad-json5 extension not present in official KiCad output.
+    pub insert_power_flags: bool,
 }
 
 impl Default for SexprConfig {
@@ -95,6 +99,7 @@ impl Default for SexprConfig {
             include_uuids: true,
             kicad_version: None, // auto-detect
             generate_uuids: true,
+            insert_power_flags: false,
         }
     }
 }
@@ -407,6 +412,199 @@ impl SexprGenerator {
 
         for symbol in symbols {
             self.generate_symbol_def(output, symbol);
+        }
+
+        // Inject PWR_FLAG symbol for power pin driven checks (only when enabled)
+        if self.config.insert_power_flags
+            && matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10)
+        {
+            // Emit PWR_FLAG lib_symbol — exact copy from KiCad official power.kicad_sym
+            self.write_line(output, "(symbol \"power:PWR_FLAG\"");
+            self.indent_level += 1;
+            self.write_line(output, "(power global)");
+            self.write_line(output, "(pin_numbers");
+            self.indent_level += 1;
+            self.write_line(output, "(hide yes)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(pin_names");
+            self.indent_level += 1;
+            self.write_line(output, "(offset 0)");
+            self.write_line(output, "(hide yes)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(exclude_from_sim no)");
+            self.write_line(output, "(in_bom yes)");
+            self.write_line(output, "(on_board yes)");
+            self.write_line(output, "(in_pos_files yes)");
+            self.write_line(output, "(duplicate_pin_numbers_are_jumpers no)");
+            // Properties — multi-line format matching official KiCad output
+            self.write_line(output, "(property \"Reference\" \"#FLG\"");
+            self.indent_level += 1;
+            self.write_line(output, "(at 0 1.905 0)");
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+            self.write_line(output, "(hide yes)");
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(property \"Value\" \"PWR_FLAG\"");
+            self.indent_level += 1;
+            self.write_line(output, "(at 0 3.81 0)");
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(property \"Footprint\" \"\"");
+            self.indent_level += 1;
+            self.write_line(output, "(at 0 0 0)");
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+            self.write_line(output, "(hide yes)");
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(property \"Datasheet\" \"\"");
+            self.indent_level += 1;
+            self.write_line(output, "(at 0 0 0)");
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+            self.write_line(output, "(hide yes)");
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(property \"Description\" \"Special symbol for telling ERC where power comes from\"");
+            self.indent_level += 1;
+            self.write_line(output, "(at 0 0 0)");
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+            self.write_line(output, "(hide yes)");
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(property \"ki_keywords\" \"flag power\"");
+            self.indent_level += 1;
+            self.write_line(output, "(at 0 0 0)");
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+            self.write_line(output, "(hide yes)");
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            // Unit 0_0: power_out pin at origin
+            self.write_line(output, "(symbol \"PWR_FLAG_0_0\"");
+            self.indent_level += 1;
+            self.write_line(output, "(pin power_out line");
+            self.indent_level += 1;
+            self.write_line(output, "(at 0 0 90)");
+            self.write_line(output, "(length 0)");
+            self.write_line(output, "(name \"\"");
+            self.indent_level += 1;
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(number \"1\"");
+            self.indent_level += 1;
+            self.write_line(output, "(effects");
+            self.indent_level += 1;
+            self.write_line(output, "(font");
+            self.indent_level += 1;
+            self.write_line(output, "(size 1.27 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            // Unit 0_1: flag pennant graphic
+            self.write_line(output, "(symbol \"PWR_FLAG_0_1\"");
+            self.indent_level += 1;
+            self.write_line(output, "(polyline");
+            self.indent_level += 1;
+            self.write_line(output, "(pts");
+            self.indent_level += 1;
+            self.write_line(output, "(xy 0 0) (xy 0 1.27) (xy -1.016 1.905) (xy 0 2.54) (xy 1.016 1.905) (xy 0 1.27)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(stroke");
+            self.indent_level += 1;
+            self.write_line(output, "(width 0)");
+            self.write_line(output, "(type default)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(fill");
+            self.indent_level += 1;
+            self.write_line(output, "(type none)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.write_line(output, "(embedded_fonts no)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
         }
 
         self.indent_level -= 1;
@@ -2070,6 +2268,163 @@ impl SexprGenerator {
             }
             self.indent_level -= 1;
             self.write_line(output, ")");
+        }
+
+        // 6. Generate (no_connect ...) for pins marked nc=true in JSON5
+        for comp in &schematic.components {
+            let pin_positions = match symbol_pins.get(&comp.lib_id) {
+                Some(p) => p,
+                None => continue,
+            };
+            let (cx, cy, crot) = comp.position;
+            for pin in &comp.pins {
+                if pin.nc {
+                    if let Some(&(lx, ly)) = pin_positions.get(&pin.number) {
+                        let (rx, ry) = Self::rotate_point(lx, -ly, crot);
+                        let wx = cx + rx;
+                        let wy = cy + ry;
+                        self.write_line(output, "(no_connect");
+                        self.indent_level += 1;
+                        self.write_line(output, &format!("(at {} {})", Self::format_number(wx), Self::format_number(wy)));
+                        if self.config.include_uuids {
+                            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+                        }
+                        self.indent_level -= 1;
+                        self.write_line(output, ")");
+                    }
+                }
+            }
+        }
+
+        // 7. Generate PWR_FLAG symbols for nets that have power_in pins
+        //    but no power_out pins, to satisfy KiCad's ERC power-pin-driven check.
+        if self.config.insert_power_flags {
+            self.generate_power_flags(output, schematic, &labels_to_place);
+        }
+    }
+
+    /// Place PWR_FLAG instances on nets with power_in pins but no power_out.
+    /// PWR_FLAG is a KiCad standard symbol with a power_out pin (length=0 at origin).
+    /// Placing it at any label position for the target net marks that net as driven.
+    fn generate_power_flags(
+        &mut self,
+        output: &mut String,
+        schematic: &crate::ir::Schematic,
+        labels_to_place: &[(f64, f64, f64, &str)],
+    ) {
+        let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
+
+        // Build lib_id -> { pin_number -> pin_type } from lib_symbols
+        let mut lib_pin_types: HashMap<&str, HashMap<&str, &str>> = HashMap::new();
+        for symbol in &schematic.lib_symbols {
+            let mut pin_map: HashMap<&str, &str> = HashMap::new();
+            for pin in &symbol.pins {
+                pin_map.insert(&pin.number, &pin.pin_type);
+            }
+            lib_pin_types.insert(&symbol.lib_id, pin_map);
+        }
+
+        // Collect net_id -> set of pin types (from lib_symbol definitions)
+        let mut net_pin_types: HashMap<u32, Vec<&str>> = HashMap::new();
+        for comp in &schematic.components {
+            let pin_type_map = match lib_pin_types.get(comp.lib_id.as_str()) {
+                Some(m) => m,
+                None => continue,
+            };
+            for pin in &comp.pins {
+                if let Some(net_id) = pin.net_id {
+                    // Use lib_symbol's pin type, not component's (component defaults to "passive")
+                    let ptype = pin_type_map.get(pin.number.as_str()).unwrap_or(&"passive");
+                    net_pin_types.entry(net_id).or_default().push(ptype);
+                }
+            }
+        }
+
+        // Find nets that have power_in but no power_out or output pins.
+        // Also skip nets driven by any output-capable pin to avoid pin_to_pin conflicts.
+        let net_names: HashMap<u32, &str> = schematic.nets.iter()
+            .map(|n| (n.id, n.name.as_str()))
+            .collect();
+
+        let mut power_flag_nets: Vec<&str> = Vec::new();
+        for (net_id, types) in &net_pin_types {
+            let has_power_in = types.iter().any(|t| *t == "power_in");
+            let has_driver = types.iter().any(|t| {
+                matches!(*t, "power_out" | "output" | "bidirectional")
+            });
+            if has_power_in && !has_driver {
+                if let Some(name) = net_names.get(net_id) {
+                    power_flag_nets.push(*name);
+                }
+            }
+        }
+        power_flag_nets.sort();
+        power_flag_nets.dedup();
+
+        if power_flag_nets.is_empty() {
+            return;
+        }
+
+        // Find a label position for each net (first occurrence)
+        let mut net_positions: HashMap<&str, (f64, f64)> = HashMap::new();
+        for &(x, y, _, name) in labels_to_place {
+            if power_flag_nets.contains(&name) && !net_positions.contains_key(&name) {
+                net_positions.insert(name, (x, y));
+            }
+        }
+
+        // Generate PWR_FLAG symbol definition in lib_symbols (injected inline)
+        // We add it directly before the first PWR_FLAG instance using a comment marker
+        // Actually, we need to add it to lib_symbols. But we can't modify lib_symbols here.
+        // Instead, we rely on the PWR_FLAG being referenced and KiCad resolving it
+        // from its standard power library. For safety, we also emit the lib_symbol.
+
+        // Emit PWR_FLAG lib_symbol definition (if not already present)
+        // This gets written into the schematic's symbol instances section as a standalone
+        // component that references "power:PWR_FLAG". KiCad will resolve it from the
+        // standard power library at load time.
+
+        let mut flag_index: u32 = 1;
+        for net_name in &power_flag_nets {
+            if let Some(&(x, y)) = net_positions.get(net_name) {
+                let ref_name = format!("#FLG{:02}", flag_index);
+                flag_index += 1;
+                self.write_line(output, "(symbol");
+                self.indent_level += 1;
+                self.write_line(output, "(lib_id \"power:PWR_FLAG\")");
+                self.write_line(output, &Self::format_at(x, y, 0.0));
+                self.write_line(output, "(unit 1)");
+                if is_v9_plus {
+                    self.write_line(output, "(body_style 1)");
+                    self.write_line(output, "(exclude_from_sim no)");
+                }
+                self.write_line(output, "(in_bom yes)");
+                self.write_line(output, "(on_board yes)");
+                if is_v9_plus {
+                    self.write_line(output, "(dnp no)");
+                }
+                if self.config.include_uuids {
+                    self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+                }
+                self.write_line(output, &format!(
+                    "(property \"Reference\" \"{}\" {} (effects (font (size 1.27 1.27)) (hide yes)))",
+                    ref_name,
+                    Self::format_at(x, y, 0.0)
+                ));
+                self.write_line(output, &format!(
+                    "(property \"Value\" \"{}\" {} (effects (font (size 1.27 1.27))))",
+                    Self::escape_string(net_name),
+                    Self::format_at(x, y, 0.0)
+                ));
+                if self.config.include_uuids {
+                    self.write_line(output, &format!(
+                        "(pin \"1\" (uuid \"{}\"))",
+                        Self::new_uuid()
+                    ));
+                }
+                self.indent_level -= 1;
+                self.write_line(output, ")");
+            }
         }
     }
 }
