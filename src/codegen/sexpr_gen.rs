@@ -117,6 +117,7 @@ enum DefaultSymbolKind {
     Diode,
     Led,
     TwoPin,
+    Connector,
 }
 
 impl SexprGenerator {
@@ -1062,12 +1063,17 @@ impl SexprGenerator {
     }
 
     fn detect_default_kind(symbol: &Symbol) -> DefaultSymbolKind {
+        let full = symbol.lib_id.to_uppercase();
+        let short = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id).to_uppercase();
+
+        // Connector detection: Conn_01xNN, Conn_02xNN, etc.
+        if short.starts_with("CONN") || full.contains("CONNECTOR") {
+            return DefaultSymbolKind::Connector;
+        }
+
         match symbol.pins.len() {
             0..=1 => DefaultSymbolKind::TwoPin,
             2 => {
-                // Use the short name after ':' for matching (e.g., "Device:R" → "R")
-                let short = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id).to_uppercase();
-                let full = symbol.lib_id.to_uppercase();
                 if full.contains("LED") {
                     return DefaultSymbolKind::Led;
                 }
@@ -1108,6 +1114,9 @@ impl SexprGenerator {
             .unwrap_or(&symbol.lib_id);
 
         match kind {
+            DefaultSymbolKind::Connector => {
+                self.gen_connector_unit(output, symbol, base)
+            }
             DefaultSymbolKind::Ic => self.gen_ic_unit(output, symbol, base),
             DefaultSymbolKind::Resistor => {
                 self.gen_resistor_unit(output, symbol, base)
@@ -1188,6 +1197,201 @@ impl SexprGenerator {
         self.write_line(output, &format!("(width {})", Self::format_number(width)));
         self.write_line(output, "(type default))");
         self.indent_level -= 1;
+    }
+
+    /// Parameterized connector generator matching KiCad's Connector_Generic style.
+    /// Supports Conn_01xNN (single-row) and Conn_02xNN (dual-row) naming patterns.
+    fn gen_connector_unit(
+        &mut self,
+        output: &mut String,
+        symbol: &Symbol,
+        base: &str,
+    ) {
+        let pin_count = symbol.pins.len();
+        let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
+
+        // Detect 2-row from name: Conn_02xNN, or from "Odd_Even"/"Counter_Clockwise" suffix
+        let short = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
+        let is_dual_row = short.contains("02x") || short.contains("_02x");
+
+        // pin_numbers hide
+        if is_v9_plus {
+            self.write_line(output, "(pin_numbers");
+            self.indent_level += 1;
+            self.write_line(output, "(hide yes)");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+        } else {
+            self.write_line(output, "(pin_numbers hide)");
+        }
+
+        // Standard boolean flags
+        self.write_line(output, &format!("(exclude_from_sim no)"));
+        self.write_line(output, &format!("(in_bom yes)"));
+        self.write_line(output, &format!("(on_board yes)"));
+        if is_v9_plus {
+            self.write_line(output, "(in_pos_files yes)");
+            self.write_line(output, "(duplicate_pin_numbers_are_jumpers no)");
+        }
+
+        let pin_length = 3.81;
+        let pin_spacing = 2.54;
+        let pin_x_left = -5.08;
+        let pin_x_right = 7.62;
+
+        if is_dual_row {
+            // Dual-row: rows of pin_count/2, alternating left/right
+            let rows = (pin_count + 1) / 2;
+            let body_hw = 1.27;
+            let body_top = (rows - 1) as f64 * pin_spacing / 2.0 + pin_spacing / 2.0;
+
+            // _0_1: body rectangle + solder pads
+            self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+            self.indent_level += 1;
+            self.write_line(output, "(rectangle");
+            self.indent_level += 1;
+            self.write_line(
+                output,
+                &format!(
+                    "(start {} {}) (end {} {})",
+                    Self::format_number(-body_hw),
+                    Self::format_number(body_top),
+                    Self::format_number(body_hw),
+                    Self::format_number(-body_top)
+                ),
+            );
+            self.gen_default_stroke(output, 0.254);
+            self.write_line(output, "(fill (type none))");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+
+            // _1_1: pins
+            self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+            self.indent_level += 1;
+
+            for (i, pin) in symbol.pins.iter().enumerate() {
+                let row = i / 2;
+                let y = ((rows - 1) - row) as f64 * pin_spacing;
+                if i % 2 == 0 {
+                    // Left pin
+                    self.gen_connector_pin(output, pin, pin_x_left, y, 0.0, pin_length);
+                } else {
+                    // Right pin
+                    self.gen_connector_pin(output, pin, pin_x_right, y, 180.0, pin_length);
+                }
+            }
+
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+        } else {
+            // Single-row: all pins on the left
+            let body_hw = 1.27;
+            let body_top = (pin_count - 1) as f64 * pin_spacing / 2.0 + pin_spacing / 2.0;
+
+            // _0_1: body + solder pads
+            self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
+            self.indent_level += 1;
+
+            // Main body rectangle
+            self.write_line(output, "(rectangle");
+            self.indent_level += 1;
+            self.write_line(
+                output,
+                &format!(
+                    "(start {} {}) (end {} {})",
+                    Self::format_number(-body_hw),
+                    Self::format_number(body_top),
+                    Self::format_number(body_hw),
+                    Self::format_number(-body_top)
+                ),
+            );
+            self.gen_default_stroke(output, 0.254);
+            self.write_line(output, "(fill (type none))");
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+
+            // Solder pad rectangles (one per pin)
+            for i in 0..pin_count {
+                let y = ((pin_count - 1) - i) as f64 * pin_spacing;
+                let pad_half = 0.127;
+                self.write_line(output, "(rectangle");
+                self.indent_level += 1;
+                self.write_line(
+                    output,
+                    &format!(
+                        "(start {} {}) (end {} {})",
+                        Self::format_number(-1.27),
+                        Self::format_number(y + pad_half),
+                        Self::format_number(0.0),
+                        Self::format_number(y - pad_half)
+                    ),
+                );
+                self.gen_default_stroke(output, 0.254);
+                self.write_line(output, "(fill (type none))");
+                self.indent_level -= 1;
+                self.write_line(output, ")");
+            }
+
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+
+            // _1_1: pins
+            self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
+            self.indent_level += 1;
+
+            for (i, pin) in symbol.pins.iter().enumerate() {
+                let y = ((pin_count - 1) - i) as f64 * pin_spacing;
+                self.gen_connector_pin(output, pin, pin_x_left, y, 0.0, pin_length);
+            }
+
+            self.indent_level -= 1;
+            self.write_line(output, ")");
+        }
+
+        if is_v9_plus {
+            self.write_line(output, "(embedded_fonts no)");
+        }
+    }
+
+    /// Generate a single connector pin
+    fn gen_connector_pin(
+        &mut self,
+        output: &mut String,
+        pin: &Pin,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        length: f64,
+    ) {
+        self.write_line(
+            output,
+            &format!(
+                "(pin passive line (at {} {} {}) (length {})",
+                Self::format_number(x),
+                Self::format_number(y),
+                Self::format_number(rotation),
+                Self::format_number(length),
+            ),
+        );
+        self.indent_level += 1;
+        self.write_line(
+            output,
+            &format!(
+                "(name \"{}\" (effects (font (size 1.27 1.27))))",
+                Self::escape_string(&pin.name)
+            ),
+        );
+        self.write_line(
+            output,
+            &format!(
+                "(number \"{}\" (effects (font (size 1.27 1.27))))",
+                pin.number
+            ),
+        );
+        self.indent_level -= 1;
+        self.write_line(output, ")");
     }
 
     /// IC template: rectangle body + pins on left/right
@@ -1523,6 +1727,32 @@ impl SexprGenerator {
         let mut positions = HashMap::new();
 
         match kind {
+            DefaultSymbolKind::Connector => {
+                let pin_count = symbol.pins.len();
+                let short = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
+                let is_dual_row = short.contains("02x") || short.contains("_02x");
+                let spacing = 2.54;
+
+                if is_dual_row {
+                    // Dual-row: alternating left (-5.08) / right (7.62)
+                    let rows = (pin_count + 1) / 2;
+                    for (i, pin) in symbol.pins.iter().enumerate() {
+                        let row = i / 2;
+                        let y = ((rows - 1) - row) as f64 * spacing;
+                        if i % 2 == 0 {
+                            positions.insert(pin.number.clone(), (-5.08, y));
+                        } else {
+                            positions.insert(pin.number.clone(), (7.62, y));
+                        }
+                    }
+                } else {
+                    // Single-row: all pins at x=-5.08
+                    for (i, pin) in symbol.pins.iter().enumerate() {
+                        let y = ((pin_count - 1) - i) as f64 * spacing;
+                        positions.insert(pin.number.clone(), (-5.08, y));
+                    }
+                }
+            }
             DefaultSymbolKind::Ic => {
                 let pin_count = symbol.pins.len();
                 let left_count = (pin_count + 1) / 2;
