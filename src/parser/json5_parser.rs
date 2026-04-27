@@ -140,6 +140,46 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
         }
     }
 
+    // Backfill lib_symbol pins from component instances.
+    // JSON5 lib_symbols often lack pin definitions, but component instances have them.
+    // For IC-type symbols, we need pin info to generate correct lib_symbol graphics and
+    // compute pin world positions for auto-labels.
+    {
+        // Collect max pin count per lib_id from components
+        let mut max_pins_by_lib: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for comp in &schematic.components {
+            let count = comp.pins.len();
+            let entry = max_pins_by_lib.entry(comp.lib_id.clone()).or_insert(0);
+            *entry = (*entry).max(count);
+        }
+
+        for symbol in &mut schematic.lib_symbols {
+            if symbol.pins.is_empty() {
+                if let Some(&max_pins) = max_pins_by_lib.get(&symbol.lib_id) {
+                    // Only backfill if components have more than 2 pins (IC-type).
+                    // 2-pin symbols (R, C, etc.) are handled by template detection.
+                    if max_pins > 2 {
+                        // Find a component with the most pins to get pin names/types
+                        let best_comp = schematic.components.iter()
+                            .filter(|c| c.lib_id == symbol.lib_id)
+                            .max_by_key(|c| c.pins.len());
+
+                        if let Some(comp) = best_comp {
+                            for cp in &comp.pins {
+                                symbol.pins.push(crate::ir::Pin {
+                                    number: cp.number.clone(),
+                                    name: cp.name.clone(),
+                                    pin_type: cp.pin_type.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(schematic)
 }
 
