@@ -1,8 +1,0 @@
-    Finished `release` profile [optimized] target(s) in 0.09s
-    Finished `release` profile [optimized] target(s) in 0.09s
-     Running unittests src/lib.rs (target/release/deps/kicad_json5-b7de9f9eccd2cf34)
-     Running unittests src/lib.rs (target/release/deps/kicad_json5-b7de9f9eccd2cf34)
-     Running unittests src/main.rs (target/release/deps/kicad_json5-0d0a0257b260c50d)
-     Running unittests src/main.rs (target/release/deps/kicad_json5-0d0a0257b260c50d)
-   Doc-tests kicad_json5
-   Doc-tests kicad_json5
