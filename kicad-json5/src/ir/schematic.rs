@@ -1219,6 +1219,7 @@ impl Schematic {
             pin_type: "passive".to_string(),
             net_id: None,
             net_name: None,
+            nc: false,
         };
 
         for item in &list[2..] {
