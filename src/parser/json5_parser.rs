@@ -69,6 +69,13 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
     if let Some(nets) = obj.get("nets").and_then(|v| v.as_array()) {
         for nv in nets {
             if let Some(net) = value_to_net(nv) {
+                if let Some(existing) = net_map.get(&net.id) {
+                    eprintln!(
+                        "ERROR: duplicate net id {} — \"{}\" conflicts with \"{}\"",
+                        net.id, net.name, existing
+                    );
+                    std::process::exit(1);
+                }
                 net_map.insert(net.id, net.name.clone());
                 schematic.nets.push(net);
             }
@@ -141,7 +148,8 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
 fn value_to_symbol(value: &Value) -> Symbol {
     let obj = value.as_object();
     let lib_id = obj
-        .and_then(|o| o.get("id"))
+        .and_then(|o| o.get("lib_id"))
+        .or_else(|| obj.and_then(|o| o.get("id")))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();

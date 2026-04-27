@@ -294,11 +294,11 @@ impl SexprGenerator {
 
     /// Format a number, removing trailing zeros
     fn format_number(n: f64) -> String {
-        // If it's effectively an integer, format as integer
+        // Round to 6 decimal places to eliminate floating-point artifacts
+        let n = (n * 1e6).round() / 1e6;
         if (n - n.round()).abs() < 1e-9 {
             format!("{}", n.round() as i64)
         } else {
-            // Format with enough precision, then trim trailing zeros
             let s = format!("{}", n);
             let trimmed = s.trim_end_matches('0').trim_end_matches('.');
             trimmed.to_string()
@@ -1681,7 +1681,10 @@ impl SexprGenerator {
             for pin in &comp.pins {
                 if let (Some(net_id), Some(&(lx, ly))) = (pin.net_id, pin_positions.get(&pin.number)) {
                     if let Some(net_name) = net_names.get(&net_id) {
-                        let (rx, ry) = Self::rotate_point(lx, ly, crot);
+                        // KiCad lib_symbol uses Y-up convention; schematic uses Y-down.
+                        // Pin world position = component_pos + transform(pin_local_pos)
+                        // where transform for rotation=0 negates the Y coordinate.
+                        let (rx, ry) = Self::rotate_point(lx, -ly, crot);
                         let wx = cx + rx;
                         let wy = cy + ry;
                         labels_to_place.push((wx, wy, *net_name));
@@ -1697,20 +1700,16 @@ impl SexprGenerator {
                 .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
         });
 
-        // Snap coordinates to 1.27mm (50mil) grid
-        let snap = |v: f64| (v / 1.27).round() * 1.27;
-
         // 5. Generate one label per pin at its world coordinate.
         // KiCad connects pins that share the same label text at the same location.
+        // Do NOT snap to grid — the label must be at the exact pin connection point.
         let default_effects = TextEffects::default();
 
         for (x, y, net_name) in &labels_to_place {
-            let sx = snap(*x);
-            let sy = snap(*y);
             self.write_line(output, "(label");
             self.indent_level += 1;
             self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
-            self.write_line(output, &Self::format_at(sx, sy, 0.0));
+            self.write_line(output, &Self::format_at(*x, *y, 0.0));
             self.generate_effects(output, &default_effects);
             if self.config.include_uuids {
                 self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
