@@ -616,11 +616,27 @@ impl SexprGenerator {
         if matches!(self.effective_version, KicadVersion::V10) {
             if let Some(sexpr) = super::standard_symbols::get_standard_symbol(&symbol.lib_id) {
                 let short_name = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
-                let adapted = sexpr.replacen(
-                    &format!("(symbol \"{}\"", short_name),
+                // Replace top-level symbol name and sub-unit names.
+                // Embedded text uses its own short name (e.g., "Thermistor_NTC"),
+                // which may differ from the JSON5 lib_id's short name (e.g., "NTC").
+                // Extract the embedded short name from the first (symbol "..." line.
+                let embedded_short = sexpr.split('"').nth(1).unwrap_or(short_name);
+                let mut adapted = sexpr.replacen(
+                    &format!("(symbol \"{}\"", embedded_short),
                     &format!("(symbol \"{}\"", symbol.lib_id),
                     1,
                 );
+                // Replace unit names: Thermistor_NTC_0_1 → NTC_0_1 (or whatever short_name is)
+                if embedded_short != short_name {
+                    adapted = adapted.replace(
+                        &format!("(symbol \"{}_0_", embedded_short),
+                        &format!("(symbol \"{}_0_", short_name),
+                    );
+                    adapted = adapted.replace(
+                        &format!("(symbol \"{}_1_", embedded_short),
+                        &format!("(symbol \"{}_1_", short_name),
+                    );
+                }
                 // The embedded text uses 1-tab base indent; add current indent_level tabs
                 let extra_indent = self.config.indent.repeat(self.indent_level);
                 for line in adapted.lines() {
