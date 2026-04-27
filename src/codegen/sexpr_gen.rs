@@ -491,8 +491,20 @@ impl SexprGenerator {
                 self.indent_level -= 1;
                 self.write_line(output, ")");
             } else if !symbol.pins.is_empty() {
-                // No units and no graphics: generate default template
-                self.generate_default_symbol_units(output, symbol);
+                // No units and no graphics: use standard symbol if available
+                if let Some(sexpr) = super::standard_symbols::get_standard_symbol(&symbol.lib_id) {
+                    // Replace the short symbol name with the full lib_id
+                    let short_name = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
+                    let adapted = sexpr.replace(
+                        &format!("(symbol \"{}\"", short_name),
+                        &format!("(symbol \"{}\"", symbol.lib_id),
+                    );
+                    for line in adapted.lines() {
+                        self.write_line(output, line);
+                    }
+                } else {
+                    self.generate_default_symbol_units(output, symbol);
+                }
             }
         } else {
             // Generate each unit
@@ -1530,15 +1542,10 @@ impl SexprGenerator {
                     }
                 }
             }
-            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin => {
-                if let Some(pin1) = symbol.pins.first() {
-                    positions.insert(pin1.number.clone(), (0.0, 2.54));
-                }
-                if let Some(pin2) = symbol.pins.get(1) {
-                    positions.insert(pin2.number.clone(), (0.0, -2.54));
-                }
-            }
-            DefaultSymbolKind::Capacitor | DefaultSymbolKind::Inductor => {
+            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin
+            | DefaultSymbolKind::Capacitor | DefaultSymbolKind::Inductor => {
+                // KiCad standard Device library: vertical layout
+                // pin 1 at (0, 3.81, 270), pin 2 at (0, -3.81, 90)
                 if let Some(pin1) = symbol.pins.first() {
                     positions.insert(pin1.number.clone(), (0.0, 3.81));
                 }
@@ -1547,11 +1554,13 @@ impl SexprGenerator {
                 }
             }
             DefaultSymbolKind::Diode | DefaultSymbolKind::Led => {
+                // KiCad standard Device library: horizontal layout
+                // pin 1 at (-3.81, 0, 0), pin 2 at (3.81, 0, 180)
                 if let Some(pin1) = symbol.pins.first() {
-                    positions.insert(pin1.number.clone(), (0.0, 3.81));
+                    positions.insert(pin1.number.clone(), (-3.81, 0.0));
                 }
                 if let Some(pin2) = symbol.pins.get(1) {
-                    positions.insert(pin2.number.clone(), (0.0, -3.81));
+                    positions.insert(pin2.number.clone(), (3.81, 0.0));
                 }
             }
         }
