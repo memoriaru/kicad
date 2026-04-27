@@ -109,6 +109,7 @@ pub struct SexprGenerator {
 
 /// Default symbol template kinds for auto-generating graphics
 #[derive(Debug, Clone, Copy)]
+#[derive(PartialEq)]
 enum DefaultSymbolKind {
     Ic,
     Resistor,
@@ -413,6 +414,28 @@ impl SexprGenerator {
     }
 
     fn generate_symbol_def(&mut self, output: &mut String, symbol: &Symbol) {
+        // Fast path: use embedded standard symbol (only for V10 — the embedded text is V10 format)
+        if matches!(self.effective_version, KicadVersion::V10) {
+            if let Some(sexpr) = super::standard_symbols::get_standard_symbol(&symbol.lib_id) {
+                let short_name = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
+                let adapted = sexpr.replacen(
+                    &format!("(symbol \"{}\"", short_name),
+                    &format!("(symbol \"{}\"", symbol.lib_id),
+                    1,
+                );
+                // The embedded text uses 1-tab base indent; add current indent_level tabs
+                let extra_indent = self.config.indent.repeat(self.indent_level);
+                for line in adapted.lines() {
+                    if !line.trim().is_empty() {
+                        output.push_str(&extra_indent);
+                        output.push_str(line);
+                        output.push('\n');
+                    }
+                }
+                return;
+            }
+        }
+
         self.write_line(output, &format!("(symbol \"{}\"", symbol.lib_id));
         self.indent_level += 1;
 
@@ -491,21 +514,10 @@ impl SexprGenerator {
                 }
                 self.indent_level -= 1;
                 self.write_line(output, ")");
-            } else if !symbol.pins.is_empty() {
-                // No units and no graphics: use standard symbol if available
-                if let Some(sexpr) = super::standard_symbols::get_standard_symbol(&symbol.lib_id) {
-                    // Replace the short symbol name with the full lib_id
-                    let short_name = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
-                    let adapted = sexpr.replace(
-                        &format!("(symbol \"{}\"", short_name),
-                        &format!("(symbol \"{}\"", symbol.lib_id),
-                    );
-                    for line in adapted.lines() {
-                        self.write_line(output, line);
-                    }
-                } else {
-                    self.generate_default_symbol_units(output, symbol);
-                }
+            } else if !symbol.pins.is_empty() || Self::is_passive_2pin(symbol) || Self::detect_default_kind(symbol) != DefaultSymbolKind::TwoPin {
+                // Generate default units even when pins are empty, if this is a known
+                // standard component type (R/C/L/D/LED/NTC/Connector)
+                self.generate_default_symbol_units(output, symbol);
             }
         } else {
             // Generate each unit
@@ -980,7 +992,12 @@ impl SexprGenerator {
         self.write_line(output, "(junction");
         self.indent_level += 1;
 
-        self.write_line(output, &Self::format_at(junction.position.0, junction.position.1, 0.0));
+        // Junction (at) only has x, y — no rotation
+        self.write_line(output, &format!(
+            "(at {} {})",
+            Self::format_number(junction.position.0),
+            Self::format_number(junction.position.1)
+        ));
 
         if junction.diameter != 0.0 {
             self.write_line(output, &format!("(diameter {})", Self::format_number(junction.diameter)));
@@ -998,7 +1015,12 @@ impl SexprGenerator {
         self.write_line(output, "(no_connect");
         self.indent_level += 1;
 
-        self.write_line(output, &Self::format_at(nc.position.0, nc.position.1, 0.0));
+        // no_connect (at) only has x, y — no rotation
+        self.write_line(output, &format!(
+            "(at {} {})",
+            Self::format_number(nc.position.0),
+            Self::format_number(nc.position.1)
+        ));
 
         if self.config.include_uuids {
             let uuid = nc.uuid.clone().unwrap_or_else(Self::new_uuid);
@@ -1071,31 +1093,31 @@ impl SexprGenerator {
             return DefaultSymbolKind::Connector;
         }
 
+        // lib_id-based detection (works even when pins.len() == 0)
+        if full.contains("LED") {
+            return DefaultSymbolKind::Led;
+        }
+        if short.starts_with("R") || full.contains("RESIST") || full.contains("THERM") {
+            return DefaultSymbolKind::Resistor;
+        }
+        if short.starts_with("C") || full.contains("CAP") {
+            return DefaultSymbolKind::Capacitor;
+        }
+        if short.starts_with("L") || full.contains("IND") {
+            return DefaultSymbolKind::Inductor;
+        }
+        if full.contains("DIODE")
+            || full.contains("ZENER")
+            || full.contains("TVS")
+            || short.starts_with("D_")
+            || short == "D"
+        {
+            return DefaultSymbolKind::Diode;
+        }
+
+        // Fallback based on pin count
         match symbol.pins.len() {
-            0..=1 => DefaultSymbolKind::TwoPin,
-            2 => {
-                if full.contains("LED") {
-                    return DefaultSymbolKind::Led;
-                }
-                if short.starts_with("R") || full.contains("RESIST") {
-                    return DefaultSymbolKind::Resistor;
-                }
-                if short.starts_with("C") || full.contains("CAP") {
-                    return DefaultSymbolKind::Capacitor;
-                }
-                if short.starts_with("L") || full.contains("IND") {
-                    return DefaultSymbolKind::Inductor;
-                }
-                if full.contains("DIODE")
-                    || full.contains("ZENER")
-                    || full.contains("TVS")
-                    || short.starts_with("D_")
-                    || short == "D"
-                {
-                    return DefaultSymbolKind::Diode;
-                }
-                DefaultSymbolKind::TwoPin
-            }
+            0..=2 => DefaultSymbolKind::TwoPin,
             _ => DefaultSymbolKind::Ic,
         }
     }
@@ -1135,6 +1157,19 @@ impl SexprGenerator {
             ),
             DefaultSymbolKind::TwoPin => self.gen_twopin_unit(output, symbol, base),
         }
+    }
+
+    /// Get a pin from the symbol, or create a default passive pin with the given number
+    fn get_pin_or_default(symbol: &Symbol, index: usize, default_number: &str) -> Pin {
+        symbol
+            .pins
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| Pin {
+                number: default_number.to_string(),
+                name: String::new(),
+                pin_type: "passive".to_string(),
+            })
     }
 
     /// Generate a pin in S-expression format with default effects
@@ -1208,6 +1243,10 @@ impl SexprGenerator {
         base: &str,
     ) {
         let pin_count = symbol.pins.len();
+        if pin_count == 0 {
+            // Cannot generate a connector without pins — skip
+            return;
+        }
         let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
 
         // Detect 2-row from name: Conn_02xNN, or from "Odd_Even"/"Counter_Clockwise" suffix
@@ -1493,12 +1532,10 @@ impl SexprGenerator {
         // _1_1: pins
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
-        if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 2.54, 90.0);
-        }
-        if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -2.54, 270.0);
-        }
+        let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+        self.gen_default_pin(output, &pin1, 0.0, 2.54, 90.0);
+        let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+        self.gen_default_pin(output, &pin2, 0.0, -2.54, 270.0);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }
@@ -1546,12 +1583,10 @@ impl SexprGenerator {
         // _1_1: pins
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
-        if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 3.81, 90.0);
-        }
-        if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -3.81, 270.0);
-        }
+        let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+        self.gen_default_pin(output, &pin1, 0.0, 3.81, 90.0);
+        let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+        self.gen_default_pin(output, &pin2, 0.0, -3.81, 270.0);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }
@@ -1594,12 +1629,10 @@ impl SexprGenerator {
         // _1_1: pins
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
-        if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 3.81, 90.0);
-        }
-        if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -3.81, 270.0);
-        }
+        let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+        self.gen_default_pin(output, &pin1, 0.0, 3.81, 90.0);
+        let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+        self.gen_default_pin(output, &pin2, 0.0, -3.81, 270.0);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }
@@ -1675,12 +1708,10 @@ impl SexprGenerator {
         // _1_1: pins
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
-        if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 3.81, 90.0);
-        }
-        if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -3.81, 270.0);
-        }
+        let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+        self.gen_default_pin(output, &pin1, 0.0, 3.81, 90.0);
+        let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+        self.gen_default_pin(output, &pin2, 0.0, -3.81, 270.0);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }
@@ -1708,12 +1739,10 @@ impl SexprGenerator {
         // _1_1: pins
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
-        if let Some(pin1) = symbol.pins.first() {
-            self.gen_default_pin(output, pin1, 0.0, 2.54, 90.0);
-        }
-        if let Some(pin2) = symbol.pins.get(1) {
-            self.gen_default_pin(output, pin2, 0.0, -2.54, 270.0);
-        }
+        let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+        self.gen_default_pin(output, &pin1, 0.0, 2.54, 90.0);
+        let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+        self.gen_default_pin(output, &pin2, 0.0, -2.54, 270.0);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }
