@@ -283,8 +283,7 @@ impl SymbolPainter {
             font_size: constants::TEXT_SIZE,
             color: self.reference_color,
             bold: false,
-            // KiCad stores angles as counterclockwise; SVG rotate() is clockwise
-            rotation: -self.symbol.reference_rotation,
+            rotation: draw_rotation(self.symbol.rotation, self.symbol.reference_rotation),
             text_anchor: self.symbol.reference_h_align.clone(),
             dominant_baseline: self.symbol.reference_v_align.clone(),
         }));
@@ -312,7 +311,7 @@ impl SymbolPainter {
             font_size: constants::TEXT_SIZE,
             color: self.value_color,
             bold: false,
-            rotation: -self.symbol.value_rotation,
+            rotation: draw_rotation(self.symbol.rotation, self.symbol.value_rotation),
             text_anchor: self.symbol.value_h_align.clone(),
             dominant_baseline: self.symbol.value_v_align.clone(),
         }));
@@ -392,6 +391,28 @@ pub fn get_symbol_transform(rotation: i32, mirror: &Mirror) -> crate::render_cor
         Mirror::X => crate::render_core::Matrix::new([a, b, -c, -d, 0.0, 0.0]),
         Mirror::Y => crate::render_core::Matrix::new([-a, -b, c, d, 0.0, 0.0]),
         Mirror::None => crate::render_core::Matrix::new([a, b, c, d, 0.0, 0.0]),
+    }
+}
+
+/// Compute the effective draw rotation for a property text, matching JS `SchField.draw_rotation`.
+///
+/// JS logic: check if the symbol transform's element[1] has |value| == 1,
+/// which indicates 90° or 270° symbol rotation. If so, swap the text angle:
+/// - 0°/180° → 90°
+/// - 90°/270° → 0°
+/// Otherwise, keep the property's own angle.
+fn draw_rotation(symbol_rotation: i32, property_angle_deg: f64) -> f64 {
+    let matrix = get_symbol_transform(symbol_rotation, &Mirror::None);
+    // JS checks parent_transform.elements[1] which is matrix.elements[1]
+    if matrix.elements[1].abs() == 1.0 {
+        let deg = property_angle_deg % 360.0;
+        if (deg - 0.0).abs() < 0.5 || (deg - 180.0).abs() < 0.5 {
+            90.0
+        } else {
+            0.0
+        }
+    } else {
+        property_angle_deg
     }
 }
 
