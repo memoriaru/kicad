@@ -1,6 +1,6 @@
 [package]
 name = "kicad-render"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2021"
 description = "KiCad schematic renderer - 1:1 port from KiCanvas JS"
 authors = ["Developer"]
