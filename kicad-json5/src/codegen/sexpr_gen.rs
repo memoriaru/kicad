@@ -1094,16 +1094,27 @@ impl SexprGenerator {
         }
 
         // lib_id-based detection (works even when pins.len() == 0)
+        // Standard Device library IDs: Device:R, Device:C, Device:L, Device:D, Device:LED, Device:Thermistor_NTC
         if full.contains("LED") {
             return DefaultSymbolKind::Led;
         }
-        if short.starts_with("R") || full.contains("RESIST") || full.contains("THERM") {
+        if full.contains("RESIST") || full.contains("THERM") || full.contains("NTC") {
             return DefaultSymbolKind::Resistor;
         }
-        if short.starts_with("C") || full.contains("CAP") {
+        // Match "R" exactly or "Device:R" (not "RT9193", "R_Small", etc.)
+        if short == "R" || full == "DEVICE:R" || short.starts_with("R_") {
+            return DefaultSymbolKind::Resistor;
+        }
+        if full.contains("CAP") {
             return DefaultSymbolKind::Capacitor;
         }
-        if short.starts_with("L") || full.contains("IND") {
+        if short == "C" || full == "DEVICE:C" || short.starts_with("C_") {
+            return DefaultSymbolKind::Capacitor;
+        }
+        if full.contains("IND") {
+            return DefaultSymbolKind::Inductor;
+        }
+        if short == "L" || full == "DEVICE:L" || short.starts_with("L_") {
             return DefaultSymbolKind::Inductor;
         }
         if full.contains("DIODE")
@@ -1751,6 +1762,7 @@ impl SexprGenerator {
 
     /// Compute local pin positions for a symbol based on its template type.
     /// Returns HashMap<pin_number, (local_x, local_y)>.
+    /// Uses the same pin numbering as gen_*_unit (get_pin_or_default) to avoid mismatches.
     fn compute_pin_positions(symbol: &Symbol) -> HashMap<String, (f64, f64)> {
         let kind = Self::detect_default_kind(symbol);
         let mut positions = HashMap::new();
@@ -1758,12 +1770,12 @@ impl SexprGenerator {
         match kind {
             DefaultSymbolKind::Connector => {
                 let pin_count = symbol.pins.len();
+                if pin_count == 0 { return positions; }
                 let short = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
                 let is_dual_row = short.contains("02x") || short.contains("_02x");
                 let spacing = 2.54;
 
                 if is_dual_row {
-                    // Dual-row: alternating left (-5.08) / right (7.62)
                     let rows = (pin_count + 1) / 2;
                     for (i, pin) in symbol.pins.iter().enumerate() {
                         let row = i / 2;
@@ -1775,7 +1787,6 @@ impl SexprGenerator {
                         }
                     }
                 } else {
-                    // Single-row: all pins at x=-5.08
                     for (i, pin) in symbol.pins.iter().enumerate() {
                         let y = ((pin_count - 1) - i) as f64 * spacing;
                         positions.insert(pin.number.clone(), (-5.08, y));
@@ -1801,26 +1812,26 @@ impl SexprGenerator {
                     }
                 }
             }
-            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin
-            | DefaultSymbolKind::Capacitor | DefaultSymbolKind::Inductor => {
-                // KiCad standard Device library: vertical layout
-                // pin 1 at (0, 3.81, 270), pin 2 at (0, -3.81, 90)
-                if let Some(pin1) = symbol.pins.first() {
-                    positions.insert(pin1.number.clone(), (0.0, 3.81));
-                }
-                if let Some(pin2) = symbol.pins.get(1) {
-                    positions.insert(pin2.number.clone(), (0.0, -3.81));
-                }
+            // 2-pin passives: use pin at positions from KiCad standard symbols.
+            // These are the (at x y angle) values in the lib_symbol definition,
+            // which match what SCH_PIN::GetPosition() returns after Y-negation.
+            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin => {
+                let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+                positions.insert(pin1.number.clone(), (0.0, 3.81));
+                let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+                positions.insert(pin2.number.clone(), (0.0, -3.81));
+            }
+            DefaultSymbolKind::Capacitor | DefaultSymbolKind::Inductor => {
+                let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+                positions.insert(pin1.number.clone(), (0.0, 3.81));
+                let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+                positions.insert(pin2.number.clone(), (0.0, -3.81));
             }
             DefaultSymbolKind::Diode | DefaultSymbolKind::Led => {
-                // KiCad standard Device library: horizontal layout
-                // pin 1 at (-3.81, 0, 0), pin 2 at (3.81, 0, 180)
-                if let Some(pin1) = symbol.pins.first() {
-                    positions.insert(pin1.number.clone(), (-3.81, 0.0));
-                }
-                if let Some(pin2) = symbol.pins.get(1) {
-                    positions.insert(pin2.number.clone(), (3.81, 0.0));
-                }
+                let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+                positions.insert(pin1.number.clone(), (-3.81, 0.0));
+                let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+                positions.insert(pin2.number.clone(), (3.81, 0.0));
             }
         }
 
@@ -1841,6 +1852,32 @@ impl SexprGenerator {
                 let c = rad.cos();
                 let s = rad.sin();
                 (lx * c + ly * s, -lx * s + ly * c)
+            }
+        }
+    }
+
+    /// Transform a local file-coordinate offset by component rotation.
+    /// Input (lx, ly) is in file coordinates (Y-DOWN) relative to symbol origin.
+    /// Output is the file-coordinate offset to add to the component's (at) position.
+    ///
+    /// KiCad internally uses Y-UP; parseXY(true) negates Y when loading.
+    /// The net effect on file coords is:
+    ///   0° → (lx, ly),  90° → (-ly, lx),  180° → (-lx, -ly),  270° → (ly, -lx)
+    fn transform_file_offset(lx: f64, ly: f64, rotation_deg: f64) -> (f64, f64) {
+        match rotation_deg as i32 {
+            0 | 360 => (lx, ly),
+            90 | -270 => (-ly, lx),
+            180 | -180 => (-lx, -ly),
+            270 | -90 => (ly, -lx),
+            _ => {
+                // Generic: same as KiCad's internal transform applied to file coords
+                let (ix, iy) = (lx, -ly); // file → internal
+                let rad = rotation_deg.to_radians();
+                let c = rad.cos();
+                let s = rad.sin();
+                let rx = ix * c + iy * s;
+                let ry = -ix * s + iy * c;
+                (rx, -ry) // internal → file
             }
         }
     }
@@ -1990,9 +2027,9 @@ impl SexprGenerator {
             for pin in &comp.pins {
                 if let (Some(net_id), Some(&(lx, ly))) = (pin.net_id, pin_positions.get(&pin.number)) {
                     if let Some(net_name) = net_names.get(&net_id) {
-                        // KiCad lib_symbol uses Y-up convention; schematic uses Y-down.
-                        // Pin world position = component_pos + transform(pin_local_pos)
-                        // where transform for rotation=0 negates the Y coordinate.
+                        // Pin world position in file coordinates:
+                        // KiCad internally Y-negates pin at positions (parseXY(true)),
+                        // so we negate Y here to match. Then apply component rotation.
                         let (rx, ry) = Self::rotate_point(lx, -ly, crot);
                         let wx = cx + rx;
                         let wy = cy + ry;
@@ -2022,10 +2059,11 @@ impl SexprGenerator {
         let default_effects = TextEffects::default();
 
         for (x, y, rot, net_name) in &labels_to_place {
-            self.write_line(output, "(label");
+            self.write_line(output, "(global_label");
             self.indent_level += 1;
             self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
             self.write_line(output, &Self::format_at(*x, *y, *rot));
+            self.write_line(output, "(shape passive)");
             self.generate_effects(output, &default_effects);
             if self.config.include_uuids {
                 self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
