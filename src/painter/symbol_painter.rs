@@ -283,7 +283,8 @@ impl SymbolPainter {
             font_size: constants::TEXT_SIZE,
             color: self.reference_color,
             bold: false,
-            rotation: self.symbol.reference_rotation,
+            // KiCad stores angles as counterclockwise; SVG rotate() is clockwise
+            rotation: -self.symbol.reference_rotation,
             text_anchor: self.symbol.reference_h_align.clone(),
             dominant_baseline: self.symbol.reference_v_align.clone(),
         }));
@@ -311,7 +312,7 @@ impl SymbolPainter {
             font_size: constants::TEXT_SIZE,
             color: self.value_color,
             bold: false,
-            rotation: self.symbol.value_rotation,
+            rotation: -self.symbol.value_rotation,
             text_anchor: self.symbol.value_h_align.clone(),
             dominant_baseline: self.symbol.value_v_align.clone(),
         }));
