@@ -650,7 +650,7 @@ impl SexprGenerator {
             }
         }
 
-        self.write_line(output, &format!("(symbol \"{}\"", symbol.lib_id));
+        self.write_line(output, &format!("(symbol \"{}\"", Self::normalize_lib_id(&symbol.lib_id)));
         self.indent_level += 1;
 
         let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
@@ -1007,7 +1007,7 @@ impl SexprGenerator {
         self.indent_level += 1;
 
         // lib_id
-        self.write_line(output, &format!("(lib_id \"{}\")", component.lib_id));
+        self.write_line(output, &format!("(lib_id \"{}\")", Self::normalize_lib_id(&component.lib_id)));
 
         // at
         self.write_line(
@@ -2052,6 +2052,16 @@ impl SexprGenerator {
         positions
     }
 
+    /// Normalize lib_id: ensure it has a library prefix (LibraryName:SymbolName).
+    /// "Device:R" → unchanged; "FP6277" → "custom:FP6277".
+    fn normalize_lib_id(lib_id: &str) -> String {
+        if lib_id.contains(':') {
+            lib_id.to_string()
+        } else {
+            format!("custom:{}", lib_id)
+        }
+    }
+
     /// Rotate a local point by the component's rotation angle (degrees).
     /// KiCad uses CLOCKWISE rotation: 0=(1,0,0,1), 90=(0,1,-1,0), 180=(-1,0,0,-1), 270=(0,-1,1,0)
     fn rotate_point(lx: f64, ly: f64, rotation_deg: f64) -> (f64, f64) {
@@ -2124,13 +2134,14 @@ impl SexprGenerator {
         let mut symbol_pins: HashMap<String, HashMap<String, (f64, f64)>> = HashMap::new();
         for symbol in &schematic.lib_symbols {
             let positions = Self::compute_pin_positions(symbol);
-            symbol_pins.insert(symbol.lib_id.clone(), positions);
+            symbol_pins.insert(Self::normalize_lib_id(&symbol.lib_id), positions);
         }
 
         // 2. Build net -> list of absolute pin positions
         let mut net_endpoints: HashMap<u32, Vec<(f64, f64)>> = HashMap::new();
         for comp in &schematic.components {
-            let pin_positions = match symbol_pins.get(&comp.lib_id) {
+            let comp_lib_id = Self::normalize_lib_id(&comp.lib_id);
+            let pin_positions = match symbol_pins.get(&comp_lib_id) {
                 Some(p) => p,
                 None => continue,
             };
@@ -2220,7 +2231,7 @@ impl SexprGenerator {
         let mut symbol_pins: HashMap<String, HashMap<String, (f64, f64)>> = HashMap::new();
         for symbol in &schematic.lib_symbols {
             let positions = Self::compute_pin_positions(symbol);
-            symbol_pins.insert(symbol.lib_id.clone(), positions);
+            symbol_pins.insert(Self::normalize_lib_id(&symbol.lib_id), positions);
         }
 
         // 2. Build net_id -> net_name lookup
@@ -2232,7 +2243,8 @@ impl SexprGenerator {
         let mut labels_to_place: Vec<(f64, f64, f64, &str)> = Vec::new();
 
         for comp in &schematic.components {
-            let pin_positions = match symbol_pins.get(&comp.lib_id) {
+            let comp_lib_id = Self::normalize_lib_id(&comp.lib_id);
+            let pin_positions = match symbol_pins.get(&comp_lib_id) {
                 Some(p) => p,
                 None => continue,
             };
@@ -2273,11 +2285,12 @@ impl SexprGenerator {
         let default_effects = TextEffects::default();
 
         for (x, y, rot, net_name) in &labels_to_place {
-            self.write_line(output, "(global_label");
+            // Use local net labels (plain text) for most signals.
+            // Local labels connect pins within the same sheet — cleaner visually.
+            self.write_line(output, "(label");
             self.indent_level += 1;
             self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
             self.write_line(output, &Self::format_at(*x, *y, *rot));
-            self.write_line(output, "(shape passive)");
             self.generate_effects(output, &default_effects);
             if self.config.include_uuids {
                 self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
@@ -2288,7 +2301,8 @@ impl SexprGenerator {
 
         // 6. Generate (no_connect ...) for pins marked nc=true in JSON5
         for comp in &schematic.components {
-            let pin_positions = match symbol_pins.get(&comp.lib_id) {
+            let comp_lib_id = Self::normalize_lib_id(&comp.lib_id);
+            let pin_positions = match symbol_pins.get(&comp_lib_id) {
                 Some(p) => p,
                 None => continue,
             };
@@ -2331,19 +2345,20 @@ impl SexprGenerator {
         let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
 
         // Build lib_id -> { pin_number -> pin_type } from lib_symbols
-        let mut lib_pin_types: HashMap<&str, HashMap<&str, &str>> = HashMap::new();
+        let mut lib_pin_types: HashMap<String, HashMap<&str, &str>> = HashMap::new();
         for symbol in &schematic.lib_symbols {
             let mut pin_map: HashMap<&str, &str> = HashMap::new();
             for pin in &symbol.pins {
                 pin_map.insert(&pin.number, &pin.pin_type);
             }
-            lib_pin_types.insert(&symbol.lib_id, pin_map);
+            lib_pin_types.insert(Self::normalize_lib_id(&symbol.lib_id), pin_map);
         }
 
         // Collect net_id -> set of pin types (from lib_symbol definitions)
         let mut net_pin_types: HashMap<u32, Vec<&str>> = HashMap::new();
         for comp in &schematic.components {
-            let pin_type_map = match lib_pin_types.get(comp.lib_id.as_str()) {
+            let comp_lib_id = Self::normalize_lib_id(&comp.lib_id);
+            let pin_type_map = match lib_pin_types.get(&comp_lib_id) {
                 Some(m) => m,
                 None => continue,
             };

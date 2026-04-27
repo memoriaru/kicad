@@ -61,14 +61,30 @@ impl LabelPainter {
         Self { label, color }
     }
 
-    /// Paint the label text
+    /// Paint the label text.
+    /// For global/hierarchical labels, offset text past the shape so it doesn't overlap.
+    /// KiCad places text to the right of the shape at the connection point.
     fn paint_label_text(&self, layers: &mut LayerSet) {
         let layer = layers.get_layer_mut(&LayerId::labels()).unwrap();
 
         let text_width = self.label.text.len() as f64 * self.label.font_size * constants::CHAR_WIDTH_RATIO;
+
+        // For global/hierarchical labels, offset text past the shape.
+        // KiCad places text after the shape: offset ≈ font_size + margin.
+        let shape_offset = match self.label.label_type {
+            LabelType::Local => 0.0,
+            LabelType::Global | LabelType::Hierarchical => {
+                // Hierarchical diamond extends font_size/2 from connection point.
+                // Add text margin gap after the shape tip.
+                self.label.font_size / 2.0 + constants::TEXT_MARGIN
+            }
+        };
+
         let pos = match self.label.rotation {
-            180 => Point::new(self.label.position.x - text_width, self.label.position.y),
-            90 => Point::new(self.label.position.x, self.label.position.y + text_width),
+            0 => Point::new(self.label.position.x + shape_offset, self.label.position.y),
+            180 => Point::new(self.label.position.x - text_width - shape_offset, self.label.position.y),
+            90 => Point::new(self.label.position.x, self.label.position.y + shape_offset),
+            270 => Point::new(self.label.position.x, self.label.position.y - text_width - shape_offset),
             _ => self.label.position,
         };
 

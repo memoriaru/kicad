@@ -1,6 +1,6 @@
 use anyhow::{Result, Context};
 use clap::{Parser, Subcommand};
-use component_db::ComponentDb;
+use kicad_cdb::ComponentDb;
 
 #[derive(Parser)]
 #[command(name = "cdb", about = "Component Database CLI for AI-assisted circuit design")]
@@ -238,7 +238,7 @@ fn cmd_show(db: &ComponentDb, mpn: &str) -> Result<()> {
         "SELECT id, mpn, manufacturer, category_id, description, package, lifecycle, datasheet_url, kicad_symbol, kicad_footprint
          FROM components WHERE mpn = ?1 LIMIT 1",
         rusqlite::params![mpn],
-        |row| Ok(component_db::Component {
+        |row| Ok(kicad_cdb::Component {
             id: Some(row.get(0)?), mpn: row.get(1)?, manufacturer: row.get(2)?,
             category_id: row.get(3)?, description: row.get(4)?, package: row.get(5)?,
             lifecycle: row.get(6)?, datasheet_url: row.get(7)?,
@@ -311,9 +311,9 @@ fn cmd_show(db: &ComponentDb, mpn: &str) -> Result<()> {
 }
 
 fn cmd_categories(db: &ComponentDb) -> Result<()> {
-    let cats: Vec<component_db::Category> = db.conn
+    let cats: Vec<kicad_cdb::Category> = db.conn
         .prepare("SELECT id, name, parent_id, description FROM categories ORDER BY name")?
-        .query_map([], |row| Ok(component_db::Category {
+        .query_map([], |row| Ok(kicad_cdb::Category {
             id: Some(row.get(0)?), name: row.get(1)?, parent_id: row.get(2)?, description: row.get(3)?,
         }))?.filter_map(|r| r.ok()).collect();
 
@@ -330,7 +330,7 @@ fn cmd_check(db: &ComponentDb, rule_name: &str, params_str: &str, candidate: Opt
         "SELECT id, name, category_id, description, condition_expr, formula_expr, check_expr, parameters, output_params, source
          FROM design_rules WHERE name = ?1",
         rusqlite::params![rule_name],
-        |row| Ok(component_db::DesignRule {
+        |row| Ok(kicad_cdb::DesignRule {
             id: Some(row.get(0)?), name: row.get(1)?, category_id: row.get(2)?,
             description: row.get(3)?, condition_expr: row.get(4)?, formula_expr: row.get(5)?,
             check_expr: row.get(6)?, parameters: row.get(7)?, output_params: row.get(8)?,
@@ -383,7 +383,7 @@ fn cmd_export(db: &ComponentDb, mpn: Option<&str>, category: Option<&str>, outpu
                     "SELECT id, mpn, manufacturer, category_id, description, package, lifecycle, datasheet_url, kicad_symbol, kicad_footprint
                      FROM components WHERE mpn = ?1 LIMIT 1",
                     rusqlite::params![mpn],
-                    |row| Ok(component_db::Component {
+                    |row| Ok(kicad_cdb::Component {
                         id: Some(row.get(0)?), mpn: row.get(1)?, manufacturer: row.get(2)?,
                         category_id: row.get(3)?, description: row.get(4)?, package: row.get(5)?,
                         lifecycle: row.get(6)?, datasheet_url: row.get(7)?,
