@@ -74,9 +74,9 @@ impl LabelPainter {
         let shape_offset = match self.label.label_type {
             LabelType::Local => 0.0,
             LabelType::Global | LabelType::Hierarchical => {
-                // Hierarchical diamond extends font_size/2 from connection point.
+                // Hierarchical shapes extend font_size from connection point.
                 // Add text margin gap after the shape tip.
-                self.label.font_size / 2.0 + constants::TEXT_MARGIN
+                self.label.font_size + constants::TEXT_MARGIN
             }
         };
 

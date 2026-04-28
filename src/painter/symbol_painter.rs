@@ -263,6 +263,44 @@ impl SymbolPainter {
         }
     }
 
+    /// Compute the draw position for a property text, accounting for
+    /// KiCad's symbol coordinate system transform.
+    ///
+    /// When draw_rotation swaps the text angle (90↔0 for rotated symbols),
+    /// the horizontal offset must also be negated to compensate for the
+    /// Y-flip built into KiCad's symbol transform matrix.
+    fn compute_text_center(
+        anchor_pos: Point,
+        text: &str,
+        font_size: f64,
+        h_align: &str,
+        v_align: &str,
+        original_angle: f64,
+        draw_angle: f64,
+    ) -> Point {
+        let text_width = text.len() as f64 * font_size * constants::CHAR_WIDTH_RATIO;
+        let text_height = font_size;
+
+        let mut dx = match h_align {
+            "end" => -text_width / 2.0,
+            "middle" => 0.0,
+            _ => text_width / 2.0,
+        };
+
+        let dy = match v_align {
+            "hanging" | "top" => text_height / 2.0,
+            _ => 0.0,
+        };
+
+        // When draw_rotation swapped the angle, negate x offset to compensate
+        // for the Y-flip in KiCad's symbol transform
+        if (original_angle - draw_angle).abs() > 1.0 {
+            dx = -dx;
+        }
+
+        Point::new(anchor_pos.x + dx, anchor_pos.y + dy)
+    }
+
     /// Paint reference text
     fn paint_reference(&self, layers: &mut LayerSet) {
         if self.symbol.reference.is_empty() || self.symbol.reference_hidden || self.symbol.reference.starts_with('#') {
@@ -271,21 +309,33 @@ impl SymbolPainter {
 
         let layer = layers.get_layer_mut(&LayerId::symbol_foreground()).unwrap();
 
-        let pos = if let Some((rx, ry)) = self.symbol.reference_position {
+        let anchor_pos = if let Some((rx, ry)) = self.symbol.reference_position {
             Point::new(rx, ry)
         } else {
             Point::new(self.symbol.position.x, self.symbol.position.y - 2.54)
         };
 
+        let orient = draw_rotation(self.symbol.rotation, self.symbol.reference_rotation);
+
+        let center = Self::compute_text_center(
+            anchor_pos,
+            &self.symbol.reference,
+            constants::TEXT_SIZE,
+            &self.symbol.reference_h_align,
+            &self.symbol.reference_v_align,
+            self.symbol.reference_rotation,
+            orient,
+        );
+
         layer.add_element(LayerElement::new(LayerElementType::Text {
-            position: pos,
+            position: center,
             text: self.symbol.reference.clone(),
             font_size: constants::TEXT_SIZE,
             color: self.reference_color,
             bold: false,
-            rotation: draw_rotation(self.symbol.rotation, self.symbol.reference_rotation),
-            text_anchor: self.symbol.reference_h_align.clone(),
-            dominant_baseline: self.symbol.reference_v_align.clone(),
+            rotation: orient,
+            text_anchor: "middle".to_string(),
+            dominant_baseline: "central".to_string(),
         }));
     }
 
@@ -297,23 +347,33 @@ impl SymbolPainter {
 
         let layer = layers.get_layer_mut(&LayerId::symbol_foreground()).unwrap();
 
-        let pos = if let Some((vx, vy)) = self.symbol.value_position {
-            // Use actual KiCad property position (already in schematic coords)
+        let anchor_pos = if let Some((vx, vy)) = self.symbol.value_position {
             Point::new(vx, vy)
         } else {
-            // Fallback: below symbol
             Point::new(self.symbol.position.x, self.symbol.position.y + 2.54)
         };
 
+        let orient = draw_rotation(self.symbol.rotation, self.symbol.value_rotation);
+
+        let center = Self::compute_text_center(
+            anchor_pos,
+            &self.symbol.value,
+            constants::TEXT_SIZE,
+            &self.symbol.value_h_align,
+            &self.symbol.value_v_align,
+            self.symbol.value_rotation,
+            orient,
+        );
+
         layer.add_element(LayerElement::new(LayerElementType::Text {
-            position: pos,
+            position: center,
             text: self.symbol.value.clone(),
             font_size: constants::TEXT_SIZE,
             color: self.value_color,
             bold: false,
-            rotation: draw_rotation(self.symbol.rotation, self.symbol.value_rotation),
-            text_anchor: self.symbol.value_h_align.clone(),
-            dominant_baseline: self.symbol.value_v_align.clone(),
+            rotation: orient,
+            text_anchor: "middle".to_string(),
+            dominant_baseline: "central".to_string(),
         }));
     }
 }
