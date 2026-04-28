@@ -47,7 +47,11 @@ fn main() -> Result<()> {
     );
 
     // Render
-    let sch_renderer = SchematicRenderer::new(&schematic);
+    let file_name = input_path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let sch_renderer = SchematicRenderer::new(&schematic)
+        .with_file_name(file_name);
     let bbox = sch_renderer.bbox();
     let (paper_w, paper_h) = sch_renderer.paper_size();
     eprintln!("Paper size: {:.1} x {:.1} mm", paper_w, paper_h);
