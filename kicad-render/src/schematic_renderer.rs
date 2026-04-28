@@ -11,7 +11,7 @@ use crate::painter::{
     JunctionPainter, LabelPainter, SymbolPainter, Painter,
 };
 use crate::painter::{Junction, Label, LabelType};
-use crate::render_core::{Point, BoundingBox};
+use crate::render_core::{Point, BoundingBox, Color};
 use crate::render_core::graphics::{Polyline, Polygon, Stroke};
 use crate::renderer::Renderer;
 use crate::constants;
@@ -327,51 +327,56 @@ impl<'a> SchematicRenderer<'a> {
 
         // ── Title block text ──────────────────────────────────
         // All positions from rbcorner: pos = (ix2 - px, iy2 - py)
+        // KiCad .kicad_wks positions are baseline-anchored. SVG_FONT_SCALE (1.35)
+        // makes ascenders taller than the wks layout expects, so we add a small
+        // downward offset (+dy) so the visual text top clears the line above.
         let tb = &self.schematic.metadata.title_block;
         let font = constants::SHEET_TEXT_FONT;
         let title_font = constants::SHEET_TITLE_FONT;
+        let dy = 0.5; // mm downward offset to compensate SVG_FONT_SCALE ascender overshoot
+        let dy_title = 0.8; // larger offset for bold 2mm title font
 
         // (tbtext "${KICAD_VERSION}" (pos 109 4.1))
-        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 4.1), "kicad-render", font, &text_color, false, 0.0, "", "");
+        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 4.1 + dy), "kicad-render", font, &text_color, false, 0.0, "", "");
 
         // (tbtext "Id: ${#}/${##}" (pos 24 4.1))
-        renderer.draw_text(&Point::new(ix2 - 24.0, iy2 - 4.1), "Id: 1/1", font, &text_color, false, 0.0, "", "");
+        renderer.draw_text(&Point::new(ix2 - 24.0, iy2 - 4.1 + dy), "Id: 1/1", font, &text_color, false, 0.0, "", "");
 
         // (tbtext "Date: ${ISSUE_DATE}" (pos 87 6.9))
         if let Some(date) = &tb.date {
-            renderer.draw_text(&Point::new(ix2 - 87.0, iy2 - 6.9), &format!("Date: {}", date), font, &text_color, false, 0.0, "", "");
+            renderer.draw_text(&Point::new(ix2 - 87.0, iy2 - 6.9 + dy), &format!("Date: {}", date), font, &text_color, false, 0.0, "", "");
         }
 
         // (tbtext "Rev: ${REVISION}" (pos 24 6.9) (font bold))
         if let Some(rev) = &tb.rev {
-            renderer.draw_text(&Point::new(ix2 - 24.0, iy2 - 6.9), &format!("Rev: {}", rev), font, &text_color, true, 0.0, "", "");
+            renderer.draw_text(&Point::new(ix2 - 24.0, iy2 - 6.9 + dy), &format!("Rev: {}", rev), font, &text_color, true, 0.0, "", "");
         }
 
         // (tbtext "Size: ${PAPER}" (pos 109 6.9))
-        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 6.9), &format!("Size: {}", self.schematic.metadata.paper.size), font, &text_color, false, 0.0, "", "");
+        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 6.9 + dy), &format!("Size: {}", self.schematic.metadata.paper.size), font, &text_color, false, 0.0, "", "");
 
         // (tbtext "Title: ${TITLE}" (pos 109 10.7) (font (size 2 2) bold italic))
         if let Some(title) = &tb.title {
-            renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 10.7), title, title_font, &text_color, false, 0.0, "", "");
+            renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 10.7 + dy_title), &format!("Title: {}", title), title_font, &text_color, false, 0.0, "", "");
         }
 
         // (tbtext "File: ${FILENAME}" (pos 109 14.3))
         if !self.file_name.is_empty() {
-            renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 14.3), &format!("File: {}", self.file_name), font, &text_color, false, 0.0, "", "");
+            renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 14.3 + dy), &format!("File: {}", self.file_name), font, &text_color, false, 0.0, "", "");
         }
 
         // (tbtext "Sheet: ${SHEETPATH}" (pos 109 17))
-        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 17.0), "Sheet: /", font, &text_color, false, 0.0, "", "");
+        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 17.0 + dy), "Sheet: /", font, &text_color, false, 0.0, "", "");
 
         // (tbtext "${COMPANY}" (pos 109 20) (font bold))
         if let Some(company) = &tb.company {
-            renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 20.0), company, font, &text_color, false, 0.0, "", "");
+            renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 20.0 + dy), company, font, &text_color, false, 0.0, "", "");
         }
 
         // Comments 1-4: (tbtext "${COMMENT1-4}" (pos 109 23/26/29/32))
-        for (comment, dy) in tb.comments.iter().zip([23.0_f64, 26.0, 29.0, 32.0].iter()) {
+        for (comment, cdy) in tb.comments.iter().zip([23.0_f64, 26.0, 29.0, 32.0].iter()) {
             if !comment.is_empty() {
-                renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - dy), comment, font, &text_color, false, 0.0, "", "");
+                renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - cdy + dy), comment, font, &text_color, false, 0.0, "", "");
             }
         }
     }
@@ -417,11 +422,12 @@ impl<'a> SchematicRenderer<'a> {
         // 4. Labels (net names)
         for label_ir in &self.schematic.labels {
             let label: Label = bridge::convert_label(label_ir);
-            let color = match label.label_type {
+            let default_color = match label.label_type {
                 LabelType::Global => constants::global_label_color(),
                 LabelType::Hierarchical => constants::hier_label_color(),
                 LabelType::Local => constants::label_color(),
             };
+            let color = label.custom_color.unwrap_or(default_color);
             let label_painter = LabelPainter::new(label, color);
             label_painter.paint(&mut layers);
         }
@@ -434,7 +440,10 @@ impl<'a> SchematicRenderer<'a> {
         for text_item in &self.schematic.text_items {
             let font_size = text_item.effects.font.size.1.max(text_item.effects.font.size.0);
             let size = if font_size > 0.0 { font_size } else { constants::TEXT_SIZE };
-            let color = constants::note_color();
+            let default_color = constants::note_color();
+            let color = text_item.effects.font.color.map_or(default_color, |(r, g, b, _a)| {
+                Color::from_rgb(r, g, b)
+            });
             let bold = text_item.effects.font.bold;
 
             // Normalize: strip trailing newlines, split on \n, remove empty lines,

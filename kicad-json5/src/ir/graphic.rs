@@ -171,6 +171,8 @@ pub struct Font {
     pub size: (f64, f64), // width, height
     pub bold: bool,
     pub italic: bool,
+    /// Custom text color (R, G, B, A), 0–255 per channel
+    pub color: Option<(u8, u8, u8, u8)>,
 }
 
 impl Default for Font {
@@ -179,6 +181,7 @@ impl Default for Font {
             size: (1.27, 1.27), // Default KiCad font size
             bold: false,
             italic: false,
+            color: None,
         }
     }
 }

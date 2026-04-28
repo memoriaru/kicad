@@ -72,6 +72,9 @@ pub fn convert_label(label: &IrLabel) -> Label {
         _ => LabelShape::Passive,
     };
     let font_size = label.effects.font.size.1.max(label.effects.font.size.0);
+    let custom_color = label.effects.font.color.map(|(r, g, b, _a)| {
+        Color::from_rgb(r, g, b)
+    });
     Label {
         label_type,
         position: Point::new(label.position.0, label.position.1),
@@ -79,6 +82,7 @@ pub fn convert_label(label: &IrLabel) -> Label {
         text: label.text.clone(),
         shape,
         font_size: if font_size > 0.0 { font_size } else { constants::TEXT_SIZE },
+        custom_color,
     }
 }
 
@@ -186,6 +190,7 @@ pub fn convert_symbol(
         value_v_align: v_align_to_svg(val_justify.vertical),
         reference_hidden,
         value_hidden,
+        dnp: component.dnp,
     }
 }
 
