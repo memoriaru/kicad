@@ -13,5 +13,5 @@ pub use graphic::{
     VerticalAlign,
 };
 pub use net::{Bus, BusEntry, Junction, Label, Net, NoConnect, Wire};
-pub use schematic::{Metadata, Paper, Schematic, TitleBlock};
+pub use schematic::{Metadata, Paper, Schematic, Sheet, SheetPin, SheetProperty, TitleBlock};
 pub use symbol::Symbol;
