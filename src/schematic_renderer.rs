@@ -174,6 +174,16 @@ impl<'a> SchematicRenderer<'a> {
             }
         }
 
+        for sheet in &self.schematic.sheets {
+            let (x, y) = sheet.position;
+            let (w, h) = sheet.size;
+            bbox.expand_point(x, y);
+            bbox.expand_point(x + w, y + h);
+            for pin in &sheet.pins {
+                bbox.expand_point(pin.position.0, pin.position.1);
+            }
+        }
+
         if bbox.is_empty() {
             let (w, h) = self.paper_size();
             BoundingBox::from_min_max(0.0, 0.0, w, h)
@@ -392,6 +402,12 @@ impl<'a> SchematicRenderer<'a> {
         if !self.schematic.wires.is_empty() {
             let wire_painter = bridge::convert_wires(&self.schematic.wires);
             wire_painter.paint(&mut layers);
+        }
+
+        // 1b. Sheets (hierarchical sheet boxes — background layer Z=3)
+        for sheet_ir in &self.schematic.sheets {
+            let sheet_painter = bridge::convert_sheet(sheet_ir);
+            sheet_painter.paint(&mut layers);
         }
 
         // 2. Junctions

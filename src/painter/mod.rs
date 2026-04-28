@@ -8,12 +8,14 @@ mod wire_painter;
 mod symbol_painter;
 mod label_painter;
 mod junction_painter;
+mod sheet_painter;
 
 pub use pin_painter::{PinPainter, PinGraphic, PinType, PinShape, PinOrientation};
 pub use wire_painter::{WirePainter, WireSegment};
 pub use symbol_painter::{SymbolPainter, SymbolInstance, Mirror};
 pub use label_painter::{LabelPainter, Label, LabelType, LabelShape};
 pub use junction_painter::{JunctionPainter, Junction};
+pub use sheet_painter::{SheetPainter, SheetInstance, SheetPropertyRender, SheetPinRender};
 
 use crate::render_core::BoundingBox;
 

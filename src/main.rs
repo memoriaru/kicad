@@ -38,12 +38,13 @@ fn main() -> Result<()> {
     let schematic = parser.parse()
         .with_context(|| "Parsing failed")?;
 
-    eprintln!("Parsed: {} wires, {} components, {} junctions, {} labels, {} text_items",
+    eprintln!("Parsed: {} wires, {} components, {} junctions, {} labels, {} text_items, {} sheets",
         schematic.wires.len(),
         schematic.components.len(),
         schematic.junctions.len(),
         schematic.labels.len(),
         schematic.text_items.len(),
+        schematic.sheets.len(),
     );
 
     // Render
