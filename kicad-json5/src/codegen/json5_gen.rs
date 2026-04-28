@@ -1,7 +1,7 @@
 //! JSON5 code generator
 
 use crate::error::Result;
-use crate::ir::{Net, Schematic, Symbol, SymbolInstance};
+use crate::ir::{Net, RenderHint, Schematic, Symbol, SymbolInstance};
 
 /// JSON5 generator configuration
 #[derive(Debug, Clone)]
@@ -245,6 +245,10 @@ impl Json5Generator {
 
         if let Some(net_type) = &net.net_type {
             self.write_field(output, "type", &format!("\"{}\"", net_type), 3);
+        }
+
+        if net.render != RenderHint::default() {
+            self.write_field(output, "render", &format!("\"{}\"", net.render.as_str()), 3);
         }
 
         output.push_str(&format!("{}}},\n", self.indent(2)));

@@ -1,14 +1,28 @@
 use super::*;
+use crate::ir::{Net, RenderHint};
+use std::collections::HashSet;
 
 // ============== Symbol Library Generation ==============
 
 impl SexprGenerator {
-    pub(super) fn generate_lib_symbols(&mut self, output: &mut String, symbols: &[Symbol]) {
+    pub(super) fn generate_lib_symbols(&mut self, output: &mut String, symbols: &[Symbol], nets: &[Net]) {
         self.write_line(output, "(lib_symbols");
         self.indent_level += 1;
 
         for symbol in symbols {
             self.generate_symbol_def(output, symbol);
+        }
+
+        // Inject power symbol lib definitions for render=Power nets
+        let mut injected: HashSet<String> = HashSet::new();
+        for net in nets {
+            if net.render == RenderHint::Power {
+                if let Some(lib_id) = Self::resolve_power_symbol(&net.name) {
+                    if injected.insert(lib_id.clone()) {
+                        self.generate_minimal_power_lib(output, &lib_id, &net.name);
+                    }
+                }
+            }
         }
 
         // Inject PWR_FLAG symbol for power pin driven checks (only when enabled)
@@ -204,6 +218,105 @@ impl SexprGenerator {
             self.write_line(output, ")");
         }
 
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Generate a minimal power symbol lib definition for render=Power nets.
+    /// Produces a KiCad-compatible power symbol with a single power_out pin.
+    fn generate_minimal_power_lib(&mut self, output: &mut String, lib_id: &str, net_name: &str) {
+        let short = lib_id.split(':').last().unwrap_or(lib_id);
+        let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
+
+        self.write_line(output, &format!("(symbol \"{}\"", lib_id));
+        self.indent_level += 1;
+        self.write_line(output, "(power)");
+        self.write_line(output, "(pin_names");
+        self.indent_level += 1;
+        self.write_line(output, "(offset 0)");
+        self.write_line(output, "(hide yes)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        if is_v9_plus {
+            self.write_line(output, "(exclude_from_sim no)");
+        }
+        self.write_line(output, "(in_bom yes)");
+        self.write_line(output, "(on_board yes)");
+        if is_v9_plus {
+            self.write_line(output, "(in_pos_files yes)");
+            self.write_line(output, "(duplicate_pin_numbers_are_jumpers no)");
+        }
+
+        // Reference property
+        self.write_line(output, "(property \"Reference\" \"#PWR\"");
+        self.indent_level += 1;
+        self.write_line(output, "(at 0 0 0)");
+        self.write_line(output, "(effects (font (size 1.27 1.27)) hide)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Value property
+        self.write_line(output, &format!("(property \"Value\" \"{}\"", short));
+        self.indent_level += 1;
+        self.write_line(output, "(at 0 3.81 0)");
+        self.write_line(output, "(effects (font (size 1.27 1.27)))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Footprint property
+        self.write_line(output, "(property \"Footprint\" \"\"");
+        self.indent_level += 1;
+        self.write_line(output, "(at 0 0 0)");
+        self.write_line(output, "(effects (font (size 1.27 1.27)) hide)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Datasheet property
+        self.write_line(output, "(property \"Datasheet\" \"\"");
+        self.indent_level += 1;
+        self.write_line(output, "(at 0 0 0)");
+        self.write_line(output, "(effects (font (size 1.27 1.27)) hide)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Unit 0_1: vertical line from origin going up
+        self.write_line(output, &format!("(symbol \"{}_0_1\"", short));
+        self.indent_level += 1;
+        self.write_line(output, "(polyline");
+        self.indent_level += 1;
+        self.write_line(output, "(pts");
+        self.indent_level += 1;
+        self.write_line(output, "(xy 0 0) (xy 0 1.27)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.write_line(output, "(stroke (width 0) (type default))");
+        self.write_line(output, "(fill (type none))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.write_line(output, &format!("(text \"{}\" (at 0 2.54 0)", net_name));
+        self.indent_level += 1;
+        self.write_line(output, "(effects (font (size 1.27 1.27))))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        // Unit 0_0: power_out pin at origin
+        self.write_line(output, &format!("(symbol \"{}_0_0\"", short));
+        self.indent_level += 1;
+        self.write_line(output, "(pin power_out line (at 0 0 90) (length 0)");
+        self.indent_level += 1;
+        self.write_line(output, "(name \"\" (effects (font (size 1.27 1.27))))");
+        self.write_line(output, "(number \"1\" (effects (font (size 1.27 1.27))))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+
+        if is_v9_plus {
+            self.write_line(output, "(embedded_fonts no)");
+        }
         self.indent_level -= 1;
         self.write_line(output, ")");
     }

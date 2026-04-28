@@ -212,8 +212,8 @@ impl SexprGenerator {
         self.generate_title_block(&mut output, schematic);
 
         // Lib symbols
-        if !schematic.lib_symbols.is_empty() {
-            self.generate_lib_symbols(&mut output, &schematic.lib_symbols);
+        if !schematic.lib_symbols.is_empty() || schematic.nets.iter().any(|n| n.render == crate::ir::RenderHint::Power) {
+            self.generate_lib_symbols(&mut output, &schematic.lib_symbols, &schematic.nets);
         }
 
         // Note: KiCad 7+ schematics don't use top-level (net ...) declarations.

@@ -12,6 +12,6 @@ pub use graphic::{
     PinShape, PinType, Polyline, Rectangle, Stroke, StrokeType, SymbolUnit, Text, TextEffects,
     VerticalAlign,
 };
-pub use net::{Bus, BusEntry, Junction, Label, Net, NoConnect, Wire};
+pub use net::{Bus, BusEntry, Junction, Label, Net, NoConnect, RenderHint, Wire};
 pub use schematic::{Metadata, Paper, Schematic, Sheet, SheetPin, SheetProperty, TitleBlock};
 pub use symbol::Symbol;

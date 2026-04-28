@@ -9,7 +9,7 @@ use super::graphic::{
     Arc, Circle, Fill, FillType, Font, GraphicElement, HorizontalAlign, Justify, PinGraphic,
     PinType, Polyline, Rectangle, Stroke, StrokeType, SymbolUnit, Text, TextEffects, VerticalAlign,
 };
-use super::{Bus, BusEntry, Junction, Label, Net, NoConnect, Property, Symbol, SymbolInstance, Wire};
+use super::{Bus, BusEntry, Junction, Label, Net, NoConnect, Property, RenderHint, Symbol, SymbolInstance, Wire};
 use super::component::{InstancePath, InstanceProject};
 
 /// Paper size definition
@@ -1261,6 +1261,7 @@ impl Schematic {
             id,
             name,
             net_type,
+            render: RenderHint::default(),
         })
     }
 
