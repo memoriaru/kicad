@@ -19,30 +19,12 @@ pub fn from_database(db: &ComponentDb, mpn: &str) -> Result<SymbolSpec> {
 
     let comp = match comp {
         Some(c) => c,
-        None => {
-            // Try without manufacturer
-            return Err(anyhow::anyhow!("Component '{}' not found", mpn));
-        }
+        None => return Err(anyhow::anyhow!("Component '{}' not found", mpn)),
     };
 
     let id = comp.id.context("Component has no ID")?;
-
-    let db_pins = db.get_pins(id)?;
-
-    let pins: Vec<SymbolPin> = db_pins.into_iter().map(|p| {
-        SymbolPin {
-            number: p.pin_number,
-            name: p.pin_name,
-            electrical_type: ElectricalType::from_str_lossy(
-                p.electrical_type.as_deref().unwrap_or("passive")
-            ),
-            pin_group: p.pin_group,
-            alt_functions: p.alt_functions,
-            position: None,
-        }
-    }).collect();
-
-    let ref_prefix = infer_reference_prefix(&comp.category_id, &comp.kicad_symbol, &pins);
+    let pins = map_pins(db.get_pins(id)?);
+    let ref_prefix = infer_reference_prefix(&comp.kicad_symbol);
 
     Ok(SymbolSpec {
         mpn: comp.mpn,
@@ -63,29 +45,12 @@ pub fn from_database(db: &ComponentDb, mpn: &str) -> Result<SymbolSpec> {
 /// Load multiple SymbolSpecs from the database by category
 pub fn from_database_category(db: &ComponentDb, category: &str) -> Result<Vec<SymbolSpec>> {
     let components = db.query_components_by_category(category)?;
-    let mut specs = Vec::new();
-    for comp in components {
-        let id = match comp.id {
-            Some(id) => id,
-            None => continue,
-        };
-        let db_pins = db.get_pins(id)?;
-        let pins: Vec<SymbolPin> = db_pins.into_iter().map(|p| {
-            SymbolPin {
-                number: p.pin_number,
-                name: p.pin_name,
-                electrical_type: ElectricalType::from_str_lossy(
-                    p.electrical_type.as_deref().unwrap_or("passive")
-                ),
-                pin_group: p.pin_group,
-                alt_functions: p.alt_functions,
-                position: None,
-            }
-        }).collect();
+    components.into_iter().map(|comp| {
+        let id = comp.id.context("Component has no ID")?;
+        let pins = map_pins(db.get_pins(id)?);
+        let ref_prefix = infer_reference_prefix(&comp.kicad_symbol);
 
-        let ref_prefix = infer_reference_prefix(&comp.category_id, &comp.kicad_symbol, &pins);
-
-        specs.push(SymbolSpec {
+        Ok(SymbolSpec {
             mpn: comp.mpn,
             lib_name: comp.kicad_symbol.as_ref()
                 .and_then(|s| s.split(':').next())
@@ -98,20 +63,28 @@ pub fn from_database_category(db: &ComponentDb, category: &str) -> Result<Vec<Sy
             manufacturer: Some(comp.manufacturer),
             package: comp.package,
             pins,
-        });
-    }
-    Ok(specs)
+        })
+    }).collect()
 }
 
-fn infer_reference_prefix(
-    _category_id: &i64,
-    kicad_symbol: &Option<String>,
-    pins: &[SymbolPin],
-) -> String {
+fn map_pins(db_pins: Vec<kicad_cdb::Pin>) -> Vec<SymbolPin> {
+    db_pins.into_iter().map(|p| {
+        SymbolPin {
+            number: p.pin_number,
+            name: p.pin_name,
+            electrical_type: ElectricalType::from_str_lossy(
+                p.electrical_type.as_deref().unwrap_or("passive")
+            ),
+            pin_group: p.pin_group,
+            alt_functions: p.alt_functions,
+        }
+    }).collect()
+}
+
+fn infer_reference_prefix(kicad_symbol: &Option<String>) -> String {
     if let Some(sym) = kicad_symbol {
         let short = sym.split(':').last().unwrap_or(sym);
         let upper = short.to_uppercase();
-        // Standard KiCad library naming conventions
         if upper.starts_with("R") && !upper.starts_with("REG") && !upper.contains("RELAY") {
             return "R".to_string();
         }
@@ -137,11 +110,5 @@ fn infer_reference_prefix(
             return "Y".to_string();
         }
     }
-
-    // Fallback: 2-pin passives get "R"/"C"/"L", others get "U"
-    if pins.len() <= 2 {
-        "U".to_string()
-    } else {
-        "U".to_string()
-    }
+    "U".to_string()
 }

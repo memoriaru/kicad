@@ -1,8 +1,8 @@
 use crate::model::*;
+use crate::fmt;
 
 const PIN_LENGTH: f64 = 2.54;
 const PIN_SPACING: f64 = 2.54;
-const BODY_HALF_WIDTH: f64 = 5.08;
 
 /// Layout result for a symbol
 pub struct LayoutResult {
@@ -79,7 +79,7 @@ pub fn compute_layout(spec: &SymbolSpec) -> LayoutResult {
     let pins = &spec.pins;
     if pins.is_empty() {
         return LayoutResult {
-            body_width: BODY_HALF_WIDTH * 2.0,
+            body_width: fmt::BODY_HALF_WIDTH * 2.0,
             body_height: PIN_SPACING * 2.0,
             pins: vec![],
         };
@@ -136,7 +136,7 @@ pub fn compute_layout(spec: &SymbolSpec) -> LayoutResult {
         let y = y_start_left - rank as f64 * PIN_SPACING;
         layout_pins.push(LayoutPin {
             index: idx,
-            x: -(BODY_HALF_WIDTH + PIN_LENGTH),
+            x: -(fmt::BODY_HALF_WIDTH + PIN_LENGTH),
             y,
             side: PinSide::Left,
             rotation: PinSide::Left.rotation(),
@@ -149,7 +149,7 @@ pub fn compute_layout(spec: &SymbolSpec) -> LayoutResult {
         let y = y_start_right - rank as f64 * PIN_SPACING;
         layout_pins.push(LayoutPin {
             index: idx,
-            x: BODY_HALF_WIDTH + PIN_LENGTH,
+            x: fmt::BODY_HALF_WIDTH + PIN_LENGTH,
             y,
             side: PinSide::Right,
             rotation: PinSide::Right.rotation(),
@@ -187,7 +187,7 @@ pub fn compute_layout(spec: &SymbolSpec) -> LayoutResult {
     }
 
     LayoutResult {
-        body_width: BODY_HALF_WIDTH * 2.0,
+        body_width: fmt::BODY_HALF_WIDTH * 2.0,
         body_height: body_h,
         pins: layout_pins,
     }
@@ -196,29 +196,12 @@ pub fn compute_layout(spec: &SymbolSpec) -> LayoutResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn make_pin(number: &str, name: &str, etype: ElectricalType) -> SymbolPin {
-        SymbolPin {
-            number: number.to_string(),
-            name: name.to_string(),
-            electrical_type: etype,
-            pin_group: None,
-            alt_functions: None,
-            position: None,
-        }
-    }
+    use crate::fmt::test_helpers::*;
 
     #[test]
     fn test_simple_6pin_ic() {
         let spec = SymbolSpec {
-            mpn: "FP6277".to_string(),
-            lib_name: "custom".to_string(),
-            reference_prefix: Some("U".to_string()),
-            description: None,
-            datasheet_url: None,
             footprint: Some("SOT-23-6".to_string()),
-            manufacturer: None,
-            package: None,
             pins: vec![
                 make_pin("1", "LX", ElectricalType::PowerOut),
                 make_pin("2", "GND", ElectricalType::PowerIn),
@@ -227,60 +210,39 @@ mod tests {
                 make_pin("5", "VCC", ElectricalType::PowerIn),
                 make_pin("6", "SW", ElectricalType::PowerOut),
             ],
+            ..make_spec("FP6277", vec![])
         };
+        let spec = SymbolSpec { pins: vec![
+            make_pin("1", "LX", ElectricalType::PowerOut),
+            make_pin("2", "GND", ElectricalType::PowerIn),
+            make_pin("3", "EN", ElectricalType::Input),
+            make_pin("4", "FB", ElectricalType::Input),
+            make_pin("5", "VCC", ElectricalType::PowerIn),
+            make_pin("6", "SW", ElectricalType::PowerOut),
+        ], ..spec };
 
         let layout = compute_layout(&spec);
         assert_eq!(layout.pins.len(), 6);
 
-        // GND should be bottom
-        let gnd = layout.pins.iter().find(|p| p.index == 1).unwrap();
-        assert_eq!(gnd.side, PinSide::Bottom);
-
-        // VCC should be top
-        let vcc = layout.pins.iter().find(|p| p.index == 4).unwrap();
-        assert_eq!(vcc.side, PinSide::Top);
-
-        // EN, FB should be left (input)
-        let en = layout.pins.iter().find(|p| p.index == 2).unwrap();
-        assert_eq!(en.side, PinSide::Left);
+        assert_eq!(layout.pins.iter().find(|p| p.index == 1).unwrap().side, PinSide::Bottom);
+        assert_eq!(layout.pins.iter().find(|p| p.index == 4).unwrap().side, PinSide::Top);
+        assert_eq!(layout.pins.iter().find(|p| p.index == 2).unwrap().side, PinSide::Left);
     }
 
     #[test]
     fn test_empty_pins() {
-        let spec = SymbolSpec {
-            mpn: "Test".to_string(),
-            lib_name: "custom".to_string(),
-            reference_prefix: Some("U".to_string()),
-            description: None,
-            datasheet_url: None,
-            footprint: None,
-            manufacturer: None,
-            package: None,
-            pins: vec![],
-        };
-        let layout = compute_layout(&spec);
+        let layout = compute_layout(&make_spec("Test", vec![]));
         assert!(layout.pins.is_empty());
     }
 
     #[test]
     fn test_2pin_passive() {
-        let spec = SymbolSpec {
-            mpn: "R".to_string(),
-            lib_name: "Device".to_string(),
-            reference_prefix: Some("R".to_string()),
-            description: None,
-            datasheet_url: None,
-            footprint: None,
-            manufacturer: None,
-            package: None,
-            pins: vec![
-                make_pin("1", "~", ElectricalType::Passive),
-                make_pin("2", "~", ElectricalType::Passive),
-            ],
-        };
+        let spec = make_spec("R", vec![
+            make_pin("1", "~", ElectricalType::Passive),
+            make_pin("2", "~", ElectricalType::Passive),
+        ]);
         let layout = compute_layout(&spec);
         assert_eq!(layout.pins.len(), 2);
-        // 2-pin passive: one left, one right
         let sides: Vec<PinSide> = layout.pins.iter().map(|p| p.side).collect();
         assert!(sides.contains(&PinSide::Left));
         assert!(sides.contains(&PinSide::Right));

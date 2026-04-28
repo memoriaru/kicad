@@ -111,8 +111,6 @@ pub struct SymbolPin {
     pub pin_group: Option<String>,
     #[serde(default)]
     pub alt_functions: Option<Vec<String>>,
-    #[serde(skip)]
-    pub position: Option<PinPosition>,
 }
 
 fn default_electrical_type() -> ElectricalType {
@@ -184,28 +182,29 @@ pub enum PackageType {
 }
 
 impl PackageType {
+    /// Parse from package string like "DIP-8", "SOIC-16", "SOT-23-5", "DIP-Socket-60"
     pub fn from_package_str(s: &str) -> Option<Self> {
         let upper = s.to_uppercase().replace(['-', '_', ' '], "");
         match upper.as_str() {
+            s if s.starts_with("DIPSOCKET") => Some(Self::DipSocket),
             s if s.starts_with("DIP") => Some(Self::Dip),
             s if s.starts_with("SIP") => Some(Self::Sip),
-            s if s.starts_with("SOIC") => Some(Self::Soic),
             s if s.starts_with("TSSOP") => Some(Self::Tssop),
-            s if s.starts_with("SOP") => Some(Self::Sop),
+            s if s.starts_with("SOIC") => Some(Self::Soic),
             s if s.starts_with("MSOP") => Some(Self::MsoP),
+            s if s.starts_with("SOP") => Some(Self::Sop),
             s if s.starts_with("LQFP") => Some(Self::Lqfp),
             s if s.starts_with("TQFP") => Some(Self::Tqfp),
             s if s.starts_with("QFP") => Some(Self::Qfp),
             s if s.starts_with("QFN") => Some(Self::Qfn),
             s if s.starts_with("DFN") || s.starts_with("MLF") => Some(Self::Dfn),
-            s if s.starts_with("SOT23") || s == "SOT23" => Some(Self::Sot23),
+            s if s.starts_with("SOT23") => Some(Self::Sot23),
             s if s.starts_with("SOT223") => Some(Self::Sot223),
             s if s.starts_with("SOT89") => Some(Self::Sot89),
             s if s.starts_with("SOT353") => Some(Self::Sot353),
             s if s.starts_with("SOT363") => Some(Self::Sot363),
             s if s.starts_with("BGA") => Some(Self::Bga),
             s if s.contains("PINHEADER") || s.contains("PINHDR") => Some(Self::PinHeader),
-            s if s.contains("DIPSOCKET") => Some(Self::DipSocket),
             _ => None,
         }
     }
@@ -213,6 +212,17 @@ impl PackageType {
     pub fn is_through_hole(&self) -> bool {
         matches!(self, Self::Dip | Self::Sip | Self::PinHeader | Self::DipSocket)
     }
+}
+
+/// Extract pin count from a package string like "DIP-8" → 8, "SOT-23-5" → 5
+pub fn extract_pin_count(s: &str) -> Option<u32> {
+    let upper = s.to_uppercase().replace([' ', '_'], "-");
+    for part in upper.split('-').rev() {
+        if let Ok(n) = part.parse::<u32>() {
+            return Some(n);
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone)]

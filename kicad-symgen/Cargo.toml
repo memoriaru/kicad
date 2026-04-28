@@ -1,6 +1,6 @@
 [package]
 name = "kicad-symgen"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "KiCad symbol (.kicad_sym) and footprint (.kicad_mod) generator"
 

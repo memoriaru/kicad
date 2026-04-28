@@ -1,6 +1,7 @@
 use crate::footprint::outline::{OutlineArc, OutlineLine};
 use crate::footprint::pad::{Pad, PadShape, PadType};
 use crate::model::KicadVersion;
+use crate::fmt;
 
 /// Generate a complete .kicad_mod file
 pub fn generate_footprint(
@@ -39,8 +40,8 @@ pub fn generate_footprint(
     let center_x = compute_center_x(pads);
     s.push_str(&format!(
         "  (fp_text reference \"U**\" (at {} {}) (layer \"F.SilkS\")\n",
-        fmt_f(center_x),
-        fmt_f(ref_y)
+        fmt::fmt_f(center_x),
+        fmt::fmt_f(ref_y)
     ));
     s.push_str("    (effects (font (size 1 1) (thickness 0.15))))\n");
 
@@ -53,8 +54,8 @@ pub fn generate_footprint(
     s.push_str(&format!(
         "  (fp_text value \"{}\" (at {} {}) (layer \"F.Fab\")\n",
         name,
-        fmt_f(center_x),
-        fmt_f(val_y)
+        fmt::fmt_f(center_x),
+        fmt::fmt_f(val_y)
     ));
     s.push_str("    (effects (font (size 1 1) (thickness 0.15))))\n");
 
@@ -62,12 +63,12 @@ pub fn generate_footprint(
     for line in lines {
         s.push_str(&format!(
             "  (fp_line (start {} {}) (end {} {}) (layer \"{}\") (width {}))\n",
-            fmt_f(line.x1),
-            fmt_f(line.y1),
-            fmt_f(line.x2),
-            fmt_f(line.y2),
+            fmt::fmt_f(line.x1),
+            fmt::fmt_f(line.y1),
+            fmt::fmt_f(line.x2),
+            fmt::fmt_f(line.y2),
             line.layer.name(),
-            fmt_f(line.width)
+            fmt::fmt_f(line.width)
         ));
     }
 
@@ -75,14 +76,14 @@ pub fn generate_footprint(
     if let Some(a) = arc {
         s.push_str(&format!(
             "  (fp_arc (start {} {}) (mid {} {}) (end {} {}) (layer \"{}\") (width {}))\n",
-            fmt_f(a.x),
-            fmt_f(a.y),
-            fmt_f(a.mid_x),
-            fmt_f(a.mid_y),
-            fmt_f(a.end_x),
-            fmt_f(a.end_y),
+            fmt::fmt_f(a.x),
+            fmt::fmt_f(a.y),
+            fmt::fmt_f(a.mid_x),
+            fmt::fmt_f(a.mid_y),
+            fmt::fmt_f(a.end_x),
+            fmt::fmt_f(a.end_y),
             a.layer.name(),
-            fmt_f(a.width)
+            fmt::fmt_f(a.width)
         ));
     }
 
@@ -104,14 +105,14 @@ pub fn generate_footprint(
             pad.number,
             pad_type_str,
             shape_str,
-            fmt_f(pad.x),
-            fmt_f(pad.y),
-            fmt_f(pad.width),
-            fmt_f(pad.height)
+            fmt::fmt_f(pad.x),
+            fmt::fmt_f(pad.y),
+            fmt::fmt_f(pad.width),
+            fmt::fmt_f(pad.height)
         ));
 
         if let Some(drill) = pad.drill {
-            s.push_str(&format!(" (drill {})", fmt_f(drill)));
+            s.push_str(&format!(" (drill {})", fmt::fmt_f(drill)));
         }
 
         s.push_str(" (layers \"*.Cu\" \"*.Mask\"))\n");
@@ -128,12 +129,4 @@ fn compute_center_x(pads: &[Pad]) -> f64 {
     let min_x = pads.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
     let max_x = pads.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
     (min_x + max_x) / 2.0
-}
-
-fn fmt_f(v: f64) -> String {
-    if v == v.trunc() {
-        format!("{}", v as i64)
-    } else {
-        format!("{}", v)
-    }
 }
