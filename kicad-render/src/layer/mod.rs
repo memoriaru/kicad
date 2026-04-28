@@ -13,6 +13,8 @@ pub enum LayerId {
     Grid,
     DrawingSheet,
     Notes,
+    SheetBackground,
+    SheetPin,
     SymbolBackground,
     Wire,
     Bus,
@@ -30,6 +32,8 @@ impl LayerId {
             Self::Grid => 0,
             Self::DrawingSheet => 1,
             Self::Notes => 2,
+            Self::SheetBackground => 3,
+            Self::SheetPin => 4,
             Self::SymbolBackground => 5,
             Self::Wire => 10,
             Self::Bus => 11,
@@ -48,6 +52,8 @@ impl std::fmt::Display for LayerId {
             Self::Grid => "Grid",
             Self::DrawingSheet => "DrawingSheet",
             Self::Notes => "Notes",
+            Self::SheetBackground => "Sheet.Background",
+            Self::SheetPin => "Sheet.Pin",
             Self::SymbolBackground => "Symbol.Background",
             Self::Wire => "Wire",
             Self::Bus => "Bus",
@@ -190,10 +196,12 @@ impl LayerSet {
 
 impl Default for LayerSet {
     fn default() -> Self {
-        let mut set = Self { layers: Vec::with_capacity(11) };
+        let mut set = Self { layers: Vec::with_capacity(13) };
         set.add_layer(LayerId::Grid);
         set.add_layer(LayerId::DrawingSheet);
         set.add_layer(LayerId::Notes);
+        set.add_layer(LayerId::SheetBackground);
+        set.add_layer(LayerId::SheetPin);
         set.add_layer(LayerId::SymbolBackground);
         set.add_layer(LayerId::Wire);
         set.add_layer(LayerId::Bus);

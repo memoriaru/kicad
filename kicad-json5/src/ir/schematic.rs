@@ -83,6 +83,8 @@ pub struct Schematic {
     pub text_items: Vec<TextItem>,
     /// Schematic-level graphic polylines (section dividers, etc.)
     pub polylines: Vec<Polyline>,
+    /// Hierarchical sheet instances
+    pub sheets: Vec<Sheet>,
     /// Net ID to Net name mapping
     net_map: HashMap<u32, String>,
 }
@@ -92,6 +94,56 @@ pub struct Schematic {
 pub struct TextItem {
     pub text: String,
     pub position: (f64, f64, f64), // x, y, rotation
+    pub effects: TextEffects,
+}
+
+/// A hierarchical sheet instance
+#[derive(Debug, Clone)]
+pub struct Sheet {
+    /// Position of the sheet box top-left corner (x, y)
+    pub position: (f64, f64),
+    /// Size of the sheet box (width, height)
+    pub size: (f64, f64),
+    /// Border stroke
+    pub stroke: Stroke,
+    /// Fill (typically blue with alpha)
+    pub fill: Fill,
+    /// Sheet name property
+    pub sheet_name: SheetProperty,
+    /// Sheet file property
+    pub sheet_file: SheetProperty,
+    /// Sheet pins
+    pub pins: Vec<SheetPin>,
+}
+
+/// A property on a sheet (Sheetname or Sheetfile)
+#[derive(Debug, Clone)]
+pub struct SheetProperty {
+    pub value: String,
+    pub position: (f64, f64, f64),
+    pub effects: TextEffects,
+}
+
+impl Default for SheetProperty {
+    fn default() -> Self {
+        Self {
+            value: String::new(),
+            position: (0.0, 0.0, 0.0),
+            effects: TextEffects::default(),
+        }
+    }
+}
+
+/// A pin on a hierarchical sheet
+#[derive(Debug, Clone)]
+pub struct SheetPin {
+    /// Pin name
+    pub name: String,
+    /// Pin electrical type
+    pub pin_type: PinType,
+    /// Position (x, y, rotation). Rotation: 0=right, 90=bottom, 180=left, 270=top
+    pub position: (f64, f64, f64),
+    /// Text effects (includes custom color for the pin name)
     pub effects: TextEffects,
 }
 
@@ -216,6 +268,11 @@ impl Schematic {
                 "polyline" => {
                     if let Some(polyline) = Self::parse_polyline(list) {
                         schematic.polylines.push(polyline);
+                    }
+                }
+                "sheet" => {
+                    if let Some(sheet) = Self::parse_sheet(list) {
+                        schematic.sheets.push(sheet);
                     }
                 }
                 _ => {}
@@ -870,6 +927,174 @@ impl Schematic {
         }
 
         fill
+    }
+
+    /// Parse sheet fill — uses `(color R G B A)` where alpha is 0.0-1.0 float,
+    /// unlike font colors which use integer alpha.
+    fn parse_sheet_fill(list: &[SExpr]) -> Fill {
+        let mut fill = Fill::none();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                if key == "color" {
+                    let r = sub_list.get(1).and_then(get_number).unwrap_or(0.0) as u8;
+                    let g = sub_list.get(2).and_then(get_number).unwrap_or(0.0) as u8;
+                    let b = sub_list.get(3).and_then(get_number).unwrap_or(0.0) as u8;
+                    let a_float = sub_list.get(4).and_then(get_number).unwrap_or(1.0);
+                    let a = (a_float * 255.0).round() as u8;
+                    fill.fill_type = FillType::Color;
+                    fill.color = Some((r, g, b, a));
+                }
+            }
+        }
+
+        fill
+    }
+
+    fn parse_sheet(list: &[SExpr]) -> Option<Sheet> {
+        let mut position = (0.0, 0.0);
+        let mut size = (0.0, 0.0);
+        let mut stroke = Stroke::default();
+        let mut fill = Fill::none();
+        let mut sheet_name = SheetProperty::default();
+        let mut sheet_file = SheetProperty::default();
+        let mut pins = Vec::new();
+
+        for item in &list[1..] {
+            if let SExpr::List(sub_list) = item {
+                if sub_list.is_empty() {
+                    continue;
+                }
+                let key = match &sub_list[0] {
+                    SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => s.as_str(),
+                    _ => continue,
+                };
+
+                match key {
+                    "at" => {
+                        let x = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                        let y = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                        position = (x, y);
+                    }
+                    "size" => {
+                        let w = sub_list.get(1).and_then(get_number).unwrap_or(0.0);
+                        let h = sub_list.get(2).and_then(get_number).unwrap_or(0.0);
+                        size = (w, h);
+                    }
+                    "stroke" => {
+                        stroke = Self::parse_stroke(sub_list);
+                    }
+                    "fill" => {
+                        fill = Self::parse_sheet_fill(sub_list);
+                    }
+                    "property" => {
+                        if sub_list.len() >= 3 {
+                            let prop_name = get_string_or_ident(&sub_list[1]);
+                            let prop_value = get_string_or_ident(&sub_list[2]);
+                            let mut prop_pos = (0.0, 0.0, 0.0);
+                            let mut prop_effects = TextEffects::default();
+
+                            for prop_item in &sub_list[3..] {
+                                if let SExpr::List(prop_sub) = prop_item {
+                                    if prop_sub.is_empty() {
+                                        continue;
+                                    }
+                                    match get_ident(&prop_sub[0]) {
+                                        Some("at") => {
+                                            prop_pos = (
+                                                prop_sub.get(1).and_then(get_number).unwrap_or(0.0),
+                                                prop_sub.get(2).and_then(get_number).unwrap_or(0.0),
+                                                prop_sub.get(3).and_then(get_number).unwrap_or(0.0),
+                                            );
+                                        }
+                                        Some("effects") => {
+                                            prop_effects = Self::parse_effects(prop_sub);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+
+                            match prop_name.as_str() {
+                                "Sheetname" => {
+                                    sheet_name = SheetProperty {
+                                        value: prop_value,
+                                        position: prop_pos,
+                                        effects: prop_effects,
+                                    };
+                                }
+                                "Sheetfile" => {
+                                    sheet_file = SheetProperty {
+                                        value: prop_value,
+                                        position: prop_pos,
+                                        effects: prop_effects,
+                                    };
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    "pin" => {
+                        // (pin "VDD" input (at x y rot) (effects ...))
+                        if sub_list.len() >= 3 {
+                            let pin_name = get_string_or_ident(&sub_list[1]);
+                            let pin_type_str = get_ident(&sub_list[2]).unwrap_or("passive");
+                            let pin_type = PinType::from_str(pin_type_str);
+                            let mut pin_pos = (0.0, 0.0, 0.0);
+                            let mut pin_effects = TextEffects::default();
+
+                            for pin_item in &sub_list[3..] {
+                                if let SExpr::List(pin_sub) = pin_item {
+                                    if pin_sub.is_empty() {
+                                        continue;
+                                    }
+                                    match get_ident(&pin_sub[0]) {
+                                        Some("at") => {
+                                            pin_pos = (
+                                                pin_sub.get(1).and_then(get_number).unwrap_or(0.0),
+                                                pin_sub.get(2).and_then(get_number).unwrap_or(0.0),
+                                                pin_sub.get(3).and_then(get_number).unwrap_or(0.0),
+                                            );
+                                        }
+                                        Some("effects") => {
+                                            pin_effects = Self::parse_effects(pin_sub);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+
+                            pins.push(SheetPin {
+                                name: pin_name,
+                                pin_type,
+                                position: pin_pos,
+                                effects: pin_effects,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Some(Sheet {
+            position,
+            size,
+            stroke,
+            fill,
+            sheet_name,
+            sheet_file,
+            pins,
+        })
     }
 
     fn parse_effects(list: &[SExpr]) -> TextEffects {

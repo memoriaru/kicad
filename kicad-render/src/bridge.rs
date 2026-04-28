@@ -7,13 +7,14 @@
 use kicad_json5::ir::{
     self, Arc as IrArc, Circle as IrCircle, FillType, GraphicElement, Label as IrLabel,
     HorizontalAlign, PinGraphic as IrPinGraphic, PinShape as IrPinShape, PinType as IrPinType,
-    Polyline as IrPolyline, Rectangle as IrRect, StrokeType, Symbol, SymbolInstance as IrSymbolInstance,
+    Polyline as IrPolyline, Rectangle as IrRect, Sheet as IrSheet, StrokeType, Symbol, SymbolInstance as IrSymbolInstance,
     VerticalAlign, Wire as IrWire,
 };
 
 use crate::painter::{
     Junction, Label, LabelShape, LabelType, Mirror, PinGraphic,
-    PinShape, PinType, SymbolInstance, WirePainter, WireSegment,
+    PinShape, PinType, SheetInstance, SheetPainter, SheetPinRender, SheetPropertyRender,
+    SymbolInstance, WirePainter, WireSegment,
 };
 use crate::render_core::graphics::{
     Arc, Circle, Fill, Polygon, Polyline, Stroke, StrokeStyle,
@@ -364,4 +365,79 @@ pub fn convert_arc_with_color(ir: &IrArc, color: Color) -> Option<Arc> {
         end_angle,
         convert_stroke_solid(&ir.stroke, color),
     ).with_fill(fill))
+}
+
+// ── Sheet ─────────────────────────────────────────────────
+
+fn convert_sheet_property(prop: &kicad_json5::ir::SheetProperty) -> SheetPropertyRender {
+    let font_size = prop.effects.font.size.1.max(prop.effects.font.size.0);
+    let text_anchor = match prop.effects.justify.horizontal {
+        HorizontalAlign::Left => "start",
+        HorizontalAlign::Center => "middle",
+        HorizontalAlign::Right => "end",
+    };
+    let dominant_baseline = match prop.effects.justify.vertical {
+        VerticalAlign::Top => "hanging",
+        VerticalAlign::Center => "central",
+        VerticalAlign::Bottom => "auto",
+    };
+    SheetPropertyRender {
+        value: prop.value.clone(),
+        position: Point::new(prop.position.0, prop.position.1),
+        font_size: if font_size > 0.0 { font_size } else { constants::TEXT_SIZE },
+        rotation: prop.position.2,
+        text_anchor,
+        dominant_baseline,
+    }
+}
+
+pub fn convert_sheet(sheet: &IrSheet) -> SheetPainter {
+    let fill_color = match sheet.fill.fill_type {
+        FillType::Color => {
+            if let Some((r, g, b, _a)) = sheet.fill.color {
+                Color::from_rgb(r, g, b)
+            } else {
+                Color::from_rgb(114, 159, 207)
+            }
+        }
+        _ => Color::from_rgb(114, 159, 207),
+    };
+
+    let stroke_color = constants::sheet_border_color();
+    let stroke_width = if sheet.stroke.width > 0.0 {
+        sheet.stroke.width
+    } else {
+        constants::LINE_WIDTH
+    };
+
+    let sheet_instance = SheetInstance {
+        position: Point::new(sheet.position.0, sheet.position.1),
+        size: sheet.size,
+        stroke: Stroke::new(stroke_width, stroke_color),
+        fill_color,
+        sheet_name: convert_sheet_property(&sheet.sheet_name),
+        sheet_file: convert_sheet_property(&sheet.sheet_file),
+        pins: sheet.pins.iter().map(|p| {
+            let font_size = p.effects.font.size.1.max(p.effects.font.size.0);
+            let default_color = constants::pin_text_color();
+            let color = p.effects.font.color
+                .map(|(r, g, b, _a)| Color::from_rgb(r, g, b))
+                .unwrap_or(default_color);
+            let text_anchor = match p.effects.justify.horizontal {
+                HorizontalAlign::Left => "start",
+                HorizontalAlign::Right => "end",
+                _ => "middle",
+            };
+            SheetPinRender {
+                name: p.name.clone(),
+                position: Point::new(p.position.0, p.position.1),
+                rotation: p.position.2 as i32,
+                font_size: if font_size > 0.0 { font_size } else { constants::TEXT_SIZE },
+                color,
+                text_anchor,
+            }
+        }).collect(),
+    };
+
+    SheetPainter::new(sheet_instance)
 }
