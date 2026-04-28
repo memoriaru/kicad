@@ -2,6 +2,37 @@
 
 use super::graphic::{Stroke, TextEffects};
 
+/// How a net should be rendered in the schematic output
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderHint {
+    /// Connect same-net pins with wire segments (default)
+    #[default]
+    Wire,
+    /// Place a net label at each pin
+    Label,
+    /// Generate a KiCad power symbol instance
+    Power,
+}
+
+impl RenderHint {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "wire" => Some(Self::Wire),
+            "label" => Some(Self::Label),
+            "power" => Some(Self::Power),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Wire => "wire",
+            Self::Label => "label",
+            Self::Power => "power",
+        }
+    }
+}
+
 /// A net in the schematic
 #[derive(Debug, Clone)]
 pub struct Net {
@@ -11,6 +42,8 @@ pub struct Net {
     pub name: String,
     /// Net type (e.g., "power", "signal")
     pub net_type: Option<String>,
+    /// How this net should be rendered (wire/label/power)
+    pub render: RenderHint,
 }
 
 impl Net {
@@ -19,6 +52,7 @@ impl Net {
             id,
             name: name.into(),
             net_type: None,
+            render: RenderHint::default(),
         }
     }
 }

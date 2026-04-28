@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::error::{Error, Result};
 use crate::ir::{
-    Junction, Label, Mirror, Net, Paper, Pin, PinInstance, Property, Schematic,
+    Junction, Label, Mirror, Net, Paper, Pin, PinInstance, Property, RenderHint, Schematic,
     Stroke, StrokeType, Symbol, SymbolInstance, TitleBlock, Wire,
 };
 
@@ -252,10 +252,15 @@ fn value_to_net(value: &Value) -> Option<Net> {
     let id = o.get("id").and_then(|v| v.as_u64())? as u32;
     let name = get_str(o, "name")?;
     let net_type = get_str(o, "type");
+    let render = get_str(o, "render")
+        .as_deref()
+        .and_then(RenderHint::from_str)
+        .unwrap_or_default();
     Some(Net {
         id,
         name,
         net_type,
+        render,
     })
 }
 
