@@ -84,11 +84,17 @@ fn paper_dimensions(size: &str, portrait: bool) -> (f64, f64) {
 /// Schematic Renderer - converts a parsed Schematic IR into rendered output.
 pub struct SchematicRenderer<'a> {
     schematic: &'a Schematic,
+    file_name: String,
 }
 
 impl<'a> SchematicRenderer<'a> {
     pub fn new(schematic: &'a Schematic) -> Self {
-        Self { schematic }
+        Self { schematic, file_name: String::new() }
+    }
+
+    pub fn with_file_name(mut self, name: String) -> Self {
+        self.file_name = name;
+        self
     }
 
     /// Find the library symbol definition for a given lib_id.
@@ -326,7 +332,7 @@ impl<'a> SchematicRenderer<'a> {
         let title_font = constants::SHEET_TITLE_FONT;
 
         // (tbtext "${KICAD_VERSION}" (pos 109 4.1))
-        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 4.1), "KiCanvas", font, &text_color, false, 0.0, "", "");
+        renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 4.1), "kicad-render", font, &text_color, false, 0.0, "", "");
 
         // (tbtext "Id: ${#}/${##}" (pos 24 4.1))
         renderer.draw_text(&Point::new(ix2 - 24.0, iy2 - 4.1), "Id: 1/1", font, &text_color, false, 0.0, "", "");
@@ -350,7 +356,9 @@ impl<'a> SchematicRenderer<'a> {
         }
 
         // (tbtext "File: ${FILENAME}" (pos 109 14.3))
-        // No filename in IR, skip
+        if !self.file_name.is_empty() {
+            renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 14.3), &format!("File: {}", self.file_name), font, &text_color, false, 0.0, "", "");
+        }
 
         // (tbtext "Sheet: ${SHEETPATH}" (pos 109 17))
         renderer.draw_text(&Point::new(ix2 - 109.0, iy2 - 17.0), "Sheet: /", font, &text_color, false, 0.0, "", "");
