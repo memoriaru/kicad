@@ -253,10 +253,11 @@ impl SexprGenerator {
 
         for pin in pins {
             all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
-            self.write_line(output, "(label");
+            self.write_line(output, "(global_label");
             self.indent_level += 1;
             self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
             self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
+            self.write_line(output, "(shape passive)");
             self.generate_effects(output, &default_effects);
             if self.config.include_uuids {
                 self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
@@ -332,9 +333,21 @@ impl SexprGenerator {
 
         for (_root, member_indices) in &clusters {
             if member_indices.len() < 2 {
-                // Single pin in cluster — use label
+                // Single pin in cluster — generate global_label
                 let pin = &pins[member_indices[0]];
                 all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
+                let default_effects = TextEffects::default();
+                self.write_line(output, "(global_label");
+                self.indent_level += 1;
+                self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
+                self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
+                self.write_line(output, "(shape passive)");
+                self.generate_effects(output, &default_effects);
+                if self.config.include_uuids {
+                    self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+                }
+                self.indent_level -= 1;
+                self.write_line(output, ")");
                 continue;
             }
 
@@ -519,9 +532,21 @@ impl SexprGenerator {
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // Remaining pins get labels (they connect via the power symbol)
+        // Remaining pins get global_labels (they connect via the power symbol's net)
         for pin in &pins[1..] {
             all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
+            let default_effects = TextEffects::default();
+            self.write_line(output, "(global_label");
+            self.indent_level += 1;
+            self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
+            self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
+            self.write_line(output, "(shape passive)");
+            self.generate_effects(output, &default_effects);
+            if self.config.include_uuids {
+                self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+            }
+            self.indent_level -= 1;
+            self.write_line(output, ")");
         }
     }
 
