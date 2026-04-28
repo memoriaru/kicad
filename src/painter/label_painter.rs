@@ -40,6 +40,8 @@ pub struct Label {
     pub text: String,
     pub shape: LabelShape,
     pub font_size: f64,
+    /// Custom color from font effects, overrides type-based default
+    pub custom_color: Option<Color>,
 }
 
 /// Rotate a point by angle in degrees (counter-clockwise in standard math coords).
@@ -294,6 +296,7 @@ mod tests {
             text: "NET_NAME".to_string(),
             shape: LabelShape::Passive,
             font_size: 1.27,
+            custom_color: None,
         };
 
         let painter = LabelPainter::new(label, Color::black());

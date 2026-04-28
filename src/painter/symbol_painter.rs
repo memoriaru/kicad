@@ -33,6 +33,8 @@ pub struct SymbolInstance {
     pub value_v_align: &'static str,
     pub reference_hidden: bool,
     pub value_hidden: bool,
+    /// Do Not Populate — draw an X cross over the symbol
+    pub dnp: bool,
 }
 
 /// Mirror mode for symbols
@@ -186,38 +188,68 @@ impl SymbolPainter {
         }
     }
 
-    /// Compute the draw position for a property text, accounting for
-    /// KiCad's symbol coordinate system transform.
-    fn compute_text_center(
-        anchor_pos: Point,
-        text: &str,
-        font_size: f64,
-        h_align: &str,
-        v_align: &str,
-        original_angle: f64,
-        draw_angle: f64,
-    ) -> Point {
-        let text_width = text.len() as f64 * font_size * constants::CHAR_WIDTH_RATIO;
-        let text_height = font_size;
-
-        let mut dx = match h_align {
-            "end" => -text_width / 2.0,
-            "middle" => 0.0,
-            _ => text_width / 2.0,
-        };
-
-        let dy = match v_align {
-            "hanging" | "top" => text_height / 2.0,
-            _ => 0.0,
-        };
-
-        if (original_angle - draw_angle).abs() > 1.0 {
-            dx = -dx;
+    /// Paint a DNP (Do Not Populate) cross over the symbol body.
+    /// KiCad draws two diagonal lines forming an X across the body bounding box (pins excluded).
+    fn paint_dnp_cross(&self, layers: &mut LayerSet) {
+        let layer = layers.get_layer_mut(LayerId::SymbolForeground).unwrap();
+        let body_bbox = self.body_bbox();
+        if body_bbox.is_empty() {
+            return;
         }
+        let stroke = Stroke::new(constants::LINE_WIDTH, constants::component_outline_color());
 
-        Point::new(anchor_pos.x + dx, anchor_pos.y + dy)
+        let top_left = (body_bbox.min_x(), body_bbox.min_y());
+        let bottom_right = (body_bbox.max_x(), body_bbox.max_y());
+        let top_right = (body_bbox.max_x(), body_bbox.min_y());
+        let bottom_left = (body_bbox.min_x(), body_bbox.max_y());
+
+        let line1 = crate::render_core::graphics::Polyline::from_points(&[top_left, bottom_right], stroke.clone());
+        layer.add_element(LayerElement::new(LayerElementType::Polyline(line1)));
+
+        let line2 = crate::render_core::graphics::Polyline::from_points(&[top_right, bottom_left], stroke);
+        layer.add_element(LayerElement::new(LayerElementType::Polyline(line2)));
     }
 
+    /// Bounding box of the symbol body graphics only (no pins, no padding).
+    fn body_bbox(&self) -> BoundingBox {
+        let mut bbox = BoundingBox::empty();
+        let transform = self.transform();
+
+        for ge in &self.body_graphics {
+            match ge {
+                GraphicElement::Polyline(ir_poly) => {
+                    for (x, y) in &ir_poly.points {
+                        let p = transform.transform(&Point::new(*x, *y));
+                        bbox.expand_point(p.x, p.y);
+                    }
+                }
+                GraphicElement::Rectangle(ir_rect) => {
+                    for &(x, y) in &[ir_rect.start, ir_rect.end] {
+                        let p = transform.transform(&Point::new(x, y));
+                        bbox.expand_point(p.x, p.y);
+                    }
+                }
+                GraphicElement::Circle(ir_circle) => {
+                    let c = transform.transform(&Point::new(ir_circle.center.0, ir_circle.center.1));
+                    bbox.expand_point(c.x - ir_circle.radius, c.y - ir_circle.radius);
+                    bbox.expand_point(c.x + ir_circle.radius, c.y + ir_circle.radius);
+                }
+                GraphicElement::Arc(ir_arc) => {
+                    let s = transform.transform(&Point::new(ir_arc.start.0, ir_arc.start.1));
+                    let m = transform.transform(&Point::new(ir_arc.mid.0, ir_arc.mid.1));
+                    let e = transform.transform(&Point::new(ir_arc.end.0, ir_arc.end.1));
+                    for p in [s, m, e] {
+                        bbox.expand_point(p.x, p.y);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        bbox
+    }
+
+    /// Compute the draw position for a property text.
     /// Paint a property (reference or value) text.
     fn paint_property(
         &self,
@@ -244,12 +276,12 @@ impl SymbolPainter {
             Point::new(self.symbol.position.x, self.symbol.position.y + fallback_offset_y)
         };
 
+        // Property angle from the sch file needs draw_rotation adjustment:
+        // when the symbol is rotated 90/270, prop angles 0/180 render at 90°
+        // and prop angles 90/270 render at 0° (to keep text readable).
         let orient = draw_rotation(self.symbol.rotation, prop_rotation);
 
-        let center = Self::compute_text_center(
-            anchor_pos, text, constants::TEXT_SIZE,
-            h_align, v_align, prop_rotation, orient,
-        );
+        let center = anchor_pos;
 
         layer.add_element(LayerElement::new(LayerElementType::Text {
             position: center,
@@ -305,6 +337,9 @@ impl Painter for SymbolPainter {
     fn paint(&self, layers: &mut LayerSet) {
         self.paint_body(layers);
         self.paint_pins(layers);
+        if self.symbol.dnp {
+            self.paint_dnp_cross(layers);
+        }
         self.paint_property(
             layers,
             &self.symbol.reference,
@@ -349,7 +384,9 @@ pub fn get_symbol_transform(rotation: i32, mirror: &Mirror) -> Matrix {
     }
 }
 
-/// Compute the effective draw rotation for a property text, matching JS `SchField.draw_rotation`.
+/// Compute the effective draw rotation for a property text.
+/// When the symbol is at 90/270, text orientations swap to stay readable:
+/// prop angles 0/180 → draw at 90°, prop angles 90/270 → draw at 0°.
 fn draw_rotation(symbol_rotation: i32, property_angle_deg: f64) -> f64 {
     let is_90_or_270 = matches!(symbol_rotation % 360, 90 | 270);
     if is_90_or_270 {
