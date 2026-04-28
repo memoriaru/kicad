@@ -230,7 +230,12 @@ impl SexprGenerator {
 
         self.write_line(output, &format!("(symbol \"{}\"", lib_id));
         self.indent_level += 1;
-        self.write_line(output, "(power)");
+        self.write_line(output, "(power global)");
+        self.write_line(output, "(pin_numbers");
+        self.indent_level += 1;
+        self.write_line(output, "(hide yes)");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
         self.write_line(output, "(pin_names");
         self.indent_level += 1;
         self.write_line(output, "(offset 0)");
