@@ -143,7 +143,7 @@ impl SexprGenerator {
 
             for pin in &comp.pins {
                 if let Some(&(lx, ly)) = pin_positions.get(&pin.number) {
-                    let (rx, ry) = Self::rotate_point(lx, -ly, crot);
+                    let (rx, ry) = Self::rotate_point(lx, ly, crot);
                     let wx = cx + rx;
                     let wy = cy + ry;
 
@@ -218,7 +218,7 @@ impl SexprGenerator {
             for pin in &comp.pins {
                 if pin.nc {
                     if let Some(&(lx, ly)) = pin_positions.get(&pin.number) {
-                        let (rx, ry) = Self::rotate_point(lx, -ly, crot);
+                        let (rx, ry) = Self::rotate_point(lx, ly, crot);
                         let wx = cx + rx;
                         let wy = cy + ry;
                         self.write_line(output, "(no_connect");
@@ -357,6 +357,23 @@ impl SexprGenerator {
                 pins[a].x.partial_cmp(&pins[b].x).unwrap_or(std::cmp::Ordering::Equal)
                     .then(pins[a].y.partial_cmp(&pins[b].y).unwrap_or(std::cmp::Ordering::Equal))
             });
+
+            // Each multi-pin cluster needs at least 1 global_label so KiCad
+            // can associate the wire-connected pins with the correct net.
+            let first = &pins[cluster_pins[0]];
+            all_label_positions.push((first.x, first.y, first.rotation, net_name));
+            let default_effects = TextEffects::default();
+            self.write_line(output, "(global_label");
+            self.indent_level += 1;
+            self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
+            self.write_line(output, &Self::format_at(first.x, first.y, first.rotation));
+            self.write_line(output, "(shape passive)");
+            self.generate_effects(output, &default_effects);
+            if self.config.include_uuids {
+                self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+            }
+            self.indent_level -= 1;
+            self.write_line(output, ")");
 
             // Nearest-neighbor chain within cluster
             let mut visited = vec![false; cluster_pins.len()];
