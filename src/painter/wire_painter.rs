@@ -3,7 +3,7 @@
 //! Based on KiCanvas JS `WirePainter` class
 
 use crate::render_core::{Point, Color, BoundingBox};
-use crate::render_core::graphics::{Polyline, Stroke, StrokeStyle};
+use crate::render_core::graphics::{Polyline, Stroke};
 use crate::layer::{LayerSet, LayerId, LayerElement, LayerElementType};
 use super::Painter;
 
@@ -47,7 +47,6 @@ impl WireSegment {
     }
 }
 
-use crate::constants;
 
 /// Wire Painter - renders wires to graphics
 pub struct WirePainter {
@@ -80,7 +79,7 @@ impl WirePainter {
 
     /// Paint a single wire segment
     fn paint_segment(&self, layers: &mut LayerSet, segment: &WireSegment) {
-        let layer = layers.get_layer_mut(&LayerId::wire()).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Wire).unwrap();
 
         let stroke = Stroke::new(self.width, self.color);
 
@@ -94,10 +93,6 @@ impl WirePainter {
 }
 
 impl Painter for WirePainter {
-    fn layers(&self) -> Vec<LayerId> {
-        vec![LayerId::wire()]
-    }
-
     fn bbox(&self) -> BoundingBox {
         if self.segments.is_empty() {
             return BoundingBox::empty();

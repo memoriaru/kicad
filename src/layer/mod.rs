@@ -7,113 +7,88 @@ use crate::render_core::{Color, BoundingBox, Point};
 use crate::render_core::graphics::{Circle, Arc, Polyline, Polygon, Bezier};
 use crate::renderer::Renderer;
 
-/// Layer identifier
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LayerId {
-    /// Unique identifier for the layer
-    pub id: String,
-    /// Display name
-    pub name: String,
-    /// Z-index for rendering order (higher = rendered on top)
-    pub z_index: i32,
+/// Layer identifier (enum — zero allocation, Copy semantics)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LayerId {
+    Grid,
+    DrawingSheet,
+    Notes,
+    SymbolBackground,
+    Wire,
+    Bus,
+    SymbolPin,
+    SymbolForeground,
+    Junctions,
+    Labels,
+    Interactive,
 }
 
 impl LayerId {
-    pub fn new(id: impl Into<String>, name: impl Into<String>, z_index: i32) -> Self {
-        Self { id: id.into(), name: name.into(), z_index }
-    }
-
-    pub fn interactive() -> Self {
-        Self::new("Interactive", "Interactive", 100)
-    }
-
-    pub fn wire() -> Self {
-        Self::new("Wire", "Wire", 10)
-    }
-
-    pub fn symbol_background() -> Self {
-        Self::new("Symbol.Background", "Symbol Background", 5)
-    }
-
-    pub fn symbol_foreground() -> Self {
-        Self::new("Symbol.Foreground", "Symbol Foreground", 25)
-    }
-
-    pub fn symbol_pin() -> Self {
-        Self::new("Symbol.Pin", "Symbol Pin", 20)
-    }
-
-    pub fn bus() -> Self {
-        Self::new("Bus", "Bus", 11)
-    }
-
-    pub fn notes() -> Self {
-        Self::new("Notes", "Notes", 2)
-    }
-
-    pub fn labels() -> Self {
-        Self::new("Labels", "Labels", 35)
-    }
-
-    pub fn junctions() -> Self {
-        Self::new("Junctions", "Junctions", 30)
-    }
-
-    pub fn drawing_sheet() -> Self {
-        Self::new("DrawingSheet", "Drawing Sheet", 1)
-    }
-
-    pub fn grid() -> Self {
-        Self::new("Grid", "Grid", 0)
+    /// Z-index for rendering order (higher = rendered on top)
+    pub fn z_index(self) -> i32 {
+        match self {
+            Self::Grid => 0,
+            Self::DrawingSheet => 1,
+            Self::Notes => 2,
+            Self::SymbolBackground => 5,
+            Self::Wire => 10,
+            Self::Bus => 11,
+            Self::SymbolPin => 20,
+            Self::SymbolForeground => 25,
+            Self::Junctions => 30,
+            Self::Labels => 35,
+            Self::Interactive => 100,
+        }
     }
 }
 
 impl std::fmt::Display for LayerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "LayerId({})", self.id)
+        let name = match self {
+            Self::Grid => "Grid",
+            Self::DrawingSheet => "DrawingSheet",
+            Self::Notes => "Notes",
+            Self::SymbolBackground => "Symbol.Background",
+            Self::Wire => "Wire",
+            Self::Bus => "Bus",
+            Self::SymbolPin => "Symbol.Pin",
+            Self::SymbolForeground => "Symbol.Foreground",
+            Self::Junctions => "Junctions",
+            Self::Labels => "Labels",
+            Self::Interactive => "Interactive",
+        };
+        write!(f, "LayerId({})", name)
     }
 }
 
 /// Layer element type
 #[derive(Debug, Clone)]
 pub enum LayerElementType {
-    /// Circle shape
     Circle(Circle),
-    /// Arc shape
     Arc(Arc),
-    /// Polyline shape
     Polyline(Polyline),
-    /// Polygon shape
     Polygon(Polygon),
-    /// Bezier curve
     Bezier(Bezier),
-    /// Text element
     Text {
         position: Point,
         text: String,
         font_size: f64,
         color: Color,
         bold: bool,
-        /// Rotation angle in degrees (0 = horizontal, 90 = vertical)
         rotation: f64,
-        /// SVG text-anchor: "start" (default), "middle", "end"
-        text_anchor: String,
-        /// SVG dominant-baseline: "" (auto), "central", "hanging"
-        dominant_baseline: String,
+        text_anchor: &'static str,
+        dominant_baseline: &'static str,
     },
 }
 
 /// Element in a layer
 #[derive(Debug, Clone)]
 pub struct LayerElement {
-    /// Bounding box
     pub bbox: BoundingBox,
-    /// Element type
     pub element_type: LayerElementType,
 }
 
 impl LayerElement {
-    /// Create a new layer element
     pub fn new(element_type: LayerElementType) -> Self {
         let bbox = match &element_type {
             LayerElementType::Circle(c) => c.bbox(),
@@ -121,8 +96,7 @@ impl LayerElement {
             LayerElementType::Polyline(p) => p.bbox(),
             LayerElementType::Polygon(p) => p.bbox(),
             LayerElementType::Bezier(b) => b.bbox(),
-            LayerElementType::Text { position, text, font_size, rotation: _, text_anchor: _, dominant_baseline: _, .. } => {
-                // Approximate text bbox
+            LayerElementType::Text { position, text, font_size, .. } => {
                 BoundingBox::from_min_max(
                     position.x,
                     position.y,
@@ -138,13 +112,9 @@ impl LayerElement {
 /// Layer containing rendered elements
 #[derive(Debug, Clone)]
 pub struct Layer {
-    /// Layer identifier
     pub id: LayerId,
-    /// Bounding box of this layer's content
     pub bbox: BoundingBox,
-    /// Whether this layer is visible
     pub visible: bool,
-    /// Elements in this layer
     pub elements: Vec<LayerElement>,
 }
 
@@ -158,13 +128,11 @@ impl Layer {
         }
     }
 
-    /// Add an element to the layer
     pub fn add_element(&mut self, element: LayerElement) {
         self.bbox.expand(&element.bbox);
         self.elements.push(element);
     }
 
-    /// Clear all elements
     pub fn clear(&mut self) {
         self.elements.clear();
         self.bbox = BoundingBox::empty();
@@ -174,39 +142,31 @@ impl Layer {
 /// Layer set - collection of layers
 #[derive(Debug, Clone)]
 pub struct LayerSet {
-    /// All layers
     pub layers: Vec<Layer>,
 }
 
 impl LayerSet {
-    /// Create empty layer set
     pub fn new() -> Self {
         Self { layers: Vec::new() }
     }
 
-    /// Add a new layer
     pub fn add_layer(&mut self, id: LayerId) {
-        let layer = Layer::new(id);
-        self.layers.push(layer);
+        self.layers.push(Layer::new(id));
     }
 
-    /// Get a layer by ID
-    pub fn get_layer(&self, id: &LayerId) -> Option<&Layer> {
-        self.layers.iter().find(|l| l.id == *id)
+    pub fn get_layer(&self, id: LayerId) -> Option<&Layer> {
+        self.layers.iter().find(|l| l.id == id)
     }
 
-    /// Get mutable layer by ID
-    pub fn get_layer_mut(&mut self, id: &LayerId) -> Option<&mut Layer> {
-        self.layers.iter_mut().find(|l| l.id == *id)
+    pub fn get_layer_mut(&mut self, id: LayerId) -> Option<&mut Layer> {
+        self.layers.iter_mut().find(|l| l.id == id)
     }
 
-    /// Render all visible layers in order
+    /// Render all visible layers sorted by z-index
     pub fn render(&self, renderer: &mut dyn Renderer) {
-        // Sort layers by z-index
         let mut layers: Vec<&Layer> = self.layers.iter().filter(|l| l.visible).collect();
-        layers.sort_by(|a, b| a.id.z_index.cmp(&b.id.z_index));
+        layers.sort_by_key(|l| l.id.z_index());
 
-        // Render each layer
         for layer in layers {
             for element in &layer.elements {
                 self.render_element(renderer, element);
@@ -214,7 +174,6 @@ impl LayerSet {
         }
     }
 
-    /// Render a single element
     fn render_element(&self, renderer: &mut dyn Renderer, element: &LayerElement) {
         match &element.element_type {
             LayerElementType::Circle(c) => renderer.draw_circle(c),
@@ -231,22 +190,18 @@ impl LayerSet {
 
 impl Default for LayerSet {
     fn default() -> Self {
-        let mut set = Self::new();
-        // Add default layers in z-order (matching JS layer ordering)
-        // Grid(0) < DrawingSheet(1) < Notes(2) < Symbol.Background(5) < Wire(10)
-        // < Bus(11) < Symbol.Pin(20) < Symbol.Foreground(25) < Junctions(30)
-        // < Labels(35) < Interactive(100)
-        set.add_layer(LayerId::grid());
-        set.add_layer(LayerId::drawing_sheet());
-        set.add_layer(LayerId::notes());
-        set.add_layer(LayerId::symbol_background());
-        set.add_layer(LayerId::wire());
-        set.add_layer(LayerId::bus());
-        set.add_layer(LayerId::symbol_pin());
-        set.add_layer(LayerId::symbol_foreground());
-        set.add_layer(LayerId::junctions());
-        set.add_layer(LayerId::labels());
-        set.add_layer(LayerId::interactive());
+        let mut set = Self { layers: Vec::with_capacity(11) };
+        set.add_layer(LayerId::Grid);
+        set.add_layer(LayerId::DrawingSheet);
+        set.add_layer(LayerId::Notes);
+        set.add_layer(LayerId::SymbolBackground);
+        set.add_layer(LayerId::Wire);
+        set.add_layer(LayerId::Bus);
+        set.add_layer(LayerId::SymbolPin);
+        set.add_layer(LayerId::SymbolForeground);
+        set.add_layer(LayerId::Junctions);
+        set.add_layer(LayerId::Labels);
+        set.add_layer(LayerId::Interactive);
         set
     }
 }
@@ -258,22 +213,18 @@ mod tests {
     #[test]
     fn test_layer_set_creation() {
         let set = LayerSet::new();
-        assert!(set.get_layer(&LayerId::wire()).is_none());
+        assert!(set.get_layer(LayerId::Wire).is_none());
 
         let default_set = LayerSet::default();
-        assert!(default_set.get_layer(&LayerId::wire()).is_some());
+        assert!(default_set.get_layer(LayerId::Wire).is_some());
     }
 
     #[test]
     fn test_layer_z_order() {
         let set = LayerSet::default();
-        let ids: Vec<_> = set.layers.iter().map(|l| &l.id).collect();
-
-        // Verify z-index order: Grid(0) < DSheet(1) < Notes(2) < Sym.BG(5) < Wire(10)
-        // < Bus(11) < Sym.Pin(20) < Sym.FG(25) < Junction(30) < Labels(35) < Interactive(100)
-        let expected_z: Vec<i32> = ids.iter().map(|id| id.z_index).collect();
-        for i in 1..expected_z.len() {
-            assert!(expected_z[i] >= expected_z[i - 1], "Layer z-order mismatch at index {}", i);
+        let z_indices: Vec<i32> = set.layers.iter().map(|l| l.id.z_index()).collect();
+        for i in 1..z_indices.len() {
+            assert!(z_indices[i] >= z_indices[i - 1], "Layer z-order mismatch at index {}", i);
         }
     }
 }

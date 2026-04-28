@@ -2,11 +2,10 @@
 //!
 //! Based on KiCanvas JS `SymbolPainter` class
 
-use kicad_json5::ir::{self, GraphicElement};
+use kicad_json5::ir::GraphicElement;
 
-use crate::render_core::{Point, Color, BoundingBox};
-use crate::render_core::graphics::{Circle as RcCircle, Arc as RcArc, Polyline as RcPolyline,
-    Polygon as RcPolygon, Stroke, Fill};
+use crate::render_core::{Point, Color, BoundingBox, Matrix};
+use crate::render_core::graphics::{Circle as RcCircle, Arc as RcArc, Stroke, Fill};
 use crate::layer::{LayerSet, LayerId, LayerElement, LayerElementType};
 use crate::bridge;
 use crate::constants;
@@ -16,41 +15,23 @@ use super::pin_painter::{PinPainter, PinGraphic};
 /// Symbol instance in a schematic
 #[derive(Debug, Clone)]
 pub struct SymbolInstance {
-    /// Symbol library ID
     pub library_id: String,
-    /// Position
     pub position: Point,
-    /// Rotation angle in degrees
     pub rotation: i32,
-    /// Mirror mode
     pub mirror: Mirror,
-    /// Unit number (for multi-unit symbols)
     pub unit: i32,
-    /// Pins
     pub pins: Vec<PinGraphic>,
-    /// Reference designator
     pub reference: String,
-    /// Value/part number
     pub value: String,
-    /// Reference text position (x, y) in KiCad schematic coordinates, None = auto
     pub reference_position: Option<(f64, f64)>,
-    /// Reference text rotation in degrees
     pub reference_rotation: f64,
-    /// Reference text horizontal alignment ("start", "middle", "end")
-    pub reference_h_align: String,
-    /// Reference text vertical alignment
-    pub reference_v_align: String,
-    /// Value text position (x, y) in KiCad schematic coordinates, None = auto
+    pub reference_h_align: &'static str,
+    pub reference_v_align: &'static str,
     pub value_position: Option<(f64, f64)>,
-    /// Value text rotation in degrees
     pub value_rotation: f64,
-    /// Value text horizontal alignment
-    pub value_h_align: String,
-    /// Value text vertical alignment
-    pub value_v_align: String,
-    /// Whether the reference property is hidden
+    pub value_h_align: &'static str,
+    pub value_v_align: &'static str,
     pub reference_hidden: bool,
-    /// Whether the value property is hidden
     pub value_hidden: bool,
 }
 
@@ -64,24 +45,21 @@ pub enum Mirror {
 
 /// Symbol Painter - renders symbols to graphics
 pub struct SymbolPainter {
-    /// Symbol instance data
     pub symbol: SymbolInstance,
-    /// Graphics from library symbol (body shapes)
     pub body_graphics: Vec<GraphicElement>,
-    /// Wire color
     pub wire_color: Color,
-    /// Component outline color
     pub outline_color: Color,
-    /// Pin color
     pub pin_color: Color,
-    /// Reference color (cyan in KiCad)
     pub reference_color: Color,
-    /// Value color (cyan in KiCad)
     pub value_color: Color,
 }
 
+/// Transform a slice of points through a matrix, returning Vec<Point>.
+fn transform_points(pts: &[Point], transform: &Matrix) -> Vec<Point> {
+    pts.iter().map(|p| transform.transform(p)).collect()
+}
+
 impl SymbolPainter {
-    /// Create a new symbol painter
     pub fn new(symbol: SymbolInstance) -> Self {
         Self {
             symbol,
@@ -94,7 +72,6 @@ impl SymbolPainter {
         }
     }
 
-    /// Create a symbol painter with library graphics
     pub fn with_graphics(symbol: SymbolInstance, graphics: Vec<GraphicElement>) -> Self {
         Self {
             symbol,
@@ -107,47 +84,28 @@ impl SymbolPainter {
         }
     }
 
-    /// Get the symbol transformation matrix
-    ///
-    /// Matches JS `get_symbol_transform()`: includes Y-flip (library Y-UP →
-    /// schematic Y-DOWN) baked into the rotation matrix, then translation to
-    /// the symbol's schematic position.
-    pub fn transform(&self) -> crate::render_core::Matrix {
+    /// Get the symbol transformation matrix.
+    /// Includes Y-flip (library Y-UP → schematic Y-DOWN) baked into the rotation matrix,
+    /// then translation to the symbol's schematic position.
+    pub fn transform(&self) -> Matrix {
         let rot_mirror = get_symbol_transform(self.symbol.rotation, &self.symbol.mirror);
-        let translation = crate::render_core::Matrix::translation(
-            self.symbol.position.x,
-            self.symbol.position.y,
-        );
+        let translation = Matrix::translation(self.symbol.position.x, self.symbol.position.y);
         translation.multiply(&rot_mirror)
     }
 
-    /// Paint symbol body graphics (rectangles, circles, arcs, polylines).
-    /// Two-pass rendering: background-filled shapes first (as base layer),
-    /// then all other graphics on top. This prevents the yellow body fill
-    /// from covering small pin-adjacent rectangles.
+    /// Paint symbol body graphics. Two-pass: background-filled shapes first, then all others.
     fn paint_body(&self, layers: &mut LayerSet) {
         let transform = self.transform();
-        let bg_layer = layers.get_layer_mut(&LayerId::symbol_background());
+        let bg_layer = layers.get_layer_mut(LayerId::SymbolBackground);
 
         if let Some(layer) = bg_layer {
-            // Pass 1: background-filled rectangles (symbol body fill)
+            // Pass 1: background-filled rectangles
             for ge in &self.body_graphics {
                 if let GraphicElement::Rectangle(ir_rect) = ge {
                     if ir_rect.fill.fill_type == kicad_json5::ir::FillType::Background {
                         let mut rc_poly = bridge::convert_rectangle_with_fill(ir_rect, self.outline_color, self.outline_color);
-                        let transformed_points: Vec<(f64, f64)> = rc_poly.points
-                            .iter()
-                            .map(|p| {
-                                let tp = transform.transform(p);
-                                (tp.x, tp.y)
-                            })
-                            .collect();
-                        rc_poly.points = transformed_points.into_iter()
-                            .map(|(x, y)| Point::new(x, y))
-                            .collect();
-                        layer.add_element(LayerElement::new(
-                            LayerElementType::Polygon(rc_poly),
-                        ));
+                        rc_poly.points = transform_points(&rc_poly.points, &transform);
+                        layer.add_element(LayerElement::new(LayerElementType::Polygon(rc_poly)));
                     }
                 }
             }
@@ -157,41 +115,16 @@ impl SymbolPainter {
                 match ge {
                     GraphicElement::Polyline(ir_poly) => {
                         let mut rc_poly = bridge::convert_polyline_with_color(ir_poly, self.outline_color);
-                        // Transform all points
-                        let transformed_points: Vec<(f64, f64)> = rc_poly.points
-                            .iter()
-                            .map(|p| {
-                                let tp = transform.transform(p);
-                                (tp.x, tp.y)
-                            })
-                            .collect();
-                        rc_poly.points = transformed_points.into_iter()
-                            .map(|(x, y)| Point::new(x, y))
-                            .collect();
-                        layer.add_element(LayerElement::new(
-                            LayerElementType::Polyline(rc_poly),
-                        ));
+                        rc_poly.points = transform_points(&rc_poly.points, &transform);
+                        layer.add_element(LayerElement::new(LayerElementType::Polyline(rc_poly)));
                     }
                     GraphicElement::Rectangle(ir_rect) => {
-                        // Skip background rects already rendered in pass 1
                         if ir_rect.fill.fill_type == kicad_json5::ir::FillType::Background {
                             continue;
                         }
                         let mut rc_poly = bridge::convert_rectangle_with_fill(ir_rect, self.outline_color, self.outline_color);
-                        // Transform all points
-                        let transformed_points: Vec<(f64, f64)> = rc_poly.points
-                            .iter()
-                            .map(|p| {
-                                let tp = transform.transform(p);
-                                (tp.x, tp.y)
-                            })
-                            .collect();
-                        rc_poly.points = transformed_points.into_iter()
-                            .map(|(x, y)| Point::new(x, y))
-                            .collect();
-                        layer.add_element(LayerElement::new(
-                            LayerElementType::Polygon(rc_poly),
-                        ));
+                        rc_poly.points = transform_points(&rc_poly.points, &transform);
+                        layer.add_element(LayerElement::new(LayerElementType::Polygon(rc_poly)));
                     }
                     GraphicElement::Circle(ir_circle) => {
                         let rc_circle = bridge::convert_circle_with_fill(ir_circle, self.outline_color, self.outline_color);
@@ -201,14 +134,9 @@ impl SymbolPainter {
                         if let Some(s) = rc_circle.stroke {
                             transformed = transformed.with_stroke(s);
                         }
-                        layer.add_element(LayerElement::new(
-                            LayerElementType::Circle(transformed),
-                        ));
+                        layer.add_element(LayerElement::new(LayerElementType::Circle(transformed)));
                     }
                     GraphicElement::Arc(ir_arc) => {
-                        // Transform all 3 defining points through the symbol matrix,
-                        // then recalculate center/radius/angles from transformed points.
-                        // Only transforming the center would leave angles wrong for rotated symbols.
                         let start_p = transform.transform(&Point::new(ir_arc.start.0, ir_arc.start.1));
                         let mid_p = transform.transform(&Point::new(ir_arc.mid.0, ir_arc.mid.1));
                         let end_p = transform.transform(&Point::new(ir_arc.end.0, ir_arc.end.1));
@@ -219,9 +147,7 @@ impl SymbolPainter {
                             bridge::convert_stroke_solid(&ir_arc.stroke, self.outline_color),
                             fill,
                         ) {
-                            layer.add_element(LayerElement::new(
-                                LayerElementType::Arc(rc_arc),
-                            ));
+                            layer.add_element(LayerElement::new(LayerElementType::Arc(rc_arc)));
                         }
                     }
                     GraphicElement::Text(ir_text) => {
@@ -235,20 +161,17 @@ impl SymbolPainter {
                                 color: self.outline_color,
                                 bold: false,
                                 rotation: 0.0,
-                                text_anchor: String::new(),
-                                dominant_baseline: String::new(),
+                                text_anchor: "",
+                                dominant_baseline: "",
                             }));
                         }
                     }
-                    GraphicElement::Pin(_) => {
-                        // Pins are handled separately by paint_pins
-                    }
+                    GraphicElement::Pin(_) => {}
                 }
             }
         }
     }
 
-    /// Paint all pins
     fn paint_pins(&self, layers: &mut LayerSet) {
         let transform = self.transform();
 
@@ -256,7 +179,7 @@ impl SymbolPainter {
             let painter = PinPainter::new(
                 pin.clone(),
                 transform.clone(),
-                self.pin_color,  // JS: pin line/shape uses theme.pin (red)
+                self.pin_color,
                 self.pin_color,
             );
             painter.paint(layers);
@@ -265,10 +188,6 @@ impl SymbolPainter {
 
     /// Compute the draw position for a property text, accounting for
     /// KiCad's symbol coordinate system transform.
-    ///
-    /// When draw_rotation swaps the text angle (90↔0 for rotated symbols),
-    /// the horizontal offset must also be negated to compensate for the
-    /// Y-flip built into KiCad's symbol transform matrix.
     fn compute_text_center(
         anchor_pos: Point,
         text: &str,
@@ -292,8 +211,6 @@ impl SymbolPainter {
             _ => 0.0,
         };
 
-        // When draw_rotation swapped the angle, negate x offset to compensate
-        // for the Y-flip in KiCad's symbol transform
         if (original_angle - draw_angle).abs() > 1.0 {
             dx = -dx;
         }
@@ -301,97 +218,57 @@ impl SymbolPainter {
         Point::new(anchor_pos.x + dx, anchor_pos.y + dy)
     }
 
-    /// Paint reference text
-    fn paint_reference(&self, layers: &mut LayerSet) {
-        if self.symbol.reference.is_empty() || self.symbol.reference_hidden || self.symbol.reference.starts_with('#') {
+    /// Paint a property (reference or value) text.
+    fn paint_property(
+        &self,
+        layers: &mut LayerSet,
+        text: &str,
+        pos: Option<(f64, f64)>,
+        fallback_offset_y: f64,
+        prop_rotation: f64,
+        h_align: &str,
+        v_align: &str,
+        hidden: bool,
+        skip_if_hash: bool,
+        color: Color,
+    ) {
+        if text.is_empty() || hidden || (skip_if_hash && text.starts_with('#')) {
             return;
         }
 
-        let layer = layers.get_layer_mut(&LayerId::symbol_foreground()).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolForeground).unwrap();
 
-        let anchor_pos = if let Some((rx, ry)) = self.symbol.reference_position {
-            Point::new(rx, ry)
+        let anchor_pos = if let Some((x, y)) = pos {
+            Point::new(x, y)
         } else {
-            Point::new(self.symbol.position.x, self.symbol.position.y - 2.54)
+            Point::new(self.symbol.position.x, self.symbol.position.y + fallback_offset_y)
         };
 
-        let orient = draw_rotation(self.symbol.rotation, self.symbol.reference_rotation);
+        let orient = draw_rotation(self.symbol.rotation, prop_rotation);
 
         let center = Self::compute_text_center(
-            anchor_pos,
-            &self.symbol.reference,
-            constants::TEXT_SIZE,
-            &self.symbol.reference_h_align,
-            &self.symbol.reference_v_align,
-            self.symbol.reference_rotation,
-            orient,
+            anchor_pos, text, constants::TEXT_SIZE,
+            h_align, v_align, prop_rotation, orient,
         );
 
         layer.add_element(LayerElement::new(LayerElementType::Text {
             position: center,
-            text: self.symbol.reference.clone(),
+            text: text.to_string(),
             font_size: constants::TEXT_SIZE,
-            color: self.reference_color,
+            color,
             bold: false,
             rotation: orient,
-            text_anchor: "middle".to_string(),
-            dominant_baseline: "central".to_string(),
-        }));
-    }
-
-    /// Paint value text
-    fn paint_value(&self, layers: &mut LayerSet) {
-        if self.symbol.value.is_empty() || self.symbol.value_hidden {
-            return;
-        }
-
-        let layer = layers.get_layer_mut(&LayerId::symbol_foreground()).unwrap();
-
-        let anchor_pos = if let Some((vx, vy)) = self.symbol.value_position {
-            Point::new(vx, vy)
-        } else {
-            Point::new(self.symbol.position.x, self.symbol.position.y + 2.54)
-        };
-
-        let orient = draw_rotation(self.symbol.rotation, self.symbol.value_rotation);
-
-        let center = Self::compute_text_center(
-            anchor_pos,
-            &self.symbol.value,
-            constants::TEXT_SIZE,
-            &self.symbol.value_h_align,
-            &self.symbol.value_v_align,
-            self.symbol.value_rotation,
-            orient,
-        );
-
-        layer.add_element(LayerElement::new(LayerElementType::Text {
-            position: center,
-            text: self.symbol.value.clone(),
-            font_size: constants::TEXT_SIZE,
-            color: self.value_color,
-            bold: false,
-            rotation: orient,
-            text_anchor: "middle".to_string(),
-            dominant_baseline: "central".to_string(),
+            text_anchor: "middle",
+            dominant_baseline: "central",
         }));
     }
 }
 
 impl Painter for SymbolPainter {
-    fn layers(&self) -> Vec<LayerId> {
-        vec![
-            LayerId::symbol_background(),
-            LayerId::symbol_pin(),
-            LayerId::symbol_foreground(),
-        ]
-    }
-
     fn bbox(&self) -> BoundingBox {
         let mut bbox = BoundingBox::empty();
-
-        // Include all pins
         let transform = self.transform();
+
         for pin in &self.symbol.pins {
             let start = transform.transform(&pin.position);
             let end = transform.transform(&pin.end_position());
@@ -399,7 +276,6 @@ impl Painter for SymbolPainter {
             bbox.expand_point(end.x, end.y);
         }
 
-        // Include body graphics
         for ge in &self.body_graphics {
             match ge {
                 GraphicElement::Polyline(ir_poly) => {
@@ -423,22 +299,41 @@ impl Painter for SymbolPainter {
             }
         }
 
-        // Add padding for reference/value text
-        bbox = bbox.with_padding(2.54);
-
-        bbox
+        bbox.with_padding(2.54)
     }
 
     fn paint(&self, layers: &mut LayerSet) {
         self.paint_body(layers);
         self.paint_pins(layers);
-        self.paint_reference(layers);
-        self.paint_value(layers);
+        self.paint_property(
+            layers,
+            &self.symbol.reference,
+            self.symbol.reference_position,
+            -2.54,
+            self.symbol.reference_rotation,
+            self.symbol.reference_h_align,
+            self.symbol.reference_v_align,
+            self.symbol.reference_hidden,
+            true,
+            self.reference_color,
+        );
+        self.paint_property(
+            layers,
+            &self.symbol.value,
+            self.symbol.value_position,
+            2.54,
+            self.symbol.value_rotation,
+            self.symbol.value_h_align,
+            self.symbol.value_v_align,
+            self.symbol.value_hidden,
+            false,
+            self.value_color,
+        );
     }
 }
 
 /// Helper function to get symbol transform matrix (matching JS get_symbol_transform)
-pub fn get_symbol_transform(rotation: i32, mirror: &Mirror) -> crate::render_core::Matrix {
+pub fn get_symbol_transform(rotation: i32, mirror: &Mirror) -> Matrix {
     let (a, b, c, d) = match rotation % 360 {
         0 => (1.0, 0.0, 0.0, -1.0),
         90 => (0.0, -1.0, -1.0, 0.0),
@@ -448,23 +343,16 @@ pub fn get_symbol_transform(rotation: i32, mirror: &Mirror) -> crate::render_cor
     };
 
     match mirror {
-        Mirror::X => crate::render_core::Matrix::new([a, b, -c, -d, 0.0, 0.0]),
-        Mirror::Y => crate::render_core::Matrix::new([-a, -b, c, d, 0.0, 0.0]),
-        Mirror::None => crate::render_core::Matrix::new([a, b, c, d, 0.0, 0.0]),
+        Mirror::X => Matrix::new([a, b, -c, -d, 0.0, 0.0]),
+        Mirror::Y => Matrix::new([-a, -b, c, d, 0.0, 0.0]),
+        Mirror::None => Matrix::new([a, b, c, d, 0.0, 0.0]),
     }
 }
 
 /// Compute the effective draw rotation for a property text, matching JS `SchField.draw_rotation`.
-///
-/// JS logic: check if the symbol transform's element[1] has |value| == 1,
-/// which indicates 90° or 270° symbol rotation. If so, swap the text angle:
-/// - 0°/180° → 90°
-/// - 90°/270° → 0°
-/// Otherwise, keep the property's own angle.
 fn draw_rotation(symbol_rotation: i32, property_angle_deg: f64) -> f64 {
-    let matrix = get_symbol_transform(symbol_rotation, &Mirror::None);
-    // JS checks parent_transform.elements[1] which is matrix.elements[1]
-    if matrix.elements[1].abs() == 1.0 {
+    let is_90_or_270 = matches!(symbol_rotation % 360, 90 | 270);
+    if is_90_or_270 {
         let deg = property_angle_deg % 360.0;
         if (deg - 0.0).abs() < 0.5 || (deg - 180.0).abs() < 0.5 {
             90.0

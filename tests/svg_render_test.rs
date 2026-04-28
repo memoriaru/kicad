@@ -65,7 +65,7 @@ fn create_test_schematic_layers() -> LayerSet {
 
     // 5. Add some direct graphics primitives
     // Add a rectangle (symbol body)
-    let layer = layers.get_layer_mut(&LayerId::symbol_background()).unwrap();
+    let layer = layers.get_layer_mut(LayerId::SymbolBackground).unwrap();
     let rect_points = vec![
         Point::new(60.0, 20.0),
         Point::new(90.0, 20.0),
@@ -78,7 +78,7 @@ fn create_test_schematic_layers() -> LayerSet {
     layer.add_element(LayerElement::new(LayerElementType::Polygon(rect)));
 
     // Add a circle inside
-    let layer = layers.get_layer_mut(&LayerId::symbol_foreground()).unwrap();
+    let layer = layers.get_layer_mut(LayerId::SymbolForeground).unwrap();
     let circle = Circle::new(Point::new(75.0, 30.0), 5.0)
         .with_fill(Fill::solid(Color::red()));
     layer.add_element(LayerElement::new(LayerElementType::Circle(circle)));
@@ -241,8 +241,8 @@ fn test_layer_z_order() {
     let _layers = LayerSet::default();
 
     // Verify z-order
-    let bg_z = LayerId::symbol_background().z_index;
-    let fg_z = LayerId::symbol_foreground().z_index;
+    let bg_z = LayerId::SymbolBackground.z_index();
+    let fg_z = LayerId::SymbolForeground.z_index();
     assert!(bg_z < fg_z, "Background should have lower z-index than foreground");
 
     println!("Z-order verified: background={}, foreground={}", bg_z, fg_z);
@@ -295,7 +295,7 @@ fn test_wire_painter() {
     let painter = WirePainter::new(segments, Color::blue());
     painter.paint(&mut layers);
 
-    let wire_layer = layers.get_layer(&LayerId::wire()).unwrap();
+    let wire_layer = layers.get_layer(LayerId::Wire).unwrap();
     assert_eq!(wire_layer.elements.len(), 2, "Should have 2 wire segments");
 
     // Check bounding box - coordinates should encompass the wire path
@@ -319,7 +319,7 @@ fn test_junction_painter() {
     let painter = JunctionPainter::new(junctions, Color::red());
     painter.paint(&mut layers);
 
-    let junction_layer = layers.get_layer(&LayerId::junctions()).unwrap();
+    let junction_layer = layers.get_layer(LayerId::Junctions).unwrap();
     assert_eq!(junction_layer.elements.len(), 2, "Should have 2 junctions");
 }
 
@@ -337,7 +337,7 @@ fn test_pin_painter() {
     );
     painter.paint(&mut layers);
 
-    let pin_layer = layers.get_layer(&LayerId::symbol_pin()).unwrap();
+    let pin_layer = layers.get_layer(LayerId::SymbolPin).unwrap();
     // Pin should have at least the body (polyline)
     assert!(!pin_layer.elements.is_empty(), "Pin should have elements");
 }
@@ -358,7 +358,7 @@ fn test_label_painter() {
     let painter = LabelPainter::new(label, Color::red());
     painter.paint(&mut layers);
 
-    let label_layer = layers.get_layer(&LayerId::labels()).unwrap();
+    let label_layer = layers.get_layer(LayerId::Labels).unwrap();
     // Label should have at least text element
     assert!(!label_layer.elements.is_empty(), "Label should have elements");
 }

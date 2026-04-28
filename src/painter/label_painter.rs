@@ -5,7 +5,7 @@
 //! and `HierarchicalLabelPainter.create_shape()` exactly.
 
 use crate::render_core::{Point, Color, BoundingBox};
-use crate::render_core::graphics::{Polyline, Polygon, Stroke, Fill};
+use crate::render_core::graphics::{Polygon, Stroke};
 use crate::layer::{LayerSet, LayerId, LayerElement, LayerElementType};
 use crate::constants;
 use super::Painter;
@@ -65,7 +65,7 @@ impl LabelPainter {
     /// For global/hierarchical labels, offset text past the shape so it doesn't overlap.
     /// KiCad places text to the right of the shape at the connection point.
     fn paint_label_text(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(&LayerId::labels()).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Labels).unwrap();
 
         let text_width = self.label.text.len() as f64 * self.label.font_size * constants::CHAR_WIDTH_RATIO;
 
@@ -95,8 +95,8 @@ impl LabelPainter {
             color: self.color,
             bold: false,
             rotation: 0.0,
-            text_anchor: String::new(),
-            dominant_baseline: String::new(),
+            text_anchor: "",
+            dominant_baseline: "",
         }));
     }
 
@@ -108,7 +108,7 @@ impl LabelPainter {
             return;
         }
 
-        let layer = layers.get_layer_mut(&LayerId::labels()).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Labels).unwrap();
         let pos = self.label.position;
         let stroke = Stroke::new(constants::LINE_WIDTH, self.color);
 
@@ -263,10 +263,6 @@ impl LabelPainter {
 }
 
 impl Painter for LabelPainter {
-    fn layers(&self) -> Vec<LayerId> {
-        vec![LayerId::labels()]
-    }
-
     fn bbox(&self) -> BoundingBox {
         let text_width = self.label.text.len() as f64 * self.label.font_size * constants::CHAR_WIDTH_RATIO;
         let text_height = self.label.font_size;
