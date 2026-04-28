@@ -956,6 +956,13 @@ impl Schematic {
                         let w = sub_list.get(2).and_then(get_number).unwrap_or(1.27);
                         font.size = (w, h);
                     }
+                    "color" => {
+                        let r = sub_list.get(1).and_then(get_number).unwrap_or(0.0) as u8;
+                        let g = sub_list.get(2).and_then(get_number).unwrap_or(0.0) as u8;
+                        let b = sub_list.get(3).and_then(get_number).unwrap_or(0.0) as u8;
+                        let a = sub_list.get(4).and_then(get_number).unwrap_or(1.0) as u8;
+                        font.color = Some((r, g, b, a));
+                    }
                     _ => {}
                 }
             }
