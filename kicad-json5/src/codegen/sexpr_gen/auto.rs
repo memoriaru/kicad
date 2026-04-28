@@ -286,50 +286,99 @@ impl SexprGenerator {
             return;
         }
 
-        // Sort pins by x then y for deterministic order
-        let mut ordered: Vec<&PinInfo> = pins.iter().collect();
-        ordered.sort_by(|a, b| {
-            a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
-        });
+        // Max Manhattan distance for wire connection (mm). Beyond this, use labels.
+        const MAX_WIRE_DIST: f64 = 30.0;
 
-        // Nearest-neighbor chain
-        let mut visited = vec![false; ordered.len()];
-        visited[0] = true;
-        let mut current = 0;
-        let mut junction_points: HashMap<(i64, i64), u32> = HashMap::new();
+        // Build adjacency: only connect pin pairs within MAX_WIRE_DIST
+        // Use union-find to cluster nearby pins into wire groups
+        let n = pins.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+        let mut rank = vec![0usize; n];
 
-        for _ in 1..ordered.len() {
-            // Find nearest unvisited pin by Manhattan distance
-            let (cx, cy) = (ordered[current].x, ordered[current].y);
-            let mut best_idx = 0;
-            let mut best_dist = f64::MAX;
-            for (i, pin) in ordered.iter().enumerate() {
-                if visited[i] { continue; }
-                let dist = (cx - pin.x).abs() + (cy - pin.y).abs();
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_idx = i;
+        fn find(parent: &mut Vec<usize>, i: usize) -> usize {
+            if parent[i] != i {
+                parent[i] = find(parent, parent[i]);
+            }
+            parent[i]
+        }
+
+        fn union(parent: &mut Vec<usize>, rank: &mut Vec<usize>, a: usize, b: usize) {
+            let ra = find(parent, a);
+            let rb = find(parent, b);
+            if ra == rb { return; }
+            if rank[ra] < rank[rb] { parent[ra] = rb; }
+            else if rank[ra] > rank[rb] { parent[rb] = ra; }
+            else { parent[rb] = ra; rank[ra] += 1; }
+        }
+
+        // Group nearby pins
+        for i in 0..n {
+            for j in (i+1)..n {
+                let dist = (pins[i].x - pins[j].x).abs() + (pins[i].y - pins[j].y).abs();
+                if dist <= MAX_WIRE_DIST {
+                    union(&mut parent, &mut rank, i, j);
                 }
             }
+        }
 
-            let target = &ordered[best_idx];
-            self.generate_l_wire(output, cx, cy, target.x, target.y);
+        // Collect clusters
+        let mut clusters: HashMap<usize, Vec<usize>> = HashMap::new();
+        for i in 0..n {
+            let root = find(&mut parent, i);
+            clusters.entry(root).or_default().push(i);
+        }
 
-            // Track junction at the L-corner midpoint
-            let mid_x = Self::snap_to_grid(target.x);
-            let mid_y = Self::snap_to_grid(cy);
-            let corner_key = (
-                (mid_x * 1000.0).round() as i64,
-                (mid_y * 1000.0).round() as i64,
-            );
-            if (cx - target.x).abs() > 0.01 && (cy - target.y).abs() > 0.01 {
-                // L-shaped wire has a corner — track for junction detection
-                *junction_points.entry(corner_key).or_insert(0) += 1;
+        let mut junction_points: HashMap<(i64, i64), u32> = HashMap::new();
+
+        for (_root, member_indices) in &clusters {
+            if member_indices.len() < 2 {
+                // Single pin in cluster — use label
+                let pin = &pins[member_indices[0]];
+                all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
+                continue;
             }
 
-            visited[best_idx] = true;
-            current = best_idx;
+            // Sort cluster pins by position for deterministic wire order
+            let mut cluster_pins: Vec<usize> = member_indices.clone();
+            cluster_pins.sort_by(|&a, &b| {
+                pins[a].x.partial_cmp(&pins[b].x).unwrap_or(std::cmp::Ordering::Equal)
+                    .then(pins[a].y.partial_cmp(&pins[b].y).unwrap_or(std::cmp::Ordering::Equal))
+            });
+
+            // Nearest-neighbor chain within cluster
+            let mut visited = vec![false; cluster_pins.len()];
+            visited[0] = true;
+            let mut current = 0;
+
+            for _ in 1..cluster_pins.len() {
+                let (cx, cy) = (pins[cluster_pins[current]].x, pins[cluster_pins[current]].y);
+                let mut best_idx = 0;
+                let mut best_dist = f64::MAX;
+                for (i, &pi) in cluster_pins.iter().enumerate() {
+                    if visited[i] { continue; }
+                    let dist = (cx - pins[pi].x).abs() + (cy - pins[pi].y).abs();
+                    if dist < best_dist {
+                        best_dist = dist;
+                        best_idx = i;
+                    }
+                }
+
+                let target = &pins[cluster_pins[best_idx]];
+                self.generate_l_wire(output, cx, cy, target.x, target.y);
+
+                let mid_x = Self::snap_to_grid(target.x);
+                let mid_y = Self::snap_to_grid(cy);
+                let corner_key = (
+                    (mid_x * 1000.0).round() as i64,
+                    (mid_y * 1000.0).round() as i64,
+                );
+                if (cx - target.x).abs() > 0.01 && (cy - target.y).abs() > 0.01 {
+                    *junction_points.entry(corner_key).or_insert(0) += 1;
+                }
+
+                visited[best_idx] = true;
+                current = best_idx;
+            }
         }
 
         // Generate junctions at multi-wire intersection points
@@ -345,7 +394,7 @@ impl SexprGenerator {
             }
         }
 
-        // Record label positions for power_flags compatibility
+        // All pins still record label positions for power_flags compatibility
         for pin in pins {
             all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
         }

@@ -223,8 +223,8 @@ impl SexprGenerator {
     }
 
     /// Generate a minimal power symbol lib definition for render=Power nets.
-    /// Produces a KiCad-compatible power symbol with a single power_out pin.
-    fn generate_minimal_power_lib(&mut self, output: &mut String, lib_id: &str, net_name: &str) {
+    /// Follows KiCad's power symbol format: pin in _0_0, graphics in _0_1.
+    fn generate_minimal_power_lib(&mut self, output: &mut String, lib_id: &str, _net_name: &str) {
         let short = lib_id.split(':').last().unwrap_or(lib_id);
         let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
 
@@ -248,19 +248,36 @@ impl SexprGenerator {
             self.write_line(output, "(duplicate_pin_numbers_are_jumpers no)");
         }
 
-        // Reference property
+        // Reference property — hidden, shown as #PWR
         self.write_line(output, "(property \"Reference\" \"#PWR\"");
         self.indent_level += 1;
         self.write_line(output, "(at 0 0 0)");
-        self.write_line(output, "(effects (font (size 1.27 1.27)) hide)");
+        if is_v9_plus {
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+        }
+        self.write_line(output, "(hide yes)");
+        self.write_line(output, "(effects");
+        self.indent_level += 1;
+        self.write_line(output, "(font (size 1.27 1.27))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // Value property
+        // Value property — visible label showing net name
         self.write_line(output, &format!("(property \"Value\" \"{}\"", short));
         self.indent_level += 1;
         self.write_line(output, "(at 0 3.81 0)");
-        self.write_line(output, "(effects (font (size 1.27 1.27)))");
+        if is_v9_plus {
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+        }
+        self.write_line(output, "(effects");
+        self.indent_level += 1;
+        self.write_line(output, "(font (size 1.27 1.27))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
         self.indent_level -= 1;
         self.write_line(output, ")");
 
@@ -268,7 +285,16 @@ impl SexprGenerator {
         self.write_line(output, "(property \"Footprint\" \"\"");
         self.indent_level += 1;
         self.write_line(output, "(at 0 0 0)");
-        self.write_line(output, "(effects (font (size 1.27 1.27)) hide)");
+        if is_v9_plus {
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+        }
+        self.write_line(output, "(hide yes)");
+        self.write_line(output, "(effects");
+        self.indent_level += 1;
+        self.write_line(output, "(font (size 1.27 1.27))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
         self.indent_level -= 1;
         self.write_line(output, ")");
 
@@ -276,11 +302,20 @@ impl SexprGenerator {
         self.write_line(output, "(property \"Datasheet\" \"\"");
         self.indent_level += 1;
         self.write_line(output, "(at 0 0 0)");
-        self.write_line(output, "(effects (font (size 1.27 1.27)) hide)");
+        if is_v9_plus {
+            self.write_line(output, "(show_name no)");
+            self.write_line(output, "(do_not_autoplace no)");
+        }
+        self.write_line(output, "(hide yes)");
+        self.write_line(output, "(effects");
+        self.indent_level += 1;
+        self.write_line(output, "(font (size 1.27 1.27))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // Unit 0_1: vertical line from origin going up
+        // Unit 0_1: vertical line graphic
         self.write_line(output, &format!("(symbol \"{}_0_1\"", short));
         self.indent_level += 1;
         self.write_line(output, "(polyline");
@@ -294,11 +329,6 @@ impl SexprGenerator {
         self.write_line(output, "(fill (type none))");
         self.indent_level -= 1;
         self.write_line(output, ")");
-        self.write_line(output, &format!("(text \"{}\" (at 0 2.54 0)", net_name));
-        self.indent_level += 1;
-        self.write_line(output, "(effects (font (size 1.27 1.27))))");
-        self.indent_level -= 1;
-        self.write_line(output, ")");
         self.indent_level -= 1;
         self.write_line(output, ")");
 
@@ -307,8 +337,16 @@ impl SexprGenerator {
         self.indent_level += 1;
         self.write_line(output, "(pin power_out line (at 0 0 90) (length 0)");
         self.indent_level += 1;
-        self.write_line(output, "(name \"\" (effects (font (size 1.27 1.27))))");
-        self.write_line(output, "(number \"1\" (effects (font (size 1.27 1.27))))");
+        self.write_line(output, "(name \"\"");
+        self.indent_level += 1;
+        self.write_line(output, "(effects (font (size 1.27 1.27)))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+        self.write_line(output, "(number \"1\"");
+        self.indent_level += 1;
+        self.write_line(output, "(effects (font (size 1.27 1.27)))");
+        self.indent_level -= 1;
+        self.write_line(output, ")");
         self.indent_level -= 1;
         self.write_line(output, ")");
         self.indent_level -= 1;
