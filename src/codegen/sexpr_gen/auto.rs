@@ -120,11 +120,6 @@ impl SexprGenerator {
         (local_rot + crot) % 360.0
     }
 
-    /// Snap a coordinate to KiCad's 1.27mm grid
-    fn snap_to_grid(v: f64) -> f64 {
-        (v / 1.27).round() * 1.27
-    }
-
     /// Collect all pin world positions grouped by net_id.
     fn collect_pin_world_positions(
         schematic: &crate::ir::Schematic,
@@ -282,91 +277,19 @@ impl SexprGenerator {
         }
 
         if pins.len() == 1 {
-            // Single pin: fall back to label
             self.render_net_labels(output, net_name, pins, all_label_positions);
             return;
         }
 
-        // Max Manhattan distance for wire connection (mm). Beyond this, use labels.
-        const MAX_WIRE_DIST: f64 = 30.0;
-
-        // Build adjacency: only connect pin pairs within MAX_WIRE_DIST
-        // Use union-find to cluster nearby pins into wire groups
-        let n = pins.len();
-        let mut parent: Vec<usize> = (0..n).collect();
-        let mut rank = vec![0usize; n];
-
-        fn find(parent: &mut Vec<usize>, i: usize) -> usize {
-            if parent[i] != i {
-                parent[i] = find(parent, parent[i]);
-            }
-            parent[i]
-        }
-
-        fn union(parent: &mut Vec<usize>, rank: &mut Vec<usize>, a: usize, b: usize) {
-            let ra = find(parent, a);
-            let rb = find(parent, b);
-            if ra == rb { return; }
-            if rank[ra] < rank[rb] { parent[ra] = rb; }
-            else if rank[ra] > rank[rb] { parent[rb] = ra; }
-            else { parent[rb] = ra; rank[ra] += 1; }
-        }
-
-        // Group nearby pins
-        for i in 0..n {
-            for j in (i+1)..n {
-                let dist = (pins[i].x - pins[j].x).abs() + (pins[i].y - pins[j].y).abs();
-                if dist <= MAX_WIRE_DIST {
-                    union(&mut parent, &mut rank, i, j);
-                }
-            }
-        }
-
-        // Collect clusters
-        let mut clusters: HashMap<usize, Vec<usize>> = HashMap::new();
-        for i in 0..n {
-            let root = find(&mut parent, i);
-            clusters.entry(root).or_default().push(i);
-        }
-
-        let mut junction_points: HashMap<(i64, i64), u32> = HashMap::new();
-
-        for (_root, member_indices) in &clusters {
-            if member_indices.len() < 2 {
-                // Single pin in cluster — generate global_label
-                let pin = &pins[member_indices[0]];
-                all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
-                let default_effects = TextEffects::default();
-                self.write_line(output, "(global_label");
-                self.indent_level += 1;
-                self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
-                self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
-                self.write_line(output, "(shape passive)");
-                self.generate_effects(output, &default_effects);
-                if self.config.include_uuids {
-                    self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
-                }
-                self.indent_level -= 1;
-                self.write_line(output, ")");
-                continue;
-            }
-
-            // Sort cluster pins by position for deterministic wire order
-            let mut cluster_pins: Vec<usize> = member_indices.clone();
-            cluster_pins.sort_by(|&a, &b| {
-                pins[a].x.partial_cmp(&pins[b].x).unwrap_or(std::cmp::Ordering::Equal)
-                    .then(pins[a].y.partial_cmp(&pins[b].y).unwrap_or(std::cmp::Ordering::Equal))
-            });
-
-            // Each multi-pin cluster needs at least 1 global_label so KiCad
-            // can associate the wire-connected pins with the correct net.
-            let first = &pins[cluster_pins[0]];
-            all_label_positions.push((first.x, first.y, first.rotation, net_name));
-            let default_effects = TextEffects::default();
+        // All pins get a global_label first — net connectivity is established
+        // by labels, wires are visual aids only.
+        let default_effects = TextEffects::default();
+        for pin in pins {
+            all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
             self.write_line(output, "(global_label");
             self.indent_level += 1;
             self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
-            self.write_line(output, &Self::format_at(first.x, first.y, first.rotation));
+            self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
             self.write_line(output, "(shape passive)");
             self.generate_effects(output, &default_effects);
             if self.config.include_uuids {
@@ -374,116 +297,46 @@ impl SexprGenerator {
             }
             self.indent_level -= 1;
             self.write_line(output, ")");
-
-            // Nearest-neighbor chain within cluster
-            let mut visited = vec![false; cluster_pins.len()];
-            visited[0] = true;
-            let mut current = 0;
-
-            for _ in 1..cluster_pins.len() {
-                let (cx, cy) = (pins[cluster_pins[current]].x, pins[cluster_pins[current]].y);
-                let mut best_idx = 0;
-                let mut best_dist = f64::MAX;
-                for (i, &pi) in cluster_pins.iter().enumerate() {
-                    if visited[i] { continue; }
-                    let dist = (cx - pins[pi].x).abs() + (cy - pins[pi].y).abs();
-                    if dist < best_dist {
-                        best_dist = dist;
-                        best_idx = i;
-                    }
-                }
-
-                let target = &pins[cluster_pins[best_idx]];
-                self.generate_l_wire(output, cx, cy, target.x, target.y);
-
-                let mid_x = Self::snap_to_grid(target.x);
-                let mid_y = Self::snap_to_grid(cy);
-                let corner_key = (
-                    (mid_x * 1000.0).round() as i64,
-                    (mid_y * 1000.0).round() as i64,
-                );
-                if (cx - target.x).abs() > 0.01 && (cy - target.y).abs() > 0.01 {
-                    *junction_points.entry(corner_key).or_insert(0) += 1;
-                }
-
-                visited[best_idx] = true;
-                current = best_idx;
-            }
         }
 
-        // Generate junctions at multi-wire intersection points
-        for (key, count) in &junction_points {
-            if *count >= 2 {
-                let jx = key.0 as f64 / 1000.0;
-                let jy = key.1 as f64 / 1000.0;
-                self.write_line(output, &format!(
-                    "(junction (at {} {}) (diameter 0))",
-                    Self::format_number(jx),
-                    Self::format_number(jy),
-                ));
-            }
-        }
-
-        // All pins still record label positions for power_flags compatibility
-        for pin in pins {
-            all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
-        }
-    }
-
-    /// Generate L-shaped wire from (x1,y1) to (x2,y2).
-    fn generate_l_wire(&mut self, output: &mut String, x1: f64, y1: f64, x2: f64, y2: f64) {
+        // Draw straight wires between aligned same-net pins for visual clarity.
+        // Only horizontal or vertical wires — no L-shapes to avoid crossing
+        // pins of other nets. All net connectivity is already via global_labels.
+        const ALIGN_TOL: f64 = 0.5;
+        const MAX_WIRE_LEN: f64 = 20.0;
         let default_stroke = Stroke::default();
 
-        if (y1 - y2).abs() < 0.01 {
-            // Horizontal wire only
-            self.write_line(output, "(wire");
-            self.indent_level += 1;
-            self.write_line(output, &format!(
-                "(pts {} {})",
-                Self::format_xy(x1, y1),
-                Self::format_xy(x2, y2)
-            ));
-            self.generate_stroke(output, &default_stroke);
-            self.indent_level -= 1;
-            self.write_line(output, ")");
-        } else if (x1 - x2).abs() < 0.01 {
-            // Vertical wire only
-            self.write_line(output, "(wire");
-            self.indent_level += 1;
-            self.write_line(output, &format!(
-                "(pts {} {})",
-                Self::format_xy(x1, y1),
-                Self::format_xy(x2, y2)
-            ));
-            self.generate_stroke(output, &default_stroke);
-            self.indent_level -= 1;
-            self.write_line(output, ")");
-        } else {
-            // L-shape: (x1,y1) -> (x2,y1) -> (x2,y2)
-            // Corner at (x2, y1) — snap y1 to grid for clean corners
-            let mid_y = Self::snap_to_grid(y1);
+        for i in 0..pins.len() {
+            for j in (i+1)..pins.len() {
+                let (x1, y1) = (pins[i].x, pins[i].y);
+                let (x2, y2) = (pins[j].x, pins[j].y);
 
-            self.write_line(output, "(wire");
-            self.indent_level += 1;
-            self.write_line(output, &format!(
-                "(pts {} {})",
-                Self::format_xy(x1, y1),
-                Self::format_xy(x2, mid_y)
-            ));
-            self.generate_stroke(output, &default_stroke);
-            self.indent_level -= 1;
-            self.write_line(output, ")");
-
-            self.write_line(output, "(wire");
-            self.indent_level += 1;
-            self.write_line(output, &format!(
-                "(pts {} {})",
-                Self::format_xy(x2, mid_y),
-                Self::format_xy(x2, y2)
-            ));
-            self.generate_stroke(output, &default_stroke);
-            self.indent_level -= 1;
-            self.write_line(output, ")");
+                if (y1 - y2).abs() < ALIGN_TOL && (x1 - x2).abs() <= MAX_WIRE_LEN {
+                    // Same row: horizontal wire
+                    self.write_line(output, "(wire");
+                    self.indent_level += 1;
+                    self.write_line(output, &format!(
+                        "(pts {} {})",
+                        Self::format_xy(x1, y1),
+                        Self::format_xy(x2, y1)
+                    ));
+                    self.generate_stroke(output, &default_stroke);
+                    self.indent_level -= 1;
+                    self.write_line(output, ")");
+                } else if (x1 - x2).abs() < ALIGN_TOL && (y1 - y2).abs() <= MAX_WIRE_LEN {
+                    // Same column: vertical wire
+                    self.write_line(output, "(wire");
+                    self.indent_level += 1;
+                    self.write_line(output, &format!(
+                        "(pts {} {})",
+                        Self::format_xy(x1, y1),
+                        Self::format_xy(x1, y2)
+                    ));
+                    self.generate_stroke(output, &default_stroke);
+                    self.indent_level -= 1;
+                    self.write_line(output, ")");
+                }
+            }
         }
     }
 
