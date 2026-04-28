@@ -5,7 +5,7 @@
 mod svg;
 
 use crate::render_core::{Color, Point, Matrix, BoundingBox};
-use crate::render_core::graphics::{Circle, Arc, Polyline, Polygon, Bezier, Rectangle, Stroke, Fill};
+use crate::render_core::graphics::{Circle, Arc, Polyline, Polygon, Bezier, Rectangle, Stroke};
 
 pub use svg::SvgRenderer;
 

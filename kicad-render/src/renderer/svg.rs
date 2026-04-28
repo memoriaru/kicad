@@ -26,7 +26,6 @@ pub struct SvgRenderer {
 /// Render state for save/restore
 #[derive(Debug, Clone)]
 struct RenderState {
-    transform: Matrix,
     stroke: Option<Stroke>,
     fill: Option<Color>,
 }
@@ -73,11 +72,6 @@ impl SvgRenderer {
         color.to_css()
     }
 
-    /// Get the scale factor from the current transform
-    fn current_scale(&self) -> f64 {
-        self.current_transform().scale_factor()
-    }
-
     /// Convert stroke to SVG attributes, scaling width by current transform's scale.
     fn stroke_to_attrs_scaled(&self, stroke: &Stroke, scale: f64) -> String {
         let width = stroke.width * scale;
@@ -104,7 +98,6 @@ impl Renderer for SvgRenderer {
 
     fn save(&mut self) {
         let state = RenderState {
-            transform: self.current_transform(),
             stroke: self.stroke.clone(),
             fill: self.fill,
         };

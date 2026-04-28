@@ -39,6 +39,8 @@ pub fn convert_wires(wires: &[IrWire]) -> WirePainter {
 
 // ── Junction ──────────────────────────────────────────────
 
+// ── Junction ──────────────────────────────────────────────
+
 /// Convert IR Junction to painter Junction.
 pub fn convert_junction(pos: (f64, f64), diameter: f64) -> Junction {
     let d = if diameter > 0.0 {
@@ -187,25 +189,26 @@ pub fn convert_symbol(
     }
 }
 
-fn h_align_to_svg(align: HorizontalAlign) -> String {
+fn h_align_to_svg(align: HorizontalAlign) -> &'static str {
     match align {
-        HorizontalAlign::Left => "start".to_string(),
-        HorizontalAlign::Center => "middle".to_string(),
-        HorizontalAlign::Right => "end".to_string(),
+        HorizontalAlign::Left => "start",
+        HorizontalAlign::Center => "middle",
+        HorizontalAlign::Right => "end",
     }
 }
 
-fn v_align_to_svg(align: VerticalAlign) -> String {
+fn v_align_to_svg(align: VerticalAlign) -> &'static str {
     match align {
-        VerticalAlign::Top => "hanging".to_string(),
-        VerticalAlign::Center => "central".to_string(),
-        VerticalAlign::Bottom => "auto".to_string(),
+        VerticalAlign::Top => "hanging",
+        VerticalAlign::Center => "central",
+        VerticalAlign::Bottom => "auto",
     }
 }
 
 /// Collect all pins from a library symbol definition.
 fn collect_pins(lib: &Symbol) -> Vec<PinGraphic> {
-    let mut pins = Vec::new();
+    let total_graphics = lib.graphics.len() + lib.units.iter().map(|u| u.graphics.len()).sum::<usize>();
+    let mut pins = Vec::with_capacity(total_graphics);
     let hidden_names = lib.pin_names_hidden;
     let hidden_nums = lib.pin_numbers_hidden;
 
@@ -295,7 +298,7 @@ pub fn convert_polyline_solid(ir: &IrPolyline, color: Color) -> Polyline {
 }
 
 /// Convert IR Polyline with stroke and fill outline color.
-pub fn convert_polyline_with_fill(ir: &IrPolyline, stroke_color: Color, outline_color: Color) -> Polyline {
+pub fn convert_polyline_with_fill(ir: &IrPolyline, stroke_color: Color, _outline_color: Color) -> Polyline {
     // Polylines don't have fill, but include for API consistency
     let points: Vec<(f64, f64)> = ir.points.iter().map(|(x, y)| (*x, *y)).collect();
     Polyline::from_points(&points, convert_stroke_solid(&ir.stroke, stroke_color))

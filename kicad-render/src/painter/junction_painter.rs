@@ -58,7 +58,7 @@ impl JunctionPainter {
 
     /// Paint a single junction
     fn paint_junction(&self, layers: &mut LayerSet, junction: &Junction) {
-        let layer = layers.get_layer_mut(&LayerId::junctions()).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Junctions).unwrap();
 
         let circle = Circle::new(junction.position, junction.radius())
             .with_fill(Fill::solid(self.color));
@@ -68,10 +68,6 @@ impl JunctionPainter {
 }
 
 impl Painter for JunctionPainter {
-    fn layers(&self) -> Vec<LayerId> {
-        vec![LayerId::junctions()]
-    }
-
     fn bbox(&self) -> BoundingBox {
         if self.junctions.is_empty() {
             return BoundingBox::empty();

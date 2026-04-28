@@ -15,15 +15,10 @@ pub use symbol_painter::{SymbolPainter, SymbolInstance, Mirror};
 pub use label_painter::{LabelPainter, Label, LabelType, LabelShape};
 pub use junction_painter::{JunctionPainter, Junction};
 
-use crate::render_core::{Point, Color, Matrix, BoundingBox};
-use crate::render_core::graphics::{Circle, Arc, Polyline, Polygon, Bezier, Stroke, Fill, StrokeStyle};
-use crate::layer::{Layer, LayerId, LayerElement, LayerElementType};
+use crate::render_core::BoundingBox;
 
 /// Painter trait - converts schematic elements to graphics primitives
 pub trait Painter {
-    /// Get the layers this painter renders to
-    fn layers(&self) -> Vec<LayerId>;
-
     /// Get the bounding box of the element
     fn bbox(&self) -> BoundingBox;
 

@@ -3,27 +3,7 @@
 //! Based on KiCanvas JS `PinPainter` class
 
 use crate::render_core::{Point, Color, Matrix, BoundingBox};
-
-/// Return the visible character count of a KiCad text string,
-/// stripping markup notation like ~{...}, ^{...}, _{...}.
-fn strip_markup_len(s: &str) -> usize {
-    let mut len = 0;
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if (c == '~' || c == '^' || c == '_') && chars.peek() == Some(&'{') {
-            chars.next(); // consume '{'
-            // count chars until '}'
-            while let Some(nc) = chars.next() {
-                if nc == '}' { break; }
-                len += 1;
-            }
-        } else {
-            len += 1;
-        }
-    }
-    len
-}
-use crate::render_core::graphics::{Circle, Arc, Polyline, Polygon, Stroke, Fill, StrokeStyle};
+use crate::render_core::graphics::{Circle, Polyline, Stroke};
 use crate::layer::{LayerSet, LayerId, LayerElement, LayerElementType};
 use crate::constants;
 use super::Painter;
@@ -184,25 +164,25 @@ pub struct PinPainter {
 ///
 /// Matches JS `PinLabelInternals.orient_label()`.
 /// Returns (offset_x, offset_y, text_rotation_degrees, text_anchor, dominant_baseline).
-fn orient_pin_label(ox: f64, oy: f64, orientation: PinOrientation, h_align: &str, v_align: &str) -> (f64, f64, f64, String, String) {
-    let (dx, dy, rot, anchor) = match orientation {
-        PinOrientation::Right => (ox, oy, 0.0, h_align.to_string()),
-        PinOrientation::Left => (-ox, oy, 0.0, if h_align == "left" { "end".to_string() } else { h_align.to_string() }),
-        PinOrientation::Up => (oy, -ox, 90.0, h_align.to_string()),
-        PinOrientation::Down => (oy, ox, 90.0, if h_align == "left" { "end".to_string() } else { h_align.to_string() }),
+fn orient_pin_label(ox: f64, oy: f64, orientation: PinOrientation, h_align: &'static str, v_align: &'static str) -> (f64, f64, f64, &'static str, &'static str) {
+    let (dx, dy, rot, anchor): (f64, f64, f64, &'static str) = match orientation {
+        PinOrientation::Right => (ox, oy, 0.0, h_align),
+        PinOrientation::Left => (-ox, oy, 0.0, if h_align == "left" { "end" } else { h_align }),
+        PinOrientation::Up => (oy, -ox, 90.0, h_align),
+        PinOrientation::Down => (oy, ox, 90.0, if h_align == "left" { "end" } else { h_align }),
     };
 
-    let baseline = match v_align {
-        "center" => "central".to_string(),
-        "top" => "hanging".to_string(),
-        _ => String::new(), // "bottom" → auto/default
+    let baseline: &str = match v_align {
+        "center" => "central",
+        "top" => "hanging",
+        _ => "",
     };
 
-    let anchor_str = match anchor.as_str() {
-        "left" => "start".to_string(),
-        "center" => "middle".to_string(),
-        "right" => "end".to_string(),
-        other => other.to_string(),
+    let anchor_str: &str = match anchor {
+        "left" => "start",
+        "center" => "middle",
+        "right" => "end",
+        other => other,
     };
 
     (dx, dy, rot, anchor_str, baseline)
@@ -258,11 +238,7 @@ impl PinPainter {
     /// `p0` = body-proximal end (inner end).
     /// Rust `end_position()` = position + direction * length = p0 (body end).
     fn paint_pin_body_and_shape(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(&LayerId::symbol_pin()).unwrap();
-
-        // In JS: position = wire connection point, p0 = body end
-        // Rust: self.pin.position = wire connection point (same as JS position)
-        //        end_position() = position + dir * length = body end (same as JS p0)
+        let layer = layers.get_layer_mut(LayerId::SymbolPin).unwrap();
         let position = self.pin.position;
         let p0 = self.pin.end_position();
         let dir = self.pin.orientation().direction();
@@ -382,7 +358,7 @@ impl PinPainter {
             return;
         }
 
-        let layer = layers.get_layer_mut(&LayerId::symbol_pin()).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolPin).unwrap();
 
         let font_size = constants::PINNAME_SIZE;
         let pin_length = self.pin.length;
@@ -405,11 +381,11 @@ impl PinPainter {
         // text-anchor so the text extends INTO the body instead of away from it.
         if self.is_screen_vertical() {
             offset_y = -offset_y;
-            text_anchor = match text_anchor.as_str() {
+            text_anchor = match text_anchor {
                 "start" => "end",
                 "end" => "start",
                 other => other,
-            }.to_string();
+            };
         }
 
         let text_pos = self.transform.transform(&Point::new(
@@ -430,15 +406,12 @@ impl PinPainter {
     }
 
     /// Paint the pin number text.
-    ///
-    /// Matches JS `PinLabelInternals.place_above()` when pin_name_offset > 0,
-    /// or `place_below()` when pin_name_offset <= 0.
     fn paint_pin_number(&self, layers: &mut LayerSet) {
         if !self.pin.number_visible || self.pin.number.is_empty() {
             return;
         }
 
-        let layer = layers.get_layer_mut(&LayerId::symbol_pin()).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolPin).unwrap();
 
         let font_size = constants::PINNUM_SIZE;
         let pin_length = self.pin.length;
@@ -460,11 +433,11 @@ impl PinPainter {
         // Y-flip correction for vertical pins (same as paint_pin_name)
         if self.is_screen_vertical() {
             offset_y = -offset_y;
-            text_anchor = match text_anchor.as_str() {
+            text_anchor = match text_anchor {
                 "start" => "end",
                 "end" => "start",
                 other => other,
-            }.to_string();
+            };
         }
 
         let text_pos = self.transform.transform(&Point::new(
@@ -486,10 +459,6 @@ impl PinPainter {
 }
 
 impl Painter for PinPainter {
-    fn layers(&self) -> Vec<LayerId> {
-        vec![LayerId::symbol_pin()]
-    }
-
     fn bbox(&self) -> BoundingBox {
         let start = self.transform.transform(&self.pin.position);
         let end = self.transform.transform(&self.pin.end_position());

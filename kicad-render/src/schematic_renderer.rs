@@ -11,8 +11,8 @@ use crate::painter::{
     JunctionPainter, LabelPainter, SymbolPainter, Painter,
 };
 use crate::painter::{Junction, Label, LabelType};
-use crate::render_core::{Point, Color, BoundingBox};
-use crate::render_core::graphics::{Polyline, Polygon, Stroke, Fill};
+use crate::render_core::{Point, BoundingBox};
+use crate::render_core::graphics::{Polyline, Polygon, Stroke};
 use crate::renderer::Renderer;
 use crate::constants;
 
@@ -429,7 +429,7 @@ impl<'a> SchematicRenderer<'a> {
         // 5. Text notes (blue annotation text on Notes layer)
         // Normalizes multi-line text: strips trailing newlines, removes empty lines,
         // and inserts paragraph spacing where double-newlines existed in the original.
-        let notes_layer_id = LayerId::notes();
+        let notes_layer_id = LayerId::Notes;
         let interline_pitch_ratio = constants::INTERLINE_PITCH_RATIO;
         for text_item in &self.schematic.text_items {
             let font_size = text_item.effects.font.size.1.max(text_item.effects.font.size.0);
@@ -507,10 +507,10 @@ impl<'a> SchematicRenderer<'a> {
                     color,
                     bold,
                     rotation: 0.0,
-                    text_anchor: String::new(),
-                    dominant_baseline: String::new(),
+                    text_anchor: "",
+                    dominant_baseline: "",
                 });
-                if let Some(layer) = layers.get_layer_mut(&notes_layer_id) {
+                if let Some(layer) = layers.get_layer_mut(notes_layer_id) {
                     layer.add_element(element);
                 }
             }
@@ -526,7 +526,7 @@ impl<'a> SchematicRenderer<'a> {
             let color = constants::note_color();
             let polyline = bridge::convert_polyline_solid(pl, color);
             let element = LayerElement::new(LayerElementType::Polyline(polyline));
-            if let Some(layer) = layers.get_layer_mut(&notes_layer_id) {
+            if let Some(layer) = layers.get_layer_mut(notes_layer_id) {
                 layer.add_element(element);
             }
         }

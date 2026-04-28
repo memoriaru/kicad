@@ -218,7 +218,7 @@ pub fn parse_markup(text: &str) -> ParsedMarkup {
 pub fn markup_to_svg_tspans(
     markup: &ParsedMarkup,
     base_font_size: f64,
-    base_y: f64,
+    _base_y: f64,
     color: &str,
 ) -> String {
     let mut result = String::new();
