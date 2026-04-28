@@ -17,6 +17,12 @@ impl SexprGenerator {
     /// Compute local pin positions for a symbol based on its template type.
     /// Returns HashMap<pin_number, (local_x, local_y)>.
     pub(super) fn compute_pin_positions(symbol: &Symbol) -> HashMap<String, (f64, f64)> {
+        // Standard Device symbols (Device:R, Device:C, etc.) have fixed pin
+        // positions defined in the embedded standard symbol data — use those.
+        if let Some(positions) = Self::standard_pin_positions(symbol) {
+            return positions;
+        }
+
         let kind = Self::detect_default_kind(symbol);
         let mut positions = HashMap::new();
 
@@ -67,9 +73,9 @@ impl SexprGenerator {
             }
             DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin => {
                 let pin1 = Self::get_pin_or_default(symbol, 0, "1");
-                positions.insert(pin1.number.clone(), (0.0, 3.81));
+                positions.insert(pin1.number.clone(), (0.0, 2.54));
                 let pin2 = Self::get_pin_or_default(symbol, 1, "2");
-                positions.insert(pin2.number.clone(), (0.0, -3.81));
+                positions.insert(pin2.number.clone(), (0.0, -2.54));
             }
             DefaultSymbolKind::Capacitor | DefaultSymbolKind::Inductor => {
                 let pin1 = Self::get_pin_or_default(symbol, 0, "1");
@@ -86,6 +92,35 @@ impl SexprGenerator {
         }
 
         positions
+    }
+
+    /// Return pin positions for standard Device library symbols.
+    /// These have fixed pin layouts defined in the embedded standard symbol data.
+    fn standard_pin_positions(symbol: &Symbol) -> Option<HashMap<String, (f64, f64)>> {
+        if crate::codegen::standard_symbols::get_standard_symbol(&symbol.lib_id).is_none() {
+            return None;
+        }
+        let kind = Self::detect_default_kind(symbol);
+        let mut positions = HashMap::new();
+        match kind {
+            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin
+            | DefaultSymbolKind::Capacitor | DefaultSymbolKind::Inductor => {
+                // Standard R/C/L/NTC: pins at (0, ±3.81)
+                let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+                positions.insert(pin1.number.clone(), (0.0, 3.81));
+                let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+                positions.insert(pin2.number.clone(), (0.0, -3.81));
+            }
+            DefaultSymbolKind::Diode | DefaultSymbolKind::Led => {
+                // Standard D/LED: pins at (±3.81, 0)
+                let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+                positions.insert(pin1.number.clone(), (-3.81, 0.0));
+                let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+                positions.insert(pin2.number.clone(), (3.81, 0.0));
+            }
+            _ => return None, // ICs, connectors — not standard symbols
+        }
+        Some(positions)
     }
 
     pub(super) fn normalize_lib_id(lib_id: &str) -> String {
@@ -138,15 +173,15 @@ impl SexprGenerator {
 
             for pin in &comp.pins {
                 if let Some(&(lx, ly)) = pin_positions.get(&pin.number) {
-                    let (rx, ry) = Self::rotate_point(lx, ly, crot);
+                    let (rx, ry) = Self::rotate_point(lx, -ly, crot);
                     let wx = cx + rx;
                     let wy = cy + ry;
 
                     if pin.nc {
-                        let rot = Self::compute_label_rotation(lx, ly, crot);
+                        let rot = Self::compute_label_rotation(lx, -ly, crot);
                         no_connect_positions.push((wx, wy, rot, 0));
                     } else if let Some(net_id) = pin.net_id {
-                        let rot = Self::compute_label_rotation(lx, ly, crot);
+                        let rot = Self::compute_label_rotation(lx, -ly, crot);
                         pins_by_net.entry(net_id).or_default().push(PinInfo {
                             x: wx, y: wy, rotation: rot, net_id,
                         });
@@ -198,7 +233,7 @@ impl SexprGenerator {
             match render {
                 RenderHint::Wire => self.render_net_wires(output, *net_id, net_name, pins, &mut all_label_positions),
                 RenderHint::Label => self.render_net_labels(output, net_name, pins, &mut all_label_positions),
-                RenderHint::Power => self.render_net_power(output, *net_id, net_name, pins, &mut all_label_positions),
+                RenderHint::Power => self.render_net_power(output, *net_id, net_name, pins, &mut all_label_positions, schematic),
             }
         }
 
@@ -213,7 +248,7 @@ impl SexprGenerator {
             for pin in &comp.pins {
                 if pin.nc {
                     if let Some(&(lx, ly)) = pin_positions.get(&pin.number) {
-                        let (rx, ry) = Self::rotate_point(lx, ly, crot);
+                        let (rx, ry) = Self::rotate_point(lx, -ly, crot);
                         let wx = cx + rx;
                         let wy = cy + ry;
                         self.write_line(output, "(no_connect");
@@ -345,10 +380,11 @@ impl SexprGenerator {
     fn render_net_power<'a>(
         &mut self,
         output: &mut String,
-        _net_id: u32,
+        net_id: u32,
         net_name: &'a str,
         pins: &[PinInfo],
         all_label_positions: &mut Vec<(f64, f64, f64, &'a str)>,
+        schematic: &crate::ir::Schematic,
     ) {
         if pins.is_empty() {
             return;
@@ -362,6 +398,14 @@ impl SexprGenerator {
                 return;
             }
         };
+
+        // Check if the net already has a power_out pin on any connected component.
+        // If so, skip the power symbol to avoid power_out-to-power_out conflict.
+        let has_power_out = Self::net_has_power_out_pin(schematic, net_id);
+        if has_power_out {
+            self.render_net_labels(output, net_name, pins, all_label_positions);
+            return;
+        }
 
         let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
         let first_pin = &pins[0];
@@ -402,8 +446,10 @@ impl SexprGenerator {
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // Remaining pins get global_labels (they connect via the power symbol's net)
-        for pin in &pins[1..] {
+        // All pins (including the first) get a global_label for connectivity.
+        // The power symbol provides visual representation; the label ensures
+        // KiCad ERC/netlist recognizes the electrical connection.
+        for pin in pins {
             all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
             let default_effects = TextEffects::default();
             self.write_line(output, "(global_label");
@@ -421,18 +467,51 @@ impl SexprGenerator {
     }
 
     /// Map a net name to a KiCad power symbol lib_id.
+    /// Check if any component pin on the given net has type power_out.
+    fn net_has_power_out_pin(schematic: &crate::ir::Schematic, net_id: u32) -> bool {
+        let mut lib_pin_types: HashMap<&str, HashMap<&str, &str>> = HashMap::new();
+        for symbol in &schematic.lib_symbols {
+            let mut pin_map: HashMap<&str, &str> = HashMap::new();
+            for pin in &symbol.pins {
+                pin_map.insert(&pin.number, &pin.pin_type);
+            }
+            lib_pin_types.insert(&symbol.lib_id, pin_map);
+        }
+        for comp in &schematic.components {
+            let comp_lib_id = &comp.lib_id;
+            let pin_type_map = match lib_pin_types.get(comp_lib_id.as_str()) {
+                Some(m) => m,
+                None => continue,
+            };
+            for pin in &comp.pins {
+                if let Some(nid) = pin.net_id {
+                    if nid == net_id {
+                        let ptype = pin_type_map.get(pin.number.as_str()).unwrap_or(&"passive");
+                        if *ptype == "power_out" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Only matches names that correspond to standard KiCad power symbols
+    /// (power:+N, power:-N, power:GND, power:VCC, etc.) to avoid Value/net
+    /// name conflicts — a power symbol's Value determines its net, so the
+    /// net name must exactly match the symbol name.
     pub(super) fn resolve_power_symbol(net_name: &str) -> Option<String> {
         let upper = net_name.to_uppercase();
-        if upper.starts_with('+') || upper.starts_with('-') || upper == "GND" || upper == "VCC" {
-            Some(format!("power:{}", net_name))
-        } else if upper.ends_with("GND") || upper.ends_with("VCC") || upper == "AGND" || upper == "DGND" {
-            Some("power:GND".to_string())
-        } else if upper.starts_with("V") || upper.starts_with("AV") || upper.starts_with("DV") {
-            // VDD, VSS, AVCC, DVCC etc — try as power symbol
-            Some(format!("power:{}", net_name))
-        } else {
-            None
+        // Standard voltage rails: +3V3, +5V, +15V, -9V, -4V, etc.
+        if upper.starts_with('+') || upper.starts_with('-') {
+            return Some(format!("power:{}", net_name));
         }
+        // Standard ground and VCC: exact match only (not PGND, AGND, etc.)
+        if upper == "GND" || upper == "VCC" || upper == "GNDA" || upper == "GNDD" {
+            return Some(format!("power:{}", net_name));
+        }
+        None
     }
 
     // ============== Power Flags (existing) ==============
