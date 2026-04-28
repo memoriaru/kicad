@@ -2,6 +2,7 @@
 
 use crate::render_core::{Color, Point, Matrix, BoundingBox};
 use crate::render_core::graphics::{Circle, Arc, Polyline, Polygon, Bezier, Stroke, StrokeStyle};
+use crate::constants;
 use super::{RenderContext, Renderer};
 
 /// SVG Renderer - generates SVG markup
@@ -243,7 +244,7 @@ impl Renderer for SvgRenderer {
         let transform = self.current_transform();
         let transformed_pos = transform.transform(position);
         let scale = transform.scale_factor();
-        let scaled_font_size = font_size * scale;
+        let scaled_font_size = font_size * scale * constants::SVG_FONT_SCALE;
         let color_str = self.color_to_svg(color);
 
         // Build optional rotation transform for the text element

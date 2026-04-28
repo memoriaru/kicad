@@ -70,6 +70,12 @@ pub const CHAR_WIDTH_RATIO: f64 = 0.6;
 /// Interline pitch ratio for multi-line text (JS: StrokeFont.interline_pitch_ratio)
 pub const INTERLINE_PITCH_RATIO: f64 = 1.62;
 
+/// SVG text size scale factor to match KiCad stroke font visual height.
+/// KiCad stroke font characters render at ~100% of specified size,
+/// while browser <text> at the same font-size renders at ~70% cap height.
+/// This compensates so SVG text visually matches KiCad's vector font.
+pub const SVG_FONT_SCALE: f64 = 1.35;
+
 /// Drawing sheet grid reference label font size (mm)
 pub const SHEET_REF_FONT: f64 = 1.3;
 
