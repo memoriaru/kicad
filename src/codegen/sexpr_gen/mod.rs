@@ -10,7 +10,7 @@ mod symbol;
 use crate::error::Result;
 use crate::ir::{
     Arc, Bus, BusEntry, Circle, Fill, FillType, GraphicElement, HorizontalAlign, Junction,
-    Label, Net, NoConnect, Pin, PinGraphic, PinShape, PinType, Polyline, Rectangle, Stroke,
+    Label, NoConnect, Pin, PinGraphic, PinShape, PinType, Polyline, Rectangle, Stroke,
     StrokeType, Symbol, SymbolInstance, Text, TextEffects, VerticalAlign, Wire,
 };
 use crate::ir::Instances;

@@ -136,20 +136,6 @@ impl SexprGenerator {
         self.write_line(output, ")");
     }
 
-    pub(super) fn generate_net(&mut self, output: &mut String, net: &Net) {
-        self.write_line(output, "(net");
-        self.indent_level += 1;
-
-        self.write_line(output, &format!("{} \"{}\"", net.id, Self::escape_string(&net.name)));
-
-        if let Some(net_type) = &net.net_type {
-            self.write_line(output, &format!("(type \"{}\")", net_type));
-        }
-
-        self.indent_level -= 1;
-        self.write_line(output, ")");
-    }
-
     pub(super) fn generate_wire(&mut self, output: &mut String, wire: &Wire) {
         self.write_line(output, "(wire");
         self.indent_level += 1;

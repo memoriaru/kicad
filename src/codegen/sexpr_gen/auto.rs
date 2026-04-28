@@ -110,32 +110,6 @@ impl SexprGenerator {
         }
     }
 
-    /// Transform a local file-coordinate offset by component rotation.
-    /// Input (lx, ly) is in file coordinates (Y-DOWN) relative to symbol origin.
-    /// Output is the file-coordinate offset to add to the component's (at) position.
-    ///
-    /// KiCad internally uses Y-UP; parseXY(true) negates Y when loading.
-    /// The net effect on file coords is:
-    ///   0 deg -> (lx, ly),  90 deg -> (-ly, lx),  180 deg -> (-lx, -ly),  270 deg -> (ly, -lx)
-    pub(super) fn transform_file_offset(lx: f64, ly: f64, rotation_deg: f64) -> (f64, f64) {
-        match rotation_deg as i32 {
-            0 | 360 => (lx, ly),
-            90 | -270 => (-ly, lx),
-            180 | -180 => (-lx, -ly),
-            270 | -90 => (ly, -lx),
-            _ => {
-                // Generic: same as KiCad's internal transform applied to file coords
-                let (ix, iy) = (lx, -ly); // file -> internal
-                let rad = rotation_deg.to_radians();
-                let c = rad.cos();
-                let s = rad.sin();
-                let rx = ix * c + iy * s;
-                let ry = -ix * s + iy * c;
-                (rx, -ry) // internal -> file
-            }
-        }
-    }
-
     /// Compute label rotation from pin local position and component rotation.
     /// The label should face the same direction as the pin's wire connection point.
     pub(super) fn compute_label_rotation(lx: f64, ly: f64, crot: f64) -> f64 {
@@ -152,101 +126,6 @@ impl SexprGenerator {
         };
         // Apply component rotation
         (local_rot + crot) % 360.0
-    }
-
-    /// Auto-generate wires from net connectivity.
-    pub(super) fn generate_auto_wires(
-        &mut self,
-        output: &mut String,
-        schematic: &crate::ir::Schematic,
-    ) {
-        // 1. Build pin position map for each lib_symbol: lib_id -> { pin_number -> (lx, ly) }
-        let mut symbol_pins: HashMap<String, HashMap<String, (f64, f64)>> = HashMap::new();
-        for symbol in &schematic.lib_symbols {
-            let positions = Self::compute_pin_positions(symbol);
-            symbol_pins.insert(Self::normalize_lib_id(&symbol.lib_id), positions);
-        }
-
-        // 2. Build net -> list of absolute pin positions
-        let mut net_endpoints: HashMap<u32, Vec<(f64, f64)>> = HashMap::new();
-        for comp in &schematic.components {
-            let comp_lib_id = Self::normalize_lib_id(&comp.lib_id);
-            let pin_positions = match symbol_pins.get(&comp_lib_id) {
-                Some(p) => p,
-                None => continue,
-            };
-            let (cx, cy, crot) = comp.position;
-
-            for pin in &comp.pins {
-                if let (Some(net_id), Some(&(lx, ly))) = (pin.net_id, pin_positions.get(&pin.number)) {
-                    let (rx, ry) = Self::rotate_point(lx, ly, crot);
-                    net_endpoints
-                        .entry(net_id)
-                        .or_default()
-                        .push((cx + rx, cy + ry));
-                }
-            }
-        }
-
-        // 3. Generate wires for each net using L-shaped connections
-        let default_stroke = Stroke::default();
-
-        let mut sorted_nets: Vec<_> = net_endpoints.into_iter().collect();
-        sorted_nets.sort_by_key(|(id, _)| *id);
-
-        for (_net_id, mut pts) in sorted_nets {
-            if pts.len() < 2 {
-                continue;
-            }
-
-            // Snap to 1.27mm (50mil) grid
-            let snap = |v: f64| (v / 1.27).round() * 1.27;
-            for p in &mut pts {
-                p.0 = snap(p.0);
-                p.1 = snap(p.1);
-            }
-
-            // Sort by x coordinate, then by y
-            pts.sort_by(|a, b| {
-                a.0.partial_cmp(&b.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            });
-
-            // Connect consecutive pins with L-shaped wires
-            for i in 0..pts.len() - 1 {
-                let (x1, y1) = pts[i];
-                let (x2, y2) = pts[i + 1];
-
-                // Horizontal segment: (x1, y1) -> (x2, y1)
-                if (x1 - x2).abs() > 0.01 {
-                    self.write_line(output, "(wire");
-                    self.indent_level += 1;
-                    self.write_line(output, &format!(
-                        "(pts {} {})",
-                        Self::format_xy(x1, y1),
-                        Self::format_xy(x2, y1)
-                    ));
-                    self.generate_stroke(output, &default_stroke);
-                    self.indent_level -= 1;
-                    self.write_line(output, ")");
-                }
-
-                // Vertical segment: (x2, y1) -> (x2, y2)
-                if (y1 - y2).abs() > 0.01 {
-                    self.write_line(output, "(wire");
-                    self.indent_level += 1;
-                    self.write_line(output, &format!(
-                        "(pts {} {})",
-                        Self::format_xy(x2, y1),
-                        Self::format_xy(x2, y2)
-                    ));
-                    self.generate_stroke(output, &default_stroke);
-                    self.indent_level -= 1;
-                    self.write_line(output, ")");
-                }
-            }
-        }
     }
 
     /// Auto-generate labels from net connectivity.
