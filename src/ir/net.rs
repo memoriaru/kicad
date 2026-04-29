@@ -8,10 +8,12 @@ pub enum RenderHint {
     /// Connect same-net pins with wire segments (default)
     #[default]
     Wire,
-    /// Place a net label at each pin
+    /// Place a local net label at each pin (same sheet only)
     Label,
     /// Generate a KiCad power symbol instance
     Power,
+    /// Place a global_label at each pin (cross-sheet connection)
+    Global,
 }
 
 impl RenderHint {
@@ -20,6 +22,7 @@ impl RenderHint {
             "wire" => Some(Self::Wire),
             "label" => Some(Self::Label),
             "power" => Some(Self::Power),
+            "global" => Some(Self::Global),
             _ => None,
         }
     }
@@ -29,6 +32,7 @@ impl RenderHint {
             Self::Wire => "wire",
             Self::Label => "label",
             Self::Power => "power",
+            Self::Global => "global",
         }
     }
 }
