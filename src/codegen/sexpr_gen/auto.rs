@@ -11,8 +11,8 @@ struct PinInfo {
     net_id: u32,
 }
 
-/// Maximum Manhattan distance for wire routing (25.4mm = 1 inch)
-const MAX_WIRE_MANHATTAN: f64 = 25.4;
+/// Maximum Manhattan distance for wire routing (50mm ≈ 2 inches)
+const MAX_WIRE_MANHATTAN: f64 = 50.0;
 
 /// Tolerance for considering two coordinates equal
 const COORD_TOL: f64 = 0.5;
@@ -262,7 +262,7 @@ impl SexprGenerator {
 
             match render {
                 RenderHint::Wire => self.render_net_wires(output, *net_id, net_name, pins, &mut all_label_positions, &mut wire_segments, &all_pins_with_net),
-                RenderHint::Label => self.render_net_labels(output, net_name, pins, &mut all_label_positions),
+                RenderHint::Label => self.render_net_labels(output, *net_id, net_name, pins, &mut all_label_positions, &mut wire_segments, &all_pins_with_net),
                 RenderHint::Power => self.render_net_power(output, *net_id, net_name, pins, &mut all_label_positions, schematic),
                 RenderHint::Global => self.render_net_global(output, net_name, pins, &mut all_label_positions),
             }
@@ -304,29 +304,76 @@ impl SexprGenerator {
         }
     }
 
-    // ============== Render: Label (local label) ==============
+    // ============== Render: Label (hybrid: wire + local label) ==============
 
     fn render_net_labels<'a>(
         &mut self,
         output: &mut String,
+        net_id: u32,
         net_name: &'a str,
         pins: &[PinInfo],
         all_label_positions: &mut Vec<(f64, f64, f64, &'a str)>,
+        wire_segments: &mut Vec<(f64, f64, f64, f64)>,
+        all_pins_with_net: &[(f64, f64, u32)],
     ) {
-        let default_effects = TextEffects::default();
+        if pins.is_empty() {
+            return;
+        }
 
-        for pin in pins {
-            all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
-            self.write_line(output, "(label");
-            self.indent_level += 1;
-            self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
-            self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
-            self.generate_effects(output, &default_effects);
-            if self.config.include_uuids {
-                self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        // For 2+ pins, try wire routing first
+        if pins.len() >= 2 {
+            let mut sorted_indices: Vec<usize> = (0..pins.len()).collect();
+            sorted_indices.sort_by(|&a, &b| {
+                pins[a].y.partial_cmp(&pins[b].y).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            let mut visited = vec![false; pins.len()];
+            visited[sorted_indices[0]] = true;
+            let mut current_idx = sorted_indices[0];
+
+            for _ in 1..sorted_indices.len() {
+                let current = &pins[current_idx];
+                let mut candidates: Vec<(usize, f64)> = sorted_indices.iter()
+                    .filter(|&&j| !visited[j])
+                    .map(|&j| (j, manhattan_distance((current.x, current.y), (pins[j].x, pins[j].y))))
+                    .filter(|&(_, d)| d <= MAX_WIRE_MANHATTAN)
+                    .collect();
+                candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                let mut connected = false;
+                for (cand_idx, _) in &candidates {
+                    let p1 = (current.x, current.y);
+                    let p2 = (pins[*cand_idx].x, pins[*cand_idx].y);
+                    if self.emit_l_wire(output, p1, p2, net_id, wire_segments, all_pins_with_net) {
+                        visited[*cand_idx] = true;
+                        current_idx = *cand_idx;
+                        connected = true;
+                        break;
+                    }
+                }
+                if !connected {
+                    break;
+                }
             }
-            self.indent_level -= 1;
-            self.write_line(output, ")");
+
+            // Anchor label at first visited pin
+            let anchor = &pins[sorted_indices[0]];
+            all_label_positions.push((anchor.x, anchor.y, anchor.rotation, net_name));
+            self.emit_local_label(output, net_name, anchor);
+
+            // Unvisited pins get local labels
+            for (i, pin) in pins.iter().enumerate() {
+                if !visited[i] {
+                    all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
+                    self.emit_local_label(output, net_name, pin);
+                }
+            }
+        } else {
+            // Single pin: just a local label
+            for pin in pins {
+                all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
+                self.emit_local_label(output, net_name, pin);
+            }
         }
     }
 
@@ -455,8 +502,9 @@ impl SexprGenerator {
         self.write_line(output, ")");
     }
 
-    /// Generate an L-shaped wire from p1 to p2, avoiding corners at other nets' pins.
-    /// Returns true if wire was emitted, false if both directions conflict (caller should fall back to label).
+    /// Generate an L-shaped wire from p1 to p2, avoiding corners AND wire segments
+    /// that pass through other nets' pin positions.
+    /// Returns true if wire was emitted, false if conflict (caller should fall back to label).
     fn emit_l_wire(
         &mut self,
         output: &mut String,
@@ -470,22 +518,32 @@ impl SexprGenerator {
         let (x2, y2) = p2;
 
         if (y1 - y2).abs() < COORD_TOL {
-            // Same row: horizontal wire
+            // Same row: horizontal wire — check for pin conflicts along the segment
+            if Self::segment_conflicts((x1, y1), (x2, y1), net_id, all_pins_with_net) {
+                return false;
+            }
             self.emit_wire_segment(output, x1, y1, x2, y1, wire_segments);
             return true;
         } else if (x1 - x2).abs() < COORD_TOL {
-            // Same column: vertical wire
+            // Same column: vertical wire — check for pin conflicts along the segment
+            if Self::segment_conflicts((x1, y1), (x1, y2), net_id, all_pins_with_net) {
+                return false;
+            }
             self.emit_wire_segment(output, x1, y1, x1, y2, wire_segments);
             return true;
         } else {
-            // L-shape: try both directions, avoid corners at other nets' pins
+            // L-shape: try both directions
             let corner_y_a = snap_to_grid(y1);
             let corner_a = (x2, corner_y_a);
-            let conflict_a = Self::corner_conflicts(corner_a, net_id, all_pins_with_net);
+            let conflict_a = Self::corner_conflicts(corner_a, net_id, all_pins_with_net)
+                || Self::segment_conflicts((x1, y1), corner_a, net_id, all_pins_with_net)
+                || Self::segment_conflicts(corner_a, (x2, y2), net_id, all_pins_with_net);
 
             let corner_x_b = snap_to_grid(x1);
             let corner_b = (corner_x_b, y2);
-            let conflict_b = Self::corner_conflicts(corner_b, net_id, all_pins_with_net);
+            let conflict_b = Self::corner_conflicts(corner_b, net_id, all_pins_with_net)
+                || Self::segment_conflicts((x1, y1), corner_b, net_id, all_pins_with_net)
+                || Self::segment_conflicts(corner_b, (x2, y2), net_id, all_pins_with_net);
 
             if !conflict_a {
                 self.emit_wire_segment(output, x1, y1, corner_a.0, corner_a.1, wire_segments);
@@ -496,10 +554,39 @@ impl SexprGenerator {
                 self.emit_wire_segment(output, corner_b.0, corner_b.1, x2, y2, wire_segments);
                 return true;
             } else {
-                // Both directions conflict — caller will fall back to label
                 return false;
             }
         }
+    }
+
+    /// Check if a wire segment passes through a pin of a different net.
+    /// A pin at the endpoints is OK (it's the source/destination), but a pin
+    /// as a midpoint would create an unintended connection.
+    fn segment_conflicts(seg_start: (f64, f64), seg_end: (f64, f64), net_id: u32, all_pins: &[(f64, f64, u32)]) -> bool {
+        let (sx, sy) = seg_start;
+        let (ex, ey) = seg_end;
+        for &(px, py, pnid) in all_pins {
+            if pnid == net_id {
+                continue;
+            }
+            // Horizontal segment: check if pin lies on it as a midpoint
+            if (sy - ey).abs() < COORD_TOL && (py - sy).abs() < COORD_TOL {
+                let min_x = sx.min(ex);
+                let max_x = sx.max(ex);
+                if px > min_x + COORD_TOL && px < max_x - COORD_TOL {
+                    return true;
+                }
+            }
+            // Vertical segment: check if pin lies on it as a midpoint
+            if (sx - ex).abs() < COORD_TOL && (px - sx).abs() < COORD_TOL {
+                let min_y = sy.min(ey);
+                let max_y = sy.max(ey);
+                if py > min_y + COORD_TOL && py < max_y - COORD_TOL {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Check if a corner point coincides with a pin of a different net.
@@ -608,17 +695,20 @@ impl SexprGenerator {
         let lib_id = match Self::resolve_power_symbol(net_name) {
             Some(id) => id,
             None => {
-                self.render_net_labels(output, net_name, pins, all_label_positions);
+                // No matching power symbol — use global_labels
+                self.render_net_global(output, net_name, pins, all_label_positions);
                 return;
             }
         };
 
         let has_power_out = Self::net_has_power_out_pin(schematic, net_id);
         if has_power_out {
-            self.render_net_labels(output, net_name, pins, all_label_positions);
+            // Net already has a power_out driver — use global_labels
+            self.render_net_global(output, net_name, pins, all_label_positions);
             return;
         }
 
+        // Normal power net: emit power symbol + global_labels for all pins
         let is_v9_plus = matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
         let first_pin = &pins[0];
 
@@ -657,22 +747,26 @@ impl SexprGenerator {
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // All pins get a global_label for connectivity.
+        // All pins get global_labels (wire routing skipped for power nets to avoid power_out-to-power_out conflicts)
         for pin in pins {
             all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
-            let default_effects = TextEffects::default();
-            self.write_line(output, "(global_label");
-            self.indent_level += 1;
-            self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
-            self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
-            self.write_line(output, "(shape passive)");
-            self.generate_effects(output, &default_effects);
-            if self.config.include_uuids {
-                self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
-            }
-            self.indent_level -= 1;
-            self.write_line(output, ")");
+            self.emit_global_label(output, net_name, pin);
         }
+    }
+
+    fn emit_global_label(&mut self, output: &mut String, net_name: &str, pin: &PinInfo) {
+        let default_effects = TextEffects::default();
+        self.write_line(output, "(global_label");
+        self.indent_level += 1;
+        self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
+        self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
+        self.write_line(output, "(shape passive)");
+        self.generate_effects(output, &default_effects);
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
     }
 
     fn net_has_power_out_pin(schematic: &crate::ir::Schematic, net_id: u32) -> bool {
