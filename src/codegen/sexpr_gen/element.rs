@@ -1,4 +1,5 @@
 use super::*;
+use crate::ir::{Sheet, SheetPin, SheetProperty};
 
 impl SexprGenerator {
     pub(super) fn generate_symbol_instance(&mut self, output: &mut String, component: &SymbolInstance) {
@@ -266,5 +267,168 @@ impl SexprGenerator {
 
         self.indent_level -= 1;
         self.write_line(output, ")");
+    }
+
+    // ============== Hierarchical Sheet Generation ==============
+
+    pub(super) fn generate_sheet(&mut self, output: &mut String, sheet: &Sheet) {
+        self.write_line(output, "(sheet");
+        self.indent_level += 1;
+
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+
+        self.write_line(output, &format!(
+            "(at {} {})",
+            Self::format_number(sheet.position.0),
+            Self::format_number(sheet.position.1)
+        ));
+
+        self.write_line(output, &format!(
+            "(size {} {})",
+            Self::format_number(sheet.size.0),
+            Self::format_number(sheet.size.1)
+        ));
+
+        self.generate_stroke(output, &sheet.stroke);
+
+        // Sheet fill uses (fill (color R G B A)) format with float alpha
+        self.generate_sheet_fill(output, &sheet.fill);
+
+        self.generate_sheet_property(output, "Sheetname", &sheet.sheet_name);
+        self.generate_sheet_property(output, "Sheetfile", &sheet.sheet_file);
+
+        let distributed = Self::distribute_sheet_pins(sheet);
+        for pin in &distributed {
+            self.generate_sheet_pin(output, pin);
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_sheet_fill(&mut self, output: &mut String, fill: &crate::ir::Fill) {
+        if let Some((r, g, b, a)) = &fill.color {
+            // Sheet fill uses float alpha (0.0-1.0), not integer
+            let a_float = *a as f64 / 255.0;
+            self.write_line(output, &format!(
+                "(fill (color {} {} {} {}))",
+                r, g, b, Self::format_number(a_float)
+            ));
+        } else {
+            self.write_line(output, "(fill (type none))");
+        }
+    }
+
+    fn generate_sheet_property(&mut self, output: &mut String, prop_name: &str, prop: &SheetProperty) {
+        self.write_line(output, &format!("(property \"{}\"", prop_name));
+        self.indent_level += 1;
+
+        self.write_line(output, &format!("\"{}\"", Self::escape_string(&prop.value)));
+        self.write_line(
+            output,
+            &Self::format_at(prop.position.0, prop.position.1, prop.position.2),
+        );
+
+        self.generate_effects(output, &prop.effects);
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    fn generate_sheet_pin(&mut self, output: &mut String, pin: &SheetPin) {
+        let pin_type_str = pin.pin_type.to_str();
+        self.write_line(output, &format!("(pin \"{}\" {}", Self::escape_string(&pin.name), pin_type_str));
+        self.indent_level += 1;
+
+        self.write_line(
+            output,
+            &Self::format_at(pin.position.0, pin.position.1, pin.position.2),
+        );
+
+        self.generate_effects(output, &pin.effects);
+
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Compute distributed pin positions for a sheet.
+    /// If all pins are at (0,0), auto-distributes them along sheet edges:
+    /// Input pins → left edge, Output pins → right edge, others → bottom edge.
+    /// Otherwise returns the original pins.
+    pub(super) fn distribute_sheet_pins(sheet: &Sheet) -> Vec<SheetPin> {
+        let all_at_origin = sheet.pins.iter().all(|p| p.position.0 == 0.0 && p.position.1 == 0.0);
+        if !all_at_origin || sheet.pins.is_empty() {
+            return sheet.pins.clone();
+        }
+
+        // KiCad uses ABSOLUTE coordinates for sheet pin (at), not relative.
+        let (sx, sy) = sheet.position;
+        let (w, h) = sheet.size;
+        let left_pins: Vec<&SheetPin> = sheet.pins.iter()
+            .filter(|p| matches!(p.pin_type, crate::ir::PinType::Input)).collect();
+        let right_pins: Vec<&SheetPin> = sheet.pins.iter()
+            .filter(|p| matches!(p.pin_type, crate::ir::PinType::Output)).collect();
+        let other_pins: Vec<&SheetPin> = sheet.pins.iter()
+            .filter(|p| !matches!(p.pin_type, crate::ir::PinType::Input | crate::ir::PinType::Output))
+            .collect();
+
+        // Snap value to 1.27mm grid for KiCad connection compatibility
+        let snap = |v: f64| -> f64 { (v / 1.27).round() * 1.27 };
+
+        let mut result = Vec::with_capacity(sheet.pins.len());
+
+        if !left_pins.is_empty() {
+            let step = h / (left_pins.len() as f64 + 1.0);
+            for (i, pin) in left_pins.iter().enumerate() {
+                let y = snap(sy + step * (i as f64 + 1.0));
+                result.push(SheetPin {
+                    name: pin.name.clone(),
+                    pin_type: pin.pin_type,
+                    position: (sx, y, 180.0),
+                    effects: pin.effects.clone(),
+                });
+            }
+        }
+
+        if !right_pins.is_empty() {
+            let step = h / (right_pins.len() as f64 + 1.0);
+            for (i, pin) in right_pins.iter().enumerate() {
+                let y = snap(sy + step * (i as f64 + 1.0));
+                result.push(SheetPin {
+                    name: pin.name.clone(),
+                    pin_type: pin.pin_type,
+                    position: (sx + w, y, 0.0),
+                    effects: pin.effects.clone(),
+                });
+            }
+        }
+
+        if !other_pins.is_empty() {
+            let step = w / (other_pins.len() as f64 + 1.0);
+            for (i, pin) in other_pins.iter().enumerate() {
+                let x = snap(sx + step * (i as f64 + 1.0));
+                result.push(SheetPin {
+                    name: pin.name.clone(),
+                    pin_type: pin.pin_type,
+                    position: (x, sy + h, 90.0),
+                    effects: pin.effects.clone(),
+                });
+            }
+        }
+
+        let name_order: Vec<&str> = sheet.pins.iter().map(|p| p.name.as_str()).collect();
+        result.sort_by(|a, b| {
+            let ai = name_order.iter().position(|n| *n == a.name).unwrap_or(999);
+            let bi = name_order.iter().position(|n| *n == b.name).unwrap_or(999);
+            ai.cmp(&bi)
+        });
+
+        result
     }
 }
