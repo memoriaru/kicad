@@ -285,6 +285,23 @@ impl PinType {
         }
     }
 
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            PinType::Input => "input",
+            PinType::Output => "output",
+            PinType::Bidirectional => "bidirectional",
+            PinType::TriState => "tri_state",
+            PinType::Passive => "passive",
+            PinType::Free => "free",
+            PinType::Unspecified => "unspecified",
+            PinType::PowerIn => "power_in",
+            PinType::PowerOut => "power_out",
+            PinType::OpenCollector => "open_collector",
+            PinType::OpenEmitter => "open_emitter",
+            PinType::NoConnect => "no_connect",
+        }
+    }
+
     /// Get the default shape for this pin type
     pub fn default_shape(&self) -> PinShape {
         match self {

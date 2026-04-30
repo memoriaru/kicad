@@ -9,8 +9,9 @@ use serde_json::Value;
 
 use crate::error::{Error, Result};
 use crate::ir::{
-    Junction, Label, Mirror, Net, Paper, Pin, PinInstance, Property, RenderHint, Schematic,
-    Stroke, StrokeType, Symbol, SymbolInstance, TitleBlock, Wire,
+    Junction, Label, Mirror, Net, Paper, Pin, PinInstance, PinType, Property, RenderHint,
+    Schematic, Sheet, SheetPin, SheetProperty, Stroke, StrokeType, Symbol, SymbolInstance,
+    TextEffects, TitleBlock, Wire,
 };
 
 /// Parse a JSON5 string into a Schematic IR.
@@ -137,6 +138,13 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
     if let Some(entries) = obj.get("bus_entries").and_then(|v| v.as_array()) {
         for ev in entries {
             schematic.bus_entries.push(value_to_bus_entry(ev));
+        }
+    }
+
+    // sheets (hierarchical)
+    if let Some(sheets) = obj.get("sheets").and_then(|v| v.as_array()) {
+        for sv in sheets {
+            schematic.sheets.push(value_to_sheet(sv));
         }
     }
 
@@ -508,6 +516,105 @@ fn value_to_bus_entry(value: &Value) -> crate::ir::BusEntry {
         }
     }
     entry
+}
+
+fn value_to_sheet(value: &Value) -> Sheet {
+    let o = value.as_object();
+    let mut sheet = Sheet {
+        position: (0.0, 0.0),
+        size: (50.0, 30.0),
+        stroke: Stroke::default(),
+        fill: crate::ir::Fill::none(),
+        sheet_name: SheetProperty::default(),
+        sheet_file: SheetProperty::default(),
+        pins: Vec::new(),
+    };
+
+    if let Some(o) = o {
+        // position
+        if let Some(pos) = o.get("position").and_then(|v| v.as_array()) {
+            if pos.len() >= 2 {
+                sheet.position = (
+                    pos[0].as_f64().unwrap_or(0.0),
+                    pos[1].as_f64().unwrap_or(0.0),
+                );
+            }
+        }
+        // size
+        if let Some(sz) = o.get("size").and_then(|v| v.as_array()) {
+            if sz.len() >= 2 {
+                sheet.size = (
+                    sz[0].as_f64().unwrap_or(50.0),
+                    sz[1].as_f64().unwrap_or(30.0),
+                );
+            }
+        }
+        // sheet_name
+        if let Some(name) = get_str(o, "sheet_name") {
+            sheet.sheet_name.value = name;
+        }
+        // sheet_file
+        if let Some(file) = get_str(o, "sheet_file") {
+            sheet.sheet_file.value = file;
+        }
+        // pins
+        if let Some(pins) = o.get("pins").and_then(|v| v.as_array()) {
+            for pv in pins {
+                sheet.pins.push(value_to_sheet_pin(pv));
+            }
+        }
+    }
+
+    sheet
+}
+
+fn value_to_sheet_pin(value: &Value) -> SheetPin {
+    let o = value.as_object();
+    let pin_type = o
+        .and_then(|o| get_str(o, "type"))
+        .map(|s| PinType::from_str(&s))
+        .unwrap_or(PinType::Passive);
+
+    let mut pin = SheetPin {
+        name: o.and_then(|o| get_str(o, "name")).unwrap_or_default(),
+        pin_type,
+        position: (0.0, 0.0, 0.0),
+        effects: TextEffects::default(),
+    };
+
+    // position override if provided
+    if let Some(o) = value.as_object() {
+        if let Some(pos) = o.get("position").and_then(|v| v.as_object()) {
+            pin.position = (
+                pos.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                pos.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                pos.get("rotation").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            );
+        } else if let Some(pos) = o.get("position").and_then(|v| v.as_array()) {
+            if pos.len() >= 2 {
+                pin.position = (
+                    pos[0].as_f64().unwrap_or(0.0),
+                    pos[1].as_f64().unwrap_or(0.0),
+                    pos.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0),
+                );
+            }
+        }
+        // side: auto-compute position from side if no explicit position
+        if let Some(side) = get_str(o, "side") {
+            // Only override if position is still default (0,0,0)
+            if pin.position == (0.0, 0.0, 0.0) {
+                pin.position = match side.as_str() {
+                    "left" => (0.0, 0.0, 0.0),
+                    "right" => (0.0, 0.0, 180.0),
+                    "top" => (0.0, 0.0, 270.0),
+                    "bottom" => (0.0, 0.0, 90.0),
+                    _ => (0.0, 0.0, 0.0),
+                };
+            }
+        }
+    }
+
+    pin
 }
 
 // ── Helpers ────────────────────────────────────────────────────────

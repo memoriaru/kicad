@@ -365,8 +365,8 @@ impl SexprGenerator {
     }
 
     fn generate_symbol_def(&mut self, output: &mut String, symbol: &Symbol) {
-        // Fast path: use embedded standard symbol (only for V10 — the embedded text is V10 format)
-        if matches!(self.effective_version, KicadVersion::V10) {
+        // Fast path: use embedded standard symbol for V9+ (includes embedded_fonts field)
+        if matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10) {
             if let Some(sexpr) = crate::codegen::standard_symbols::get_standard_symbol(&symbol.lib_id) {
                 let short_name = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
                 // Replace top-level symbol name and sub-unit names.
@@ -682,6 +682,45 @@ impl SexprGenerator {
         self.write_line(output, ")");
     }
 
+    /// Generate a pin matching KiCad's standard library definitions exactly.
+    fn gen_kicad_pin(
+        &mut self,
+        output: &mut String,
+        pin_type: &str,
+        pin_number: &str,
+        pin_name: &str,
+        x: f64,
+        y: f64,
+        rotation: f64,
+        length: f64,
+    ) {
+        self.write_line(
+            output,
+            &format!(
+                "(pin {} line (at {} {} {}) (length {})",
+                pin_type,
+                Self::format_number(x),
+                Self::format_number(y),
+                Self::format_number(rotation),
+                Self::format_number(length),
+            ),
+        );
+        self.indent_level += 1;
+        self.write_line(
+            output,
+            &format!("(name \"{}\"", Self::escape_string(pin_name)),
+        );
+        self.indent_level += 1;
+        self.write_line(output, "(effects (font (size 1.27 1.27))))");
+        self.indent_level -= 1;
+        self.write_line(output, &format!("(number \"{}\"", pin_number));
+        self.indent_level += 1;
+        self.write_line(output, "(effects (font (size 1.27 1.27))))");
+        self.indent_level -= 1;
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
     /// Generate standard stroke S-expression
     fn gen_default_stroke(&mut self, output: &mut String, width: f64) {
         self.write_line(output, "(stroke");
@@ -977,7 +1016,7 @@ impl SexprGenerator {
         self.indent_level += 1;
         self.write_line(
             output,
-            "(start -1.016 1.524) (end 1.016 -1.524)",
+            "(start -1.016 -2.54) (end 1.016 2.54)",
         );
         self.gen_default_stroke(output, 0.254);
         self.write_line(output, "(fill (type none))");
@@ -986,13 +1025,13 @@ impl SexprGenerator {
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // _1_1: pins
+        // _1_1: pins — match KiCad Device:R standard (pin at ±3.81, length 1.27, angle 270/90)
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         let pin1 = Self::get_pin_or_default(symbol, 0, "1");
-        self.gen_default_pin(output, &pin1, 0.0, 2.54, 90.0);
+        self.gen_kicad_pin(output, "passive", &pin1.number, "", 0.0, 3.81, 270.0, 1.27);
         let pin2 = Self::get_pin_or_default(symbol, 1, "2");
-        self.gen_default_pin(output, &pin2, 0.0, -2.54, 270.0);
+        self.gen_kicad_pin(output, "passive", &pin2.number, "", 0.0, -3.81, 90.0, 1.27);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }
@@ -1037,41 +1076,51 @@ impl SexprGenerator {
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // _1_1: pins
+        // _1_1: pins — match KiCad Device:C standard (pin at ±3.81, length 2.794, angle 270/90)
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         let pin1 = Self::get_pin_or_default(symbol, 0, "1");
-        self.gen_default_pin(output, &pin1, 0.0, 3.81, 90.0);
+        self.gen_kicad_pin(output, "passive", &pin1.number, "", 0.0, 3.81, 270.0, 2.794);
         let pin2 = Self::get_pin_or_default(symbol, 1, "2");
-        self.gen_default_pin(output, &pin2, 0.0, -3.81, 270.0);
+        self.gen_kicad_pin(output, "passive", &pin2.number, "", 0.0, -3.81, 90.0, 2.794);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }
 
-    /// Inductor template: bumps + 2 vertical pins
+    /// Inductor template: arcs + 2 vertical pins — matches KiCad Device:L standard
     fn gen_inductor_unit(
         &mut self,
         output: &mut String,
         symbol: &Symbol,
         base: &str,
     ) {
-        // _0_1: three arcs (bumps)
+        // _0_1: four arcs matching KiCad Device:L standard
         self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
         self.indent_level += 1;
 
-        for dy in &[-0.762, 0.0, 0.762] {
+        // Arc 1: (start 0 2.54) (mid 0.6323 1.905) (end 0 1.27)
+        // Arc 2: (start 0 1.27) (mid 0.6323 0.635) (end 0 0)
+        // Arc 3: (start 0 0) (mid 0.6323 -0.635) (end 0 -1.27)
+        // Arc 4: (start 0 -1.27) (mid 0.6323 -1.905) (end 0 -2.54)
+        let arcs: [(f64, f64, f64, f64, f64, f64); 4] = [
+            (0.0, 2.54, 0.6323, 1.905, 0.0, 1.27),
+            (0.0, 1.27, 0.6323, 0.635, 0.0, 0.0),
+            (0.0, 0.0, 0.6323, -0.635, 0.0, -1.27),
+            (0.0, -1.27, 0.6323, -1.905, 0.0, -2.54),
+        ];
+        for (sx, sy, mx, my, ex, ey) in &arcs {
             self.write_line(output, "(arc");
             self.indent_level += 1;
             self.write_line(
                 output,
                 &format!(
                     "(start {} {}) (mid {} {}) (end {} {})",
-                    Self::format_number(-1.27),
-                    Self::format_number(*dy + 0.762),
-                    Self::format_number(0.0),
-                    Self::format_number(*dy + 1.524),
-                    Self::format_number(1.27),
-                    Self::format_number(*dy + 0.762),
+                    Self::format_number(*sx),
+                    Self::format_number(*sy),
+                    Self::format_number(*mx),
+                    Self::format_number(*my),
+                    Self::format_number(*ex),
+                    Self::format_number(*ey),
                 ),
             );
             self.gen_default_stroke(output, 0.0);
@@ -1083,13 +1132,13 @@ impl SexprGenerator {
         self.indent_level -= 1;
         self.write_line(output, ")");
 
-        // _1_1: pins
+        // _1_1: pins — match KiCad Device:L standard (pin at ±3.81, length 1.27, angle 270/90, name = pin number)
         self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
         self.indent_level += 1;
         let pin1 = Self::get_pin_or_default(symbol, 0, "1");
-        self.gen_default_pin(output, &pin1, 0.0, 3.81, 90.0);
+        self.gen_kicad_pin(output, "passive", &pin1.number, &pin1.number, 0.0, 3.81, 270.0, 1.27);
         let pin2 = Self::get_pin_or_default(symbol, 1, "2");
-        self.gen_default_pin(output, &pin2, 0.0, -3.81, 270.0);
+        self.gen_kicad_pin(output, "passive", &pin2.number, &pin2.number, 0.0, -3.81, 90.0, 1.27);
         self.indent_level -= 1;
         self.write_line(output, ")");
     }

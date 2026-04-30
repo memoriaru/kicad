@@ -165,6 +165,10 @@ impl SexprGenerator {
             sheet.size.0 = snap(sheet.size.0);
             sheet.size.1 = snap(sheet.size.1);
         }
+        for label in &mut schematic.labels {
+            label.position.0 = snap(label.position.0);
+            label.position.1 = snap(label.position.1);
+        }
 
         let mut output = String::new();
 
