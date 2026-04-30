@@ -76,7 +76,7 @@ struct Args {
     /// Insert PWR_FLAG symbols for power nets (JSON5→S-expression only).
     /// Adds power flags on nets with power_in pins but no power_out driver,
     /// eliminating KiCad ERC power_pin_not_driven warnings.
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     power_flags: bool,
 }
 

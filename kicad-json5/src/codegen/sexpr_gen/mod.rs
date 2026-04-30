@@ -103,7 +103,7 @@ impl Default for SexprConfig {
             include_uuids: true,
             kicad_version: None, // auto-detect
             generate_uuids: true,
-            insert_power_flags: false,
+            insert_power_flags: true,
         }
     }
 }
@@ -229,13 +229,13 @@ impl SexprGenerator {
             self.generate_wire(&mut output, wire);
         }
 
-        // Auto-generate connections from net connectivity when no explicit wires/labels exist.
-        // When labels ARE present in JSON5, skip auto-wire entirely to avoid conflicts.
-        // When nothing is present, use label-per-pin (better than L-shaped wires).
-        if schematic.wires.is_empty() && schematic.labels.is_empty() && !schematic.components.is_empty() {
+        // Auto-generate connections from net connectivity when no explicit wires exist.
+        // Skip auto-wire only when user-provided non-hierarchical labels exist (to avoid conflicts).
+        // Hierarchical labels are for cross-sheet connections and don't conflict with auto-wire.
+        let has_user_labels = schematic.labels.iter()
+            .any(|l| l.label_type != "hierarchical_label");
+        if schematic.wires.is_empty() && !has_user_labels && !schematic.components.is_empty() {
             self.generate_auto_labels(&mut output, schematic);
-        } else if schematic.wires.is_empty() && !schematic.components.is_empty() {
-            // Labels exist from JSON5 — no auto-wire to avoid crossing conflicts
         }
 
         // Labels
@@ -261,6 +261,32 @@ impl SexprGenerator {
         // Bus entries
         for entry in &schematic.bus_entries {
             self.generate_bus_entry(&mut output, entry);
+        }
+
+        // Sheets (hierarchical)
+        for sheet in &schematic.sheets {
+            self.generate_sheet(&mut output, sheet);
+        }
+
+        // For root-level sheets, place local labels at each sheet pin position
+        // to create nets by name for sheet pin connectivity.
+        // Pin positions are already in absolute coordinates.
+        for sheet in &schematic.sheets {
+            let distributed = Self::distribute_sheet_pins(sheet);
+            for pin in &distributed {
+                let (px, py, _pr) = pin.position;
+                let default_effects = crate::ir::TextEffects::default();
+                self.write_line(&mut output, "(label");
+                self.indent_level += 1;
+                self.write_line(&mut output, &format!("\"{}\"", Self::escape_string(&pin.name)));
+                self.write_line(&mut output, &Self::format_at(px, py, 0.0));
+                self.generate_effects(&mut output, &default_effects);
+                if self.config.include_uuids {
+                    self.write_line(&mut output, &format!("(uuid \"{}\")", Self::new_uuid()));
+                }
+                self.indent_level -= 1;
+                self.write_line(&mut output, ")");
+            }
         }
 
         // v10: sheet_instances at file level
