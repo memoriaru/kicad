@@ -151,6 +151,21 @@ impl SexprGenerator {
 
     /// Generate S-expression from IR Schematic
     pub fn generate(&mut self, schematic: &crate::ir::Schematic) -> Result<String> {
+        // Clone and snap component positions to 1.27mm grid so all pin endpoints
+        // land on KiCad's connection grid (eliminates endpoint_off_grid warnings).
+        let mut schematic = schematic.clone();
+        let snap = |v: f64| -> f64 { (v / 1.27).round() * 1.27 };
+        for comp in &mut schematic.components {
+            comp.position.0 = snap(comp.position.0);
+            comp.position.1 = snap(comp.position.1);
+        }
+        for sheet in &mut schematic.sheets {
+            sheet.position.0 = snap(sheet.position.0);
+            sheet.position.1 = snap(sheet.position.1);
+            sheet.size.0 = snap(sheet.size.0);
+            sheet.size.1 = snap(sheet.size.1);
+        }
+
         let mut output = String::new();
 
         output.push_str("(kicad_sch\n");
@@ -206,10 +221,10 @@ impl SexprGenerator {
         }
 
         // Paper
-        self.generate_paper(&mut output, schematic);
+        self.generate_paper(&mut output, &schematic);
 
         // Title block
-        self.generate_title_block(&mut output, schematic);
+        self.generate_title_block(&mut output, &schematic);
 
         // Lib symbols
         if !schematic.lib_symbols.is_empty() || schematic.nets.iter().any(|n| n.render == crate::ir::RenderHint::Power) {
@@ -235,7 +250,7 @@ impl SexprGenerator {
         let has_user_labels = schematic.labels.iter()
             .any(|l| l.label_type != "hierarchical_label");
         if schematic.wires.is_empty() && !has_user_labels && !schematic.components.is_empty() {
-            self.generate_auto_labels(&mut output, schematic);
+            self.generate_auto_labels(&mut output, &schematic);
         }
 
         // Labels
