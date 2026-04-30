@@ -87,7 +87,13 @@ impl SexprGenerator {
                     }
                 }
             }
-            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin => {
+            DefaultSymbolKind::Resistor => {
+                let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+                positions.insert(pin1.number.clone(), (0.0, 3.81));
+                let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+                positions.insert(pin2.number.clone(), (0.0, -3.81));
+            }
+            DefaultSymbolKind::TwoPin => {
                 let pin1 = Self::get_pin_or_default(symbol, 0, "1");
                 positions.insert(pin1.number.clone(), (0.0, 2.54));
                 let pin2 = Self::get_pin_or_default(symbol, 1, "2");
@@ -119,8 +125,14 @@ impl SexprGenerator {
         let kind = Self::detect_default_kind(symbol);
         let mut positions = HashMap::new();
         match kind {
-            // Resistor/TwoPin: symbol.rs gen_resistor_unit/gen_twopin_unit place pins at ±2.54
-            DefaultSymbolKind::Resistor | DefaultSymbolKind::TwoPin => {
+            // Resistor: gen_resistor_unit uses gen_kicad_pin at ±3.81 (KiCad standard)
+            DefaultSymbolKind::Resistor => {
+                let pin1 = Self::get_pin_or_default(symbol, 0, "1");
+                positions.insert(pin1.number.clone(), (0.0, 3.81));
+                let pin2 = Self::get_pin_or_default(symbol, 1, "2");
+                positions.insert(pin2.number.clone(), (0.0, -3.81));
+            }
+            DefaultSymbolKind::TwoPin => {
                 return None; // Fall through to default template which uses ±2.54
             }
             // Capacitor/Inductor: symbol.rs gen_capacitor_unit/gen_inductor_unit place pins at ±3.81

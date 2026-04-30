@@ -1,7 +1,7 @@
 //! JSON5 code generator
 
 use crate::error::Result;
-use crate::ir::{Net, RenderHint, Schematic, Symbol, SymbolInstance};
+use crate::ir::{Net, RenderHint, Schematic, Sheet, Symbol, SymbolInstance};
 
 /// JSON5 generator configuration
 #[derive(Debug, Clone)]
@@ -95,6 +95,11 @@ impl Json5Generator {
         // Labels
         if !schematic.labels.is_empty() || self.config.include_empty {
             self.write_labels(&mut output, schematic);
+        }
+
+        // Sheets (hierarchical)
+        if !schematic.sheets.is_empty() || self.config.include_empty {
+            self.write_sheets(&mut output, schematic);
         }
 
         // Junctions
@@ -434,6 +439,42 @@ impl Json5Generator {
         }
 
         output.push_str(&format!("{}],\n\n", self.indent(1)));
+    }
+
+    fn write_sheets(&self, output: &mut String, schematic: &Schematic) {
+        if self.config.comments {
+            output.push_str(&format!("{}// Hierarchical sheets\n", self.indent(1)));
+        }
+
+        output.push_str(&format!("{}sheets: [\n", self.indent(1)));
+
+        for sheet in &schematic.sheets {
+            self.write_sheet(output, sheet);
+        }
+
+        output.push_str(&format!("{}],\n\n", self.indent(1)));
+    }
+
+    fn write_sheet(&self, output: &mut String, sheet: &Sheet) {
+        output.push_str(&format!("{}{{\n", self.indent(2)));
+        self.write_field(output, "sheet_name", &format!("\"{}\"", self.escape_string(&sheet.sheet_name.value)), 3);
+        self.write_field(output, "sheet_file", &format!("\"{}\"", self.escape_string(&sheet.sheet_file.value)), 3);
+        output.push_str(&format!("{}position: [{}, {}],\n", self.indent(3), sheet.position.0, sheet.position.1));
+        output.push_str(&format!("{}size: [{}, {}],\n", self.indent(3), sheet.size.0, sheet.size.1));
+
+        if !sheet.pins.is_empty() {
+            output.push_str(&format!("{}pins: [\n", self.indent(3)));
+            for pin in &sheet.pins {
+                output.push_str(&format!("{}{{ name: \"{}\", type: \"{}\" }},\n",
+                    self.indent(4),
+                    self.escape_string(&pin.name),
+                    pin.pin_type.to_str()
+                ));
+            }
+            output.push_str(&format!("{}],\n", self.indent(3)));
+        }
+
+        output.push_str(&format!("{}}},\n", self.indent(2)));
     }
 
     /// Escape special characters in a string
