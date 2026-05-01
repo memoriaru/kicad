@@ -164,6 +164,7 @@ pub fn convert_symbol(
 
     let ref_prop = component.properties_ext.iter().find(|p| p.name == "Reference");
     let val_prop = component.properties_ext.iter().find(|p| p.name == "Value");
+    let fp_prop = component.properties_ext.iter().find(|p| p.name == "Footprint");
 
     let (reference_position, reference_rotation, reference_hidden, ref_justify) = ref_prop
         .map(|p| (Some((p.position.0, p.position.1)), p.position.2, p.hide || p.effects.hide, &p.effects.justify))
@@ -171,6 +172,9 @@ pub fn convert_symbol(
     let (value_position, value_rotation, value_hidden, val_justify) = val_prop
         .map(|p| (Some((p.position.0, p.position.1)), p.position.2, p.hide || p.effects.hide, &p.effects.justify))
         .unwrap_or((None, 0.0, false, &default_justify));
+    let (footprint, footprint_position, footprint_rotation, footprint_hidden) = fp_prop
+        .map(|p| (p.value.clone(), Some((p.position.0, p.position.1)), p.position.2, p.hide || p.effects.hide))
+        .unwrap_or((String::new(), None, 0.0, true));
 
     SymbolInstance {
         library_id: component.lib_id.clone(),
@@ -191,6 +195,10 @@ pub fn convert_symbol(
         value_v_align: v_align_to_svg(val_justify.vertical),
         reference_hidden,
         value_hidden,
+        footprint,
+        footprint_position,
+        footprint_rotation,
+        footprint_hidden,
         dnp: component.dnp,
     }
 }
