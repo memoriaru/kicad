@@ -67,18 +67,18 @@ impl SexprGenerator {
             if !prop.hide && prop.position == (0.0, 0.0, 0.0) && needs_offset {
                 let mut adjusted = prop.clone();
                 adjusted.do_not_autoplace = true;
+                // Center both axes so KiCad defaults to center+center (no justify clause)
+                adjusted.effects.justify.horizontal = crate::ir::HorizontalAlign::Center;
+                adjusted.effects.justify.vertical = crate::ir::VerticalAlign::Center;
                 match prop.name.as_str() {
                     "Reference" => {
                         adjusted.position = (0.0, -body_half_h - 1.27, 0.0);
-                        adjusted.effects.justify.horizontal = crate::ir::HorizontalAlign::Center;
                     }
                     "Value" => {
                         adjusted.position = (0.0, body_half_h + 1.27, 0.0);
-                        adjusted.effects.justify.horizontal = crate::ir::HorizontalAlign::Center;
                     }
                     _ => {
                         adjusted.position = (0.0, body_half_h + 5.08, 0.0);
-                        adjusted.effects.justify.horizontal = crate::ir::HorizontalAlign::Center;
                     }
                 }
                 self.generate_property(output, &adjusted);
