@@ -48,9 +48,43 @@ impl SexprGenerator {
             self.write_line(output, &format!("(uuid \"{}\")", uuid));
         }
 
-        // Properties
+        // Properties — offset Reference above body, Value/Footprint below body for custom components
+        let pin_count = component.pins.len();
+        let needs_offset = pin_count > 2 && component.properties_ext.iter().any(|p| !p.hide && p.position == (0.0, 0.0, 0.0));
+        let body_half_h = if needs_offset {
+            let short = component.lib_id.split(':').last().unwrap_or(&component.lib_id);
+            let is_dual = short.contains("02x") || short.contains("_02x");
+            let rows = if is_dual { (pin_count + 1) / 2 } else { pin_count };
+            let spacing = 5.08_f64;
+            // Half-span from center to outermost pin
+            let half_span = if rows > 1 { ((rows - 1) as f64 / 2.0) * spacing } else { 0.0 };
+            half_span + 2.54 // half-span + margin for body graphic
+        } else {
+            0.0
+        };
+
         for prop in &component.properties_ext {
-            self.generate_property(output, prop);
+            if !prop.hide && prop.position == (0.0, 0.0, 0.0) && needs_offset {
+                let mut adjusted = prop.clone();
+                adjusted.do_not_autoplace = true;
+                match prop.name.as_str() {
+                    "Reference" => {
+                        adjusted.position = (0.0, -body_half_h - 1.27, 0.0);
+                        adjusted.effects.justify.horizontal = crate::ir::HorizontalAlign::Center;
+                    }
+                    "Value" => {
+                        adjusted.position = (0.0, body_half_h + 1.27, 0.0);
+                        adjusted.effects.justify.horizontal = crate::ir::HorizontalAlign::Center;
+                    }
+                    _ => {
+                        adjusted.position = (0.0, body_half_h + 5.08, 0.0);
+                        adjusted.effects.justify.horizontal = crate::ir::HorizontalAlign::Center;
+                    }
+                }
+                self.generate_property(output, &adjusted);
+            } else {
+                self.generate_property(output, prop);
+            }
         }
 
         // Pins

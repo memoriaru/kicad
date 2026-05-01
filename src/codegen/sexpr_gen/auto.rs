@@ -48,11 +48,11 @@ impl SexprGenerator {
                 if pin_count == 0 { return positions; }
                 let short = symbol.lib_id.split(':').last().unwrap_or(&symbol.lib_id);
                 let is_dual_row = short.contains("02x") || short.contains("_02x");
-                let spacing = 2.54;
+                let spacing = 5.08;
 
                 if is_dual_row {
                     let rows = (pin_count + 1) / 2;
-                    let body_hw = 5.08;
+                    let body_hw = (5.08_f64.max(rows as f64 * 1.016) / 1.27).round() * 1.27;
                     let pin_length = 3.81;
                     for (i, pin) in symbol.pins.iter().enumerate() {
                         let row = i / 2;
@@ -76,8 +76,9 @@ impl SexprGenerator {
                 let pin_count = symbol.pins.len();
                 let left_count = (pin_count + 1) / 2;
                 let right_count = pin_count - left_count;
-                let spacing = 2.54;
-                let body_hw = 5.08;
+                let max_per_side = left_count.max(right_count).max(1);
+                let spacing = 5.08;
+                let body_hw = (5.08_f64.max(max_per_side as f64 * 1.016) / 1.27).round() * 1.27;
                 let pin_length = 2.54;
 
                 for (i, pin) in symbol.pins.iter().enumerate() {
@@ -182,12 +183,15 @@ impl SexprGenerator {
     }
 
     pub(super) fn compute_label_rotation(lx: f64, ly: f64, crot: f64) -> f64 {
-        let local_rot = if lx.abs() > ly.abs() {
-            if lx < 0.0 { 0.0 } else { 180.0 }
+        if lx.abs() > 0.1 {
+            // Side pin (left/right): flag extends away from body
+            if lx < 0.0 { 180.0 } else { 0.0 }
         } else {
-            if ly > 0.0 { 90.0 } else { 270.0 }
-        };
-        (local_rot + crot) % 360.0
+            // Top/bottom pin: use horizontal label to avoid text overlapping body
+            // Vertical global_labels (90/270) always render text toward the component
+            // Using rotation 0 (flag RIGHT, text LEFT) avoids overlap
+            0.0
+        }
     }
 
     /// Collect all pin world positions grouped by net_id.
@@ -435,21 +439,9 @@ impl SexprGenerator {
         pins: &[PinInfo],
         all_label_positions: &mut Vec<(f64, f64, f64, &'a str)>,
     ) {
-        let default_effects = TextEffects::default();
-
         for pin in pins {
             all_label_positions.push((pin.x, pin.y, pin.rotation, net_name));
-            self.write_line(output, "(global_label");
-            self.indent_level += 1;
-            self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
-            self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
-            self.write_line(output, "(shape passive)");
-            self.generate_effects(output, &default_effects);
-            if self.config.include_uuids {
-                self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
-            }
-            self.indent_level -= 1;
-            self.write_line(output, ")");
+            self.emit_global_label(output, net_name, pin);
         }
     }
 
@@ -526,12 +518,19 @@ impl SexprGenerator {
 
     /// Emit a local label at a pin position (fallback for unreachable pins)
     fn emit_local_label(&mut self, output: &mut String, net_name: &str, pin: &PinInfo) {
-        let default_effects = TextEffects::default();
+        let mut effects = TextEffects::default();
+        effects.justify.vertical = VerticalAlign::Center;
+        match pin.rotation as i32 % 360 {
+            0 => effects.justify.horizontal = HorizontalAlign::Left,
+            180 => effects.justify.horizontal = HorizontalAlign::Right,
+            90 | 270 => effects.justify.horizontal = HorizontalAlign::Left,
+            _ => {}
+        }
         self.write_line(output, "(label");
         self.indent_level += 1;
         self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
         self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
-        self.generate_effects(output, &default_effects);
+        self.generate_effects(output, &effects);
         if self.config.include_uuids {
             self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
         }
@@ -795,13 +794,21 @@ impl SexprGenerator {
     }
 
     fn emit_global_label(&mut self, output: &mut String, net_name: &str, pin: &PinInfo) {
-        let default_effects = TextEffects::default();
+        let mut effects = TextEffects::default();
+        effects.justify.vertical = VerticalAlign::Center;
+        // Set horizontal justify based on rotation so text extends away from component body
+        match pin.rotation as i32 % 360 {
+            0 => effects.justify.horizontal = HorizontalAlign::Left,
+            180 => effects.justify.horizontal = HorizontalAlign::Right,
+            90 | 270 => effects.justify.horizontal = HorizontalAlign::Left,
+            _ => {}
+        }
         self.write_line(output, "(global_label");
         self.indent_level += 1;
         self.write_line(output, &format!("\"{}\"", Self::escape_string(net_name)));
         self.write_line(output, &Self::format_at(pin.x, pin.y, pin.rotation));
         self.write_line(output, "(shape passive)");
-        self.generate_effects(output, &default_effects);
+        self.generate_effects(output, &effects);
         if self.config.include_uuids {
             self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
         }
