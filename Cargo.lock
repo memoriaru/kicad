@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "kicad-json5"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "kicad-render"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "approx",
