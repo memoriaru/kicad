@@ -771,16 +771,16 @@ impl SexprGenerator {
 
         let pin_length = 3.81;
         let pin_spacing = 2.54;
-        let pin_x_left = -5.08;
-        let pin_x_right = 7.62;
 
         if is_dual_row {
             // Dual-row: rows of pin_count/2, alternating left/right
             let rows = (pin_count + 1) / 2;
-            let body_hw = 1.27;
-            let body_top = (rows - 1) as f64 * pin_spacing / 2.0 + pin_spacing / 2.0;
+            let body_hw = 5.08; // half-width: fits pin names from both sides
+            let body_hh = rows as f64 * pin_spacing / 2.0; // symmetric height
+            let pin_x_left = -(body_hw + pin_length);
+            let pin_x_right = body_hw + pin_length;
 
-            // _0_1: body rectangle + solder pads
+            // _0_1: body rectangle
             self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
             self.indent_level += 1;
             self.write_line(output, "(rectangle");
@@ -790,9 +790,9 @@ impl SexprGenerator {
                 &format!(
                     "(start {} {}) (end {} {})",
                     Self::format_number(-body_hw),
-                    Self::format_number(body_top),
+                    Self::format_number(body_hh),
                     Self::format_number(body_hw),
-                    Self::format_number(-body_top)
+                    Self::format_number(-body_hh)
                 ),
             );
             self.gen_default_stroke(output, 0.254);
@@ -802,13 +802,13 @@ impl SexprGenerator {
             self.indent_level -= 1;
             self.write_line(output, ")");
 
-            // _1_1: pins
+            // _1_1: pins — centered Y positions
             self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
             self.indent_level += 1;
 
             for (i, pin) in symbol.pins.iter().enumerate() {
                 let row = i / 2;
-                let y = ((rows - 1) - row) as f64 * pin_spacing;
+                let y = ((rows - 1) as f64 / 2.0 - row as f64) * pin_spacing;
                 if i % 2 == 0 {
                     // Left pin
                     self.gen_connector_pin(output, pin, pin_x_left, y, 0.0, pin_length);
@@ -821,9 +821,10 @@ impl SexprGenerator {
             self.indent_level -= 1;
             self.write_line(output, ")");
         } else {
-            // Single-row: all pins on the left
-            let body_hw = 1.27;
-            let body_top = (pin_count - 1) as f64 * pin_spacing / 2.0 + pin_spacing / 2.0;
+            // Single-row: pins on right, body wide enough for pin names
+            let body_hw = 3.81; // half-width: fits pin names inside body
+            let body_hh = pin_count as f64 * pin_spacing / 2.0; // symmetric height
+            let pin_x = body_hw + pin_length; // right side
 
             // _0_1: body + solder pads
             self.write_line(output, &format!("(symbol \"{}_0_1\"", base));
@@ -837,9 +838,9 @@ impl SexprGenerator {
                 &format!(
                     "(start {} {}) (end {} {})",
                     Self::format_number(-body_hw),
-                    Self::format_number(body_top),
+                    Self::format_number(body_hh),
                     Self::format_number(body_hw),
-                    Self::format_number(-body_top)
+                    Self::format_number(-body_hh)
                 ),
             );
             self.gen_default_stroke(output, 0.254);
@@ -847,9 +848,9 @@ impl SexprGenerator {
             self.indent_level -= 1;
             self.write_line(output, ")");
 
-            // Solder pad rectangles (one per pin)
+            // Solder pad rectangles (one per pin, on right body edge)
             for i in 0..pin_count {
-                let y = ((pin_count - 1) - i) as f64 * pin_spacing;
+                let y = ((pin_count - 1) as f64 / 2.0 - i as f64) * pin_spacing;
                 let pad_half = 0.127;
                 self.write_line(output, "(rectangle");
                 self.indent_level += 1;
@@ -857,9 +858,9 @@ impl SexprGenerator {
                     output,
                     &format!(
                         "(start {} {}) (end {} {})",
-                        Self::format_number(-1.27),
+                        Self::format_number(body_hw - 1.27),
                         Self::format_number(y + pad_half),
-                        Self::format_number(0.0),
+                        Self::format_number(body_hw),
                         Self::format_number(y - pad_half)
                     ),
                 );
@@ -872,13 +873,13 @@ impl SexprGenerator {
             self.indent_level -= 1;
             self.write_line(output, ")");
 
-            // _1_1: pins
+            // _1_1: pins — centered Y positions, right side
             self.write_line(output, &format!("(symbol \"{}_1_1\"", base));
             self.indent_level += 1;
 
             for (i, pin) in symbol.pins.iter().enumerate() {
-                let y = ((pin_count - 1) - i) as f64 * pin_spacing;
-                self.gen_connector_pin(output, pin, pin_x_left, y, 0.0, pin_length);
+                let y = ((pin_count - 1) as f64 / 2.0 - i as f64) * pin_spacing;
+                self.gen_connector_pin(output, pin, pin_x, y, 180.0, pin_length);
             }
 
             self.indent_level -= 1;
@@ -943,7 +944,7 @@ impl SexprGenerator {
 
         let spacing = 2.54;
         let body_hw = 5.08; // half-width
-        let body_hh = max_per_side as f64 * spacing / 2.0 + spacing / 2.0;
+        let body_hh = max_per_side as f64 * spacing / 2.0; // symmetric height
         let pin_length = 2.54;
 
         // _0_1: rectangle body
@@ -976,7 +977,7 @@ impl SexprGenerator {
 
         for (i, pin) in symbol.pins.iter().enumerate() {
             if i < left_count {
-                let y = (left_count - 1 - i) as f64 * spacing / 2.0;
+                let y = ((left_count - 1) as f64 / 2.0 - i as f64) * spacing;
                 self.gen_default_pin(
                     output,
                     pin,
@@ -988,7 +989,7 @@ impl SexprGenerator {
         }
 
         for (i, pin) in symbol.pins.iter().skip(left_count).enumerate() {
-            let y = (right_count - 1 - i) as f64 * spacing / 2.0;
+            let y = ((right_count - 1) as f64 / 2.0 - i as f64) * spacing;
             self.gen_default_pin(
                 output,
                 pin,
