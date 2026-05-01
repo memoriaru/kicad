@@ -1,6 +1,6 @@
 [package]
 name = "kicad-json5"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2021"
 description = "KiCad S-expression to JSON5 compiler"
 authors = ["memo"]
