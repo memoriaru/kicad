@@ -58,6 +58,7 @@ pub struct SymbolPainter {
     pub pin_color: Color,
     pub reference_color: Color,
     pub value_color: Color,
+    pub footprint_color: Color,
 }
 
 /// Transform a slice of points through a matrix, returning Vec<Point>.
@@ -75,6 +76,7 @@ impl SymbolPainter {
             pin_color: constants::pin_color(),
             reference_color: constants::reference_color(),
             value_color: constants::value_color(),
+            footprint_color: constants::footprint_color(),
         }
     }
 
@@ -87,6 +89,7 @@ impl SymbolPainter {
             pin_color: constants::pin_color(),
             reference_color: constants::reference_color(),
             value_color: constants::value_color(),
+            footprint_color: constants::footprint_color(),
         }
     }
 
@@ -399,7 +402,7 @@ impl Painter for SymbolPainter {
             "central",
             self.symbol.footprint_hidden,
             false,
-            self.reference_color,
+            self.footprint_color,
         );
     }
 }

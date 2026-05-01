@@ -122,6 +122,8 @@ pub fn component_body_fill() -> Color { Color::from_rgb(255, 255, 194) }
 pub fn reference_color() -> Color { Color::from_rgb(0, 100, 100) }
 /// Value text color: teal (theme.value rgb(0,100,100))
 pub fn value_color() -> Color { Color::from_rgb(0, 100, 100) }
+/// Footprint text color: pink (KiCad uses distinct color for footprint properties)
+pub fn footprint_color() -> Color { Color::from_rgb(200, 100, 130) }
 /// Local label text color (theme.label_local rgb(15,15,15))
 pub fn label_color() -> Color { Color::from_rgb(15, 15, 15) }
 /// Global label color (theme.label_global rgb(132,0,0))
