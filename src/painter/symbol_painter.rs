@@ -33,6 +33,10 @@ pub struct SymbolInstance {
     pub value_v_align: &'static str,
     pub reference_hidden: bool,
     pub value_hidden: bool,
+    pub footprint: String,
+    pub footprint_position: Option<(f64, f64)>,
+    pub footprint_rotation: f64,
+    pub footprint_hidden: bool,
     /// Do Not Populate — draw an X cross over the symbol
     pub dnp: bool,
 }
@@ -249,6 +253,27 @@ impl SymbolPainter {
         bbox
     }
 
+    /// Compute property world position from local offset.
+    /// Property positions in .kicad_sch are in schematic coordinates (Y-down),
+    /// so they should NOT go through the library Y-flip transform.
+    fn property_world_pos(&self, local_x: f64, local_y: f64) -> Point {
+        // Rotate local offset by component rotation (schematic Y-down convention)
+        let (rx, ry) = match self.symbol.rotation % 360 {
+            0 => (local_x, local_y),
+            90 => (local_y, -local_x),
+            180 => (-local_x, -local_y),
+            270 => (-local_y, local_x),
+            _ => (local_x, local_y),
+        };
+        // Apply mirror
+        let (mx, my) = match self.symbol.mirror {
+            Mirror::X => (rx, -ry),
+            Mirror::Y => (-rx, ry),
+            Mirror::None => (rx, ry),
+        };
+        Point::new(self.symbol.position.x + mx, self.symbol.position.y + my)
+    }
+
     /// Compute the draw position for a property text.
     /// Paint a property (reference or value) text.
     fn paint_property(
@@ -271,7 +296,7 @@ impl SymbolPainter {
         let layer = layers.get_layer_mut(LayerId::SymbolForeground).unwrap();
 
         let anchor_pos = if let Some((x, y)) = pos {
-            Point::new(x, y)
+            self.property_world_pos(x, y)
         } else {
             Point::new(self.symbol.position.x, self.symbol.position.y + fallback_offset_y)
         };
@@ -363,6 +388,18 @@ impl Painter for SymbolPainter {
             self.symbol.value_hidden,
             false,
             self.value_color,
+        );
+        self.paint_property(
+            layers,
+            &self.symbol.footprint,
+            self.symbol.footprint_position,
+            5.08,
+            self.symbol.footprint_rotation,
+            "middle",
+            "central",
+            self.symbol.footprint_hidden,
+            false,
+            self.reference_color,
         );
     }
 }
