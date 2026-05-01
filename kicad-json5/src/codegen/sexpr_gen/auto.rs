@@ -52,19 +52,23 @@ impl SexprGenerator {
 
                 if is_dual_row {
                     let rows = (pin_count + 1) / 2;
+                    let body_hw = 5.08;
+                    let pin_length = 3.81;
                     for (i, pin) in symbol.pins.iter().enumerate() {
                         let row = i / 2;
-                        let y = ((rows - 1) - row) as f64 * spacing;
+                        let y = ((rows - 1) as f64 / 2.0 - row as f64) * spacing;
                         if i % 2 == 0 {
-                            positions.insert(pin.number.clone(), (-5.08, y));
+                            positions.insert(pin.number.clone(), (-(body_hw + pin_length), y));
                         } else {
-                            positions.insert(pin.number.clone(), (7.62, y));
+                            positions.insert(pin.number.clone(), (body_hw + pin_length, y));
                         }
                     }
                 } else {
+                    let body_hw = 3.81;
+                    let pin_length = 3.81;
                     for (i, pin) in symbol.pins.iter().enumerate() {
-                        let y = ((pin_count - 1) - i) as f64 * spacing;
-                        positions.insert(pin.number.clone(), (-5.08, y));
+                        let y = ((pin_count - 1) as f64 / 2.0 - i as f64) * spacing;
+                        positions.insert(pin.number.clone(), (body_hw + pin_length, y));
                     }
                 }
             }
@@ -78,11 +82,11 @@ impl SexprGenerator {
 
                 for (i, pin) in symbol.pins.iter().enumerate() {
                     if i < left_count {
-                        let y = (left_count - 1 - i) as f64 * spacing / 2.0;
+                        let y = ((left_count - 1) as f64 / 2.0 - i as f64) * spacing;
                         positions.insert(pin.number.clone(), (-body_hw - pin_length, y));
                     } else {
                         let ri = i - left_count;
-                        let y = (right_count - 1 - ri) as f64 * spacing / 2.0;
+                        let y = ((right_count - 1) as f64 / 2.0 - ri as f64) * spacing;
                         positions.insert(pin.number.clone(), (body_hw + pin_length, y));
                     }
                 }
@@ -240,7 +244,7 @@ impl SexprGenerator {
         }
 
         // 2. Collect pin world positions grouped by net
-        let (mut pins_by_net, _no_connects) = Self::collect_pin_world_positions(schematic, &symbol_pins);
+        let (mut pins_by_net, no_connect_positions) = Self::collect_pin_world_positions(schematic, &symbol_pins);
 
         // 3. Build net lookups
         let net_names: HashMap<u32, &str> = schematic.nets.iter()
@@ -282,6 +286,10 @@ impl SexprGenerator {
                 all_pin_positions.push((pin.x, pin.y));
                 all_pins_with_net.push((pin.x, pin.y, *net_id));
             }
+        }
+        // Add NC pin positions as forbidden (net_id=0 won't match any real net)
+        for (x, y, _rot, _nid) in &no_connect_positions {
+            all_pins_with_net.push((*x, *y, 0));
         }
 
         // 6. Phase 1: Dispatch per-net based on render hint, collecting wire segments
