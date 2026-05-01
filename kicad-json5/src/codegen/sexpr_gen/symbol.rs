@@ -770,12 +770,13 @@ impl SexprGenerator {
         }
 
         let pin_length = 3.81;
-        let pin_spacing = 2.54;
+        let pin_spacing = 5.08;
 
         if is_dual_row {
             // Dual-row: rows of pin_count/2, alternating left/right
             let rows = (pin_count + 1) / 2;
-            let body_hw = 5.08; // half-width: fits pin names from both sides
+            // Body scales with pin count: ~1mm per pin per row, minimum 5.08mm
+            let body_hw = (5.08_f64.max(rows as f64 * 1.016) / 1.27).round() * 1.27;
             let body_hh = rows as f64 * pin_spacing / 2.0; // symmetric height
             let pin_x_left = -(body_hw + pin_length);
             let pin_x_right = body_hw + pin_length;
@@ -942,8 +943,9 @@ impl SexprGenerator {
         let right_count = pin_count - left_count;
         let max_per_side = left_count.max(right_count).max(1);
 
-        let spacing = 2.54;
-        let body_hw = 5.08; // half-width
+        let spacing = 5.08;
+        // Body scales with pin count: ~1mm per pin per side, minimum 5.08mm
+        let body_hw = (5.08_f64.max(max_per_side as f64 * 1.016) / 1.27).round() * 1.27;
         let body_hh = max_per_side as f64 * spacing / 2.0; // symmetric height
         let pin_length = 2.54;
 
