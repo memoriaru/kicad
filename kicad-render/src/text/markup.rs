@@ -73,6 +73,7 @@ enum ParserState {
     /// Normal text
     Normal,
     /// After escape character (^, _, ~)
+    #[allow(dead_code)]
     AfterEscape(char),
     /// Inside braces
     InBraces { escape_char: char, depth: usize },

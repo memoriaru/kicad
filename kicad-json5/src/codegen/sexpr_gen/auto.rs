@@ -18,6 +18,7 @@ const MAX_WIRE_MANHATTAN: f64 = 50.0;
 const COORD_TOL: f64 = 0.5;
 
 /// Snap value to 1.27mm grid
+#[allow(dead_code)]
 fn snap_to_grid(v: f64) -> f64 {
     (v / 1.27).round() * 1.27
 }
@@ -182,7 +183,7 @@ impl SexprGenerator {
         }
     }
 
-    pub(super) fn compute_label_rotation(lx: f64, ly: f64, crot: f64) -> f64 {
+    pub(super) fn compute_label_rotation(lx: f64, _ly: f64, _crot: f64) -> f64 {
         if lx.abs() > 0.1 {
             // Side pin (left/right): flag extends away from body
             if lx < 0.0 { 180.0 } else { 0.0 }
@@ -346,13 +347,11 @@ impl SexprGenerator {
         }
 
         // 8. Generate PWR_FLAG symbols if configured.
-        // For hierarchical designs (sheets with global power nets), PWR_FLAG is
-        // problematic: placing one per sheet on the same global net causes
-        // pin_to_pin conflicts. Since global_labels handle power propagation,
-        // skip PWR_FLAG for any schematic with global power nets.
-        let has_global_power = schematic.nets.iter()
-            .any(|n| n.render == RenderHint::Power);
-        if self.config.insert_power_flags && !has_global_power {
+        // For hierarchical designs (sheets present), PWR_FLAG is problematic:
+        // placing one per sub-sheet on the same global net causes pin_to_pin
+        // conflicts. Only generate PWR_FLAG for flat (non-hierarchical) schematics.
+        let is_hierarchical = !schematic.sheets.is_empty();
+        if self.config.insert_power_flags && !is_hierarchical {
             self.generate_power_flags(output, schematic, &all_label_positions);
         }
     }
