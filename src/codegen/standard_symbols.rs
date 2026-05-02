@@ -23,6 +23,7 @@ pub fn get_standard_symbol(lib_id: &str) -> Option<&'static str> {
 /// Returns the standard pin positions (local_x, local_y) for well-known Device symbols.
 /// Positions match the embedded .sexpr definitions exactly.
 /// Returns HashMap<pin_number, (local_x, local_y)>.
+#[allow(dead_code)]
 pub fn get_standard_pin_positions(lib_id: &str) -> Option<HashMap<String, (f64, f64)>> {
     let short = lib_id.split(':').last().unwrap_or(lib_id);
     // All Device:R/C/L/D/LED have vertical layout: pin 1 at top, pin 2 at bottom.
