@@ -8,9 +8,9 @@
 |------|------|--------|
 | kicad-json5 (原理图编译) | 可用 | 85% |
 | kicad-render (SVG 渲染) | 可用 | 75% |
-| kicad-cdb (元件数据库) | 华秋 API 集成完成 | 75% |
-| kicad-symgen (符号/封装生成) | 框架就绪 | 35% |
-| 设计规则 Skill 系统 | 电源域完整框架 | 60% |
+| kicad-cdb (元件数据库) | Pipeline + spec 导出完成 | 80% |
+| kicad-symgen (符号/封装生成) | 独立 CLI，智能布局 + 封装模板 | 45% |
+| 设计规则 Skill 系统 | Pipeline 链式调用 + 决策追溯 | 75% |
 | 拓扑选型与参数推导 | 9 拓扑 + 选型引擎 | 55% |
 
 ---
@@ -63,14 +63,15 @@
   - LED：限流电阻 (1)
   - 热设计：功耗计算、结温估算 (2)
 - [x] **CLI rules 命令**：`cdb rules --seed` / `cdb rules` / `cdb rules --apply <rule> --params ... --candidate ...`
+- [x] **Pipeline 链式调用**：4 条内置 pipeline（buck/boost/ldo/led），上游输出自动流入下游规则
+- [x] **设计决策追溯**：DesignLog 结构化记录每步的 inputs/formula/outputs/check/passed/skipped
+- [x] **Pipeline CLI**：`cdb pipeline buck --params "vin=12,vout=3.3,iout=2,fsw=500000,ripple_ratio=0.3,ripple_v=0.05" [--json]`
 
 ### 未完成
 
 - [ ] **Skill 输入/输出契约**：每个 Skill 声明需要哪些输入参数、输出哪些计算结果（当前 parameters/output_params 字段已有但未被 CLI 严格校验）
-- [ ] **Skill 链式调用**：一个 Skill 的输出自动成为下一个 Skill 的输入（如 Buck 电感选型 → 电感饱和电流检查）
 - [ ] **条件分支**：根据输入条件选择不同设计路径（如 `if iout > 2A then use Buck else use LDO`）
 - [ ] **多方案比较**：同一需求生成多个候选方案并排序
-- [ ] **设计决策追溯**：记录每步计算的输入参数、公式、结果和约束检查
 - [ ] **信号完整性 Skill**：阻抗匹配、走线长度约束
 - [ ] **EMC Skill**：去耦电容数量/位置规则、滤波器截止频率
 - [ ] **时序 Skill**：建立/保持时间裕量
@@ -113,10 +114,12 @@
 
 #### kicad-symgen 符号/封装生成
 
-- [ ] **从 cdb 自动生成**：查询 kicad-cdb → 自动生成 .kicad_sym + .kicad_mod
-- [ ] **更多封装模板**：当前有 DIP/SOIC/SOT，缺少 QFP/QFN/BGA/WLCSP/DFN 等
-- [ ] **符号图形丰富化**：当前符号为简单矩形+pin，缺少 op-amp 三角形、MCU 功能分区等
-- [ ] **智能引脚布局**：按功能分组（电源/地/IO/通信/时钟）
+- [x] **cdb → symgen 数据桥接**：`cdb export --format spec --mpn X -o X.json5` → `symgen symbol --input X.json5 -o X.kicad_sym`
+- [x] **独立 crate 架构**：kicad-symgen 与 kicad-cdb 零交叉依赖，通过 JSON5 spec 文件协作
+- [x] **智能引脚布局**：按电气类型自动分类（电源→顶部，地→底部，输入→左侧，输出→右侧）
+- [x] **封装模板**：DIP/SOIC/TSSOP/SOP/MSOP/SOT-23/SOT-223
+- [ ] **更多封装模板**：QFP/QFN/BGA/WLCSP/DFN/QFN-EP 等
+- [ ] **符号图形丰富化**：op-amp 三角形、MCU 功能分区等特殊图形
 - [ ] **批量库生成**：从元件列表批量生成完整 .kicad_sym 库文件
 
 #### kicad-render SVG 渲染
@@ -144,6 +147,8 @@
 
 - [x] **46 条电源域规则**：覆盖 Buck/Boost/Buck-Boost/Inverting/SEPIC/Charge Pump/Flyback/LDO 全拓扑
 - [x] **规则引擎增强**：多赋值公式、条件门控
+- [x] **Pipeline 链式调用**：buck/boost/ldo/led 四条 pipeline，上游输出自动流入下游
+- [x] **设计决策追溯**：DesignLog JSON 格式记录每步计算
 - [ ] **Skill 注册机制**：可插拔的规则模块，声明适用场景
 - [ ] **自然语言 → Skill 映射**：AI 从需求描述选择合适的 Skill
 - [ ] **Skill 组合编排**：多个 Skill 协作完成复杂设计（电源树分析 = LDO Skill + 去耦 Skill + 热设计 Skill）
@@ -171,7 +176,8 @@
 
 ### 断裂点 5：参数计算不可追溯 → 决策记录
 
-- [ ] **设计日志格式**：记录每步决策的结构化格式
+- [x] **设计日志格式**：DesignLog 结构化 JSON（pipeline_name, user_inputs, steps[], passed/failed/skipped）
+- [x] **Pipeline CLI**：`cdb pipeline <name> --params "..." --json` 输出完整决策链
 - [ ] **回溯机制**：从最终设计反向查看每个参数的计算依据
 - [ ] **变更影响分析**：修改某个参数后，标记所有受影响的下游决策
 
@@ -189,9 +195,9 @@
 | **P2** | ~~电源域完整 Skill 框架~~ | ✅ 已完成 | 46 条规则覆盖 8 种 DC-DC 拓扑 |
 | **P2** | ~~6 个新拓扑模板~~ | ✅ 已完成 | boost/buckboost/inverting/sepic/chargepump/flyback |
 | **P2** | ~~拓扑选型引擎~~ | ✅ 已完成 | `cdb suggest --vin --vout --iout` |
-| **P3** | **Track C: IC 核心模板 + 模块化组合** | 🔄 进行中 | 4 个 IC 模板已验证，ic_template.rs + CLI 已完成 |
-| **P3** | Skill 链式调用 + 设计决策追溯 | 未开始 | 规则输出自动流入下游规则 |
-| **P3** | kicad-symgen 与 cdb 集成 | 未开始 | 消除手动创建符号的瓶颈 |
+| **P3** | ~~Track C: IC 核心模板 + 模块化组合~~ | ✅ 已完成 | 8 个 IC 模板 + 华秋 API pin 获取 + CCD 全板组合验证 |
+| **P3** | ~~Skill 链式调用 + 设计决策追溯~~ | ✅ 已完成 | 4 条 pipeline + DesignLog JSON 输出 |
+| **P3** | ~~kicad-symgen 与 cdb 集成~~ | ✅ 已完成 | 三 crate 独立架构 + JSON5 spec 桥接 |
 | **P3** | AI 查询接口（自然语言 → SQL） | 未开始 | 让 AI 直接调 cdb CLI 或 API |
 | **P4** | 封装模板补全（QFP/QFN/BGA） | 未开始 | 覆盖更多常见封装 |
 | **P4** | PCB 输出 (.kicad_pcb) | 未开始 | 最大的单项工程 |
@@ -209,10 +215,11 @@
 - [x] ~~kicad-cdb：`unwrap()` 裸用~~ — 已替换为 `expect()`/`context()`
 - [x] ~~kicad-symgen：magic number~~ — 已提取为模块级常量
 - [x] ~~所有 crate：裸 `unwrap()` 替换为 `expect()`/`context()`~~ — 生产代码已清理
-- [ ] kicad-cdb：hqapi 集成测试（需要网络，当前仅有单元测试）
-- [ ] kicad-cdb：query.rs 未使用变量警告 (lo, hi, name)
+- [x] ~~kicad-cdb：hqapi 集成测试（需要网络，当前仅有单元测试）~~ — 已完成（下载测试 + 测试 DB 切换为正式 DB）
+- [x] ~~kicad-cdb：query.rs 未使用变量警告~~ — 变量已正确使用，警告不存在
+- [x] ~~kicad-symgen：独立 CLI，不依赖 workspace 其他 crate~~ — 已确认零 workspace 依赖
 - [ ] kicad-cdb：hqapi::ApiError 死代码警告
-- [ ] kicad-symgen：未与 workspace 其他 crate 建立依赖关系
+- [ ] kicad-cdb：pipeline.rs Context 未使用导入
 - [ ] 所有 crate：缺少 CI/CD 配置
 
 ---
@@ -362,7 +369,7 @@ Track A（自动管线）适合公式驱动的电源拓扑，Track B（对话驱
 - 可调参数（容值、阻值范围）
 - 接口声明（global label = 对外网络）
 
-**已验证模板（4 个）：**
+**已验证模板（8 个）：**
 
 | 模板 | 类型 | 元件数 | 验证实例 | 来源 |
 |------|------|--------|---------|------|
@@ -370,6 +377,10 @@ Track A（自动管线）适合公式驱动的电源拓扑，Track B（对话驱
 | EL7156 | 时钟驱动器 | 4 (IC+2C+1R) | 10 例 | ccd-clock.json5 |
 | AO3408-low-side-switch | MOSFET 开关 | 2 (MOS+R) | 2 例 | ccd-control.json5 |
 | NTC-divider | 温度采样 | 2 (NTC+R) | 1 例 | ccd-control.json5 |
+| FP6277 | Boost 控制器 | 4 (IC+L+2C) | 1 例 | ccd-power-full.json5 |
+| FP6276 | Boost 控制器 | 4 (IC+L+2C) | 1 例 | ccd-power-full.json5 |
+| ME2802 | Boost 控制器 | 4 (IC+L+2C) | 1 例 | ccd-power-full.json5 |
+| SY7208 | Boost 控制器 | 4 (IC+L+2C) | 1 例 | ccd-power-full.json5 |
 
 **待扩展模板：**
 
@@ -377,19 +388,17 @@ Track A（自动管线）适合公式驱动的电源拓扑，Track B（对话驱
 |----|------|---------|--------|---------|
 | 74HC04 | 六反相器 | 1 | 低 | ccd-control.json5 |
 | KAF-09001 | CCD 传感器 | 1 | 高 | ccd-sensor.json5 |
-| FP6277 | Buck 控制器 | 1 | 中 | ccd-power.json5 |
-| SY7208 | Boost 控制器 | 1 | 中 | ccd-power.json5 |
 
 ### 已完成的实施步骤
 
 1. ✅ **IC 核心模板数据结构** — `ic_template.rs`：IcCoreTemplate + 公式求解器 + 参数依赖解析
 2. ✅ **原理图生成** — `design.rs` 扩展 `generate_ic_schematic()`：IC + 外围元件 → .kicad_sch
 3. ✅ **CLI 集成** — `cdb ic-design --template <name> --params <k=v> --nets <k=v> -o <file>`
-
-### 待完成
-
-4. **华秋 API 联动** — 模板中 `ic.mpn` 自动拉取 pin 信息填充
-5. **模块组合验证** — 用 CCD 承载板验证 Skill 模块 + IC 模板组合输出完整原理图
+4. ✅ **华秋 API pin 获取** — `ic_template::fetch_pins_from_hqapi(mpn)` 从华秋自动提取 pin 列表
+5. ✅ **4 个 Boost IC 模板** — FP6277/FP6276/ME2802/SY7208，SOT-23-6 统一封装
+6. ✅ **全板组合验证** — ccd-power-full.json5（10 模块 / 4 Boost + 6 LDO / 20 全局网络）
+7. ✅ **Pipeline 链式调用** — pipeline.rs：buck/boost/ldo/led 四条 pipeline + DesignLog JSON
+8. ✅ **symgen 与 cdb 集成** — 三 crate 独立架构 + `cdb export --format spec` JSON5 桥接
 
 ### 不同设计的模块组合示例
 
