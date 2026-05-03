@@ -55,4 +55,4 @@ kicad-render schematic.kicad_sch -o output.svg
 
 ## License
 
-Apache 2.0
+MIT

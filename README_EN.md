@@ -55,4 +55,4 @@ See [kicad-render/README_EN.md](kicad-render/README_EN.md) | [中文](kicad-rend
 
 ## License
 
-Apache 2.0
+MIT
