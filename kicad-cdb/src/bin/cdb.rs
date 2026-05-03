@@ -204,6 +204,24 @@ enum Commands {
         json: bool,
     },
 
+    /// Run a design pipeline (chained rule execution with decision tracing)
+    Pipeline {
+        /// Pipeline name (buck, boost, ldo, led) or --list to show available
+        name: Option<String>,
+
+        /// List available pipelines
+        #[arg(long)]
+        list: bool,
+
+        /// Parameters as key=value pairs (comma-separated)
+        #[arg(long)]
+        params: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// List or manage design rules (Skills)
     Rules {
         /// Seed default rules into database
@@ -271,6 +289,9 @@ fn main() -> Result<()> {
         }
         Commands::TemplatePins { mpn, json } => {
             cmd_template_pins(&mpn, json)
+        }
+        Commands::Pipeline { name, list, params, json } => {
+            cmd_pipeline(&db, name.as_deref(), list, params.as_deref(), json)
         }
     }
 }
@@ -851,6 +872,88 @@ fn cmd_template_pins(mpn: &str, json: bool) -> Result<()> {
             println!("  Pin {}: {} ({})", pin.number, pin.name, pin.pin_type);
         }
     }
+
+    Ok(())
+}
+
+fn cmd_pipeline(
+    db: &ComponentDb,
+    name: Option<&str>,
+    list: bool,
+    params_str: Option<&str>,
+    json: bool,
+) -> Result<()> {
+    let pipelines = kicad_cdb::pipeline::builtin_pipelines();
+
+    if list || name.is_none() {
+        println!("Available design pipelines:\n");
+        for p in &pipelines {
+            println!("  {} — {}", p.name, p.description);
+            println!("    Required inputs: {}", p.user_inputs.join(", "));
+            println!("    Steps: {}", p.steps.iter().map(|s| s.rule_name.as_str()).collect::<Vec<_>>().join(" → "));
+            println!();
+        }
+        return Ok(());
+    }
+
+    let pipeline_name = name.unwrap();
+    let pipeline = kicad_cdb::pipeline::get_builtin_pipeline(pipeline_name)
+        .ok_or_else(|| anyhow::anyhow!("Unknown pipeline '{}'. Use --list to see available.", pipeline_name))?;
+
+    let mut user_params = std::collections::HashMap::new();
+    if let Some(params) = params_str {
+        for pair in params.split(',') {
+            let kv: Vec<&str> = pair.splitn(2, '=').collect();
+            if kv.len() == 2 {
+                let val: f64 = kv[1].parse().context(format!("Invalid number: {}", kv[1]))?;
+                user_params.insert(kv[0].trim().to_string(), val);
+            }
+        }
+    }
+
+    let log = kicad_cdb::pipeline::run_pipeline(db, &pipeline, &user_params)?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&log)?);
+        return Ok(());
+    }
+
+    println!("Pipeline: {} ({})", log.pipeline_name, pipeline.description);
+    print!("Inputs: ");
+    let input_strs: Vec<String> = log.user_inputs.iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect();
+    println!("{}", input_strs.join(", "));
+    println!();
+
+    for step in &log.steps {
+        if step.skipped {
+            println!("Step {}: {} — SKIPPED", step.seq, step.rule_name);
+            if let Some(reason) = &step.skip_reason {
+                println!("  Reason: {}", reason);
+            }
+        } else {
+            println!("Step {}: {}", step.seq, step.rule_name);
+            if !step.description.is_empty() {
+                println!("  {}", step.description);
+            }
+            if !step.formula.is_empty() {
+                println!("  Formula: {}", step.formula);
+            }
+            if !step.outputs.is_empty() {
+                for (name, val) in &step.outputs {
+                    println!("  {} = {:.6e}", name, val);
+                }
+            }
+            if !step.check_expr.is_empty() {
+                println!("  Check: {} => {}", step.check_expr, if step.passed { "PASS" } else { "FAIL" });
+            }
+        }
+        println!();
+    }
+
+    println!("Summary: {} passed, {} skipped, {} failed",
+        log.passed, log.skipped, log.failed);
 
     Ok(())
 }
