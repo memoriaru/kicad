@@ -156,17 +156,26 @@ kicad-json5/
 │   │   └── symbol.rs       # 库符号定义
 │   ├── codegen/            # 代码生成
 │   │   ├── json5_gen.rs    # IR → JSON5
-│   │   ├── sexpr_gen.rs    # IR → S-expression
+│   │   ├── sexpr_gen/      # IR → S-expression
+│   │   │   ├── mod.rs
+│   │   │   ├── auto.rs     # 自动 wire/label/PWR_FLAG 生成
+│   │   │   ├── element.rs  # 元件实例生成
+│   │   │   ├── graphic.rs  # 图形元素生成
+│   │   │   └── symbol.rs   # 库符号嵌入
 │   │   └── standard_symbols.rs  # 嵌入式标准符号
 │   ├── topology/           # 拓扑分析
+│   │   ├── extractor.rs    # 拓扑提取主逻辑
+│   │   ├── classify.rs     # 元件分类
+│   │   ├── connectivity.rs # 连通性分析
+│   │   ├── patterns.rs     # 电路模式识别
+│   │   ├── summary.rs      # 拓扑摘要
+│   │   └── types.rs        # 拓扑数据类型
 │   ├── lib.rs
 │   ├── main.rs             # CLI 入口
 │   └── error.rs
 ├── docs/                   # 设计文档
-│   ├── kicad-sch-design-notes.md
-│   ├── topology-evaluation.md
-│   └── ...
-└── tests/
+└── tests/                  # 集成测试
+    └── sch_roundtrip.rs    # 真实 .kicad_sch roundtrip 测试
 ```
 
 ## 依赖

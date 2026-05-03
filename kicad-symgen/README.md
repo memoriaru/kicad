@@ -9,7 +9,7 @@ KiCad 元件符号 (.kicad_sym) 和封装 (.kicad_mod) 生成器，为 AI 辅助
 ```bash
 cd kicad-symgen
 cargo build --release
-# binary: target/release/symgen
+# 二进制: target/release/symgen
 ```
 
 ## 用法
@@ -112,3 +112,7 @@ kicad-symgen/
 | [kicad-cdb](../kicad-cdb) | 元件数据库 (SQLite)，存储 MPN/pin/参数 |
 | **kicad-symgen** | 从 DB/JSON5 生成符号和封装文件 |
 | [kicad-json5](../kicad-json5) | .kicad_sch ↔ JSON5 双向编译 |
+
+## License
+
+MIT

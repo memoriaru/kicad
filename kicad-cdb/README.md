@@ -144,7 +144,7 @@ SQLite，主要表：
 ## 项目结构
 
 ```
-component-db/
+kicad-cdb/
 ├── src/
 │   ├── bin/cdb.rs       # CLI 入口
 │   ├── db.rs            # 数据库操作
@@ -152,10 +152,12 @@ component-db/
 │   ├── schema.rs        # 表结构定义
 │   ├── query.rs         # 查询引擎
 │   ├── rules.rs         # 设计规则引擎
-│   ├── import.rs        # JSON 导入
+│   ├── import.rs        # JSON 导入（单条/批量/upsert）
 │   └── lib.rs           # 库入口
 ├── Cargo.toml
-└── tests/
+└── tests/               # 集成测试
+    ├── schema_test.rs   # Schema 与 CRUD 测试
+    └── rules_test.rs    # 规则引擎测试
 ```
 
 ## 依赖
@@ -164,3 +166,7 @@ component-db/
 - `serde` / `serde_json` — 序列化
 - `clap` — CLI 参数解析
 - `anyhow` — 错误处理
+
+## License
+
+MIT
