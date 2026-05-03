@@ -121,6 +121,97 @@ enum Commands {
         #[arg(short, long, default_value = "20")]
         limit: usize,
     },
+
+    /// Generate a schematic from a topology template
+    Design {
+        /// Topology template name (ldo, buck, led)
+        #[arg(long)]
+        template: String,
+
+        /// Input voltage (V)
+        #[arg(long)]
+        vin: f64,
+
+        /// Output voltage (V)
+        #[arg(long)]
+        vout: f64,
+
+        /// Output current (A)
+        #[arg(long)]
+        iout: f64,
+
+        /// Output .kicad_sch file path
+        #[arg(short, long)]
+        output: String,
+    },
+
+    /// Suggest suitable power topology based on requirements
+    Suggest {
+        /// Input voltage (V)
+        #[arg(long)]
+        vin: f64,
+
+        /// Output voltage (V)
+        #[arg(long)]
+        vout: f64,
+
+        /// Output current (A)
+        #[arg(long)]
+        iout: f64,
+
+        /// Require galvanic isolation
+        #[arg(long, default_value = "false")]
+        isolated: bool,
+    },
+
+    /// Compose multiple modules into a single schematic
+    Compose {
+        /// Path to composition JSON file
+        #[arg(long)]
+        file: String,
+
+        /// Output .kicad_sch file path
+        #[arg(short, long)]
+        output: String,
+    },
+
+    /// Generate a schematic from an IC core template
+    IcDesign {
+        /// IC template name (e.g. RT9193-ADJ, EL7156)
+        #[arg(long)]
+        template: String,
+
+        /// Parameters as key=value pairs (comma-separated, e.g. "vout=3.3")
+        #[arg(long)]
+        params: String,
+
+        /// Net name overrides as key=value pairs (comma-separated, e.g. "VIN=+5V,GND=DGND")
+        #[arg(long)]
+        nets: Option<String>,
+
+        /// Output .kicad_sch file path
+        #[arg(short, long)]
+        output: String,
+    },
+
+    /// List or manage design rules (Skills)
+    Rules {
+        /// Seed default rules into database
+        #[arg(long)]
+        seed: bool,
+
+        /// Apply a rule with parameters
+        #[arg(long)]
+        apply: Option<String>,
+
+        /// Parameters as key=value pairs (comma-separated)
+        #[arg(long)]
+        params: Option<String>,
+
+        /// Candidate component value to check (name=value)
+        #[arg(long)]
+        candidate: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -150,8 +241,23 @@ fn main() -> Result<()> {
         Commands::Fetch { mpn, mfg_id } => {
             cmd_fetch(&db, &mpn, mfg_id.as_deref())
         }
+        Commands::Design { template, vin, vout, iout, output } => {
+            cmd_design(&db, &template, vin, vout, iout, &output)
+        }
+        Commands::Compose { file, output } => {
+            cmd_compose(&db, &file, &output)
+        }
+        Commands::IcDesign { template, params, nets, output } => {
+            cmd_ic_design(&db, &template, &params, nets.as_deref(), &output)
+        }
+        Commands::Suggest { vin, vout, iout, isolated } => {
+            cmd_suggest(vin, vout, iout, isolated)
+        }
         Commands::HqSearch { keyword, limit } => {
             cmd_hqsearch(&keyword, limit)
+        }
+        Commands::Rules { seed, apply, params, candidate } => {
+            cmd_rules(&db, seed, apply.as_deref(), params.as_deref(), candidate.as_deref())
         }
     }
 }
@@ -537,5 +643,172 @@ fn cmd_hqsearch(keyword: &str, limit: usize) -> Result<()> {
     }
 
     println!("\nUse: cdb --db <db> fetch --mpn <MPN> --mfg-id <ID>  to import");
+    Ok(())
+}
+
+fn cmd_rules(
+    db: &ComponentDb,
+    seed: bool,
+    apply: Option<&str>,
+    params: Option<&str>,
+    candidate: Option<&str>,
+) -> Result<()> {
+    if seed {
+        let count = db.seed_default_rules()?;
+        if count > 0 {
+            println!("Seeded {} new rules", count);
+        } else {
+            println!("All default rules already exist");
+        }
+        return Ok(());
+    }
+
+    if let Some(rule_name) = apply {
+        let rules = db.get_all_design_rules()?;
+        let rule = rules.iter().find(|r| r.name == rule_name)
+            .ok_or_else(|| anyhow::anyhow!("Rule '{}' not found. Use 'cdb rules --seed' first.", rule_name))?;
+
+        let mut inputs = serde_json::Map::new();
+        if let Some(params_str) = params {
+            for pair in params_str.split(',') {
+                let kv: Vec<&str> = pair.splitn(2, '=').collect();
+                if kv.len() == 2 {
+                    let val: f64 = kv[1].parse().context(format!("Invalid number: {}", kv[1]))?;
+                    inputs.insert(kv[0].trim().to_string(), serde_json::Value::from(val));
+                }
+            }
+        }
+
+        let (cand_name, cand_val) = match candidate {
+            Some(c) => {
+                let kv: Vec<&str> = c.splitn(2, '=').collect();
+                if kv.len() == 2 {
+                    (Some(kv[0].trim().to_string()), Some(kv[1].parse::<f64>()?))
+                } else {
+                    (None, None)
+                }
+            }
+            None => (None, None),
+        };
+
+        let result = db.apply_rule(rule, &serde_json::Value::Object(inputs), cand_name.as_deref(), cand_val)?;
+
+        println!("Rule: {}", rule.name);
+        if let Some(desc) = &rule.description { println!("  {}", desc); }
+        for (name, val) in &result.outputs {
+            println!("  {} = {:.6e}", name, val);
+        }
+        println!("Check: {} => {}", result.check_expression, if result.pass { "PASS" } else { "FAIL" });
+        return Ok(());
+    }
+
+    // Default: list all rules
+    let rules = db.get_all_design_rules()?;
+    if rules.is_empty() {
+        println!("No rules. Use 'cdb rules --seed' to add default rules.");
+        return Ok(());
+    }
+
+    println!("Design Rules ({}):\n", rules.len());
+    for r in &rules {
+        println!("  {}", r.name);
+        if let Some(desc) = &r.description {
+            println!("    {}", desc);
+        }
+        if let Some(formula) = &r.formula_expr {
+            println!("    Formula: {}", formula);
+        }
+        if let Some(check) = &r.check_expr {
+            println!("    Check:   {}", check);
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+fn cmd_design(db: &ComponentDb, template: &str, vin: f64, vout: f64, iout: f64, output: &str) -> Result<()> {
+    println!("Generating {} schematic: {}V -> {}V, {}A", template, vin, vout, iout);
+
+    let sch_text = kicad_cdb::design::generate_schematic(db, template, vin, vout, iout)?;
+
+    std::fs::write(output, &sch_text)?;
+    println!("Written to {}", output);
+    Ok(())
+}
+
+fn cmd_suggest(vin: f64, vout: f64, iout: f64, isolated: bool) -> Result<()> {
+    let candidates = kicad_cdb::skills::suggest_topologies(vin, vout, iout, isolated);
+
+    println!("Power topology suggestions for {}V -> {}V @ {}A{}\n",
+        vin, vout, iout, if isolated { " [isolated]" } else { "" });
+    println!("{:<15} {:>8} {:>8}  {}", "Topology", "Eff%", "Score", "Reason");
+    println!("{}", "-".repeat(80));
+
+    for c in &candidates {
+        println!("{:<15} {:>7.0}% {:>7.2}  {}",
+            c.topology,
+            c.estimated_efficiency * 100.0,
+            c.score,
+            c.reason);
+    }
+
+    if let Some(best) = candidates.first() {
+        println!("\nRecommended: {} (score {:.2})", best.topology, best.score);
+    }
+    Ok(())
+}
+
+fn cmd_compose(db: &ComponentDb, file: &str, output: &str) -> Result<()> {
+    let composition = kicad_cdb::composition::load_composition(
+        std::path::Path::new(file)
+    )?;
+
+    println!("Composing '{}' — {} modules", composition.name, composition.modules.len());
+    for m in &composition.modules {
+        println!("  {} [{}] ({})", m.id, m.template, m.template_type);
+    }
+
+    let sch_text = kicad_cdb::design::generate_composed_schematic(db, &composition)?;
+
+    std::fs::write(output, &sch_text)?;
+    println!("Written to {}", output);
+    Ok(())
+}
+
+fn cmd_ic_design(
+    db: &ComponentDb,
+    template: &str,
+    params_str: &str,
+    nets_str: Option<&str>,
+    output: &str,
+) -> Result<()> {
+    // Parse params
+    let mut user_params = std::collections::HashMap::new();
+    for pair in params_str.split(',') {
+        let kv: Vec<&str> = pair.splitn(2, '=').collect();
+        if kv.len() == 2 {
+            let val: f64 = kv[1].parse().context(format!("Invalid number: {}", kv[1]))?;
+            user_params.insert(kv[0].trim().to_string(), val);
+        }
+    }
+
+    // Parse net overrides
+    let mut net_map = std::collections::HashMap::new();
+    if let Some(nets) = nets_str {
+        for pair in nets.split(',') {
+            let kv: Vec<&str> = pair.splitn(2, '=').collect();
+            if kv.len() == 2 {
+                net_map.insert(kv[0].trim().to_string(), kv[1].trim().to_string());
+            }
+        }
+    }
+
+    println!("Generating {} IC circuit...", template);
+
+    let sch_text = kicad_cdb::design::generate_ic_schematic(db, template, &user_params, &net_map)?;
+
+    std::fs::write(output, &sch_text)?;
+    println!("Written to {}", output);
     Ok(())
 }
