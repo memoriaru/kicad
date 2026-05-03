@@ -100,6 +100,27 @@ enum Commands {
         #[arg(short, long)]
         output: String,
     },
+
+    /// Fetch component from HuaQiu EDA and import into database
+    Fetch {
+        /// Manufacturer Part Number to search
+        #[arg(long)]
+        mpn: String,
+
+        /// Manufacturer ID (optional, auto-detected from search)
+        #[arg(long)]
+        mfg_id: Option<String>,
+    },
+
+    /// Search HuaQiu online component library
+    HqSearch {
+        /// Search keyword (e.g. "STM32", "100nF 0805")
+        keyword: String,
+
+        /// Max results
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+    },
 }
 
 fn main() -> Result<()> {
@@ -125,6 +146,12 @@ fn main() -> Result<()> {
         }
         Commands::Export { mpn, category, output } => {
             cmd_export(&db, mpn.as_deref(), category.as_deref(), &output)
+        }
+        Commands::Fetch { mpn, mfg_id } => {
+            cmd_fetch(&db, &mpn, mfg_id.as_deref())
+        }
+        Commands::HqSearch { keyword, limit } => {
+            cmd_hqsearch(&keyword, limit)
         }
     }
 }
@@ -467,5 +494,48 @@ fn cmd_export(db: &ComponentDb, mpn: Option<&str>, category: Option<&str>, outpu
 
     std::fs::write(output, &out)?;
     println!("Exported {} components to {}", components.len(), output);
+    Ok(())
+}
+
+fn cmd_fetch(db: &ComponentDb, mpn: &str, mfg_id: Option<&str>) -> Result<()> {
+    println!("Fetching '{}' from HuaQiu EDA...", mpn);
+    let id = kicad_cdb::hqapi::fetch_and_import(db, mpn, mfg_id)?;
+
+    // Show what was imported
+    let comp = db.get_component(id)?.unwrap();
+    println!("\nImported: {} - {} (id={})", comp.mpn, comp.manufacturer, id);
+    if let Some(ref desc) = comp.description {
+        println!("  {}", desc);
+    }
+    if let Some(ref pkg) = comp.package {
+        println!("  Package: {}", pkg);
+    }
+
+    let pins = db.get_pins(id)?;
+    let params = db.get_parameters(id)?;
+    println!("  Pins: {} | Parameters: {}", pins.len(), params.len());
+
+    Ok(())
+}
+
+fn cmd_hqsearch(keyword: &str, limit: usize) -> Result<()> {
+    let client = kicad_cdb::hqapi::HqClient::new()?;
+    let results = client.search(keyword, limit)?;
+
+    if results.is_empty() {
+        println!("No results for '{}'", keyword);
+        return Ok(());
+    }
+
+    println!("Found {} results for '{}':\n", results.len(), keyword);
+    println!("{:<30} {:<20} {:<10} {}", "MPN", "Manufacturer", "Package", "Description");
+    println!("{}", "-".repeat(90));
+    for r in &results {
+        let desc = r.description.chars().take(40).collect::<String>();
+        println!("{:<30} {:<20} {:<10} {}",
+            r.mpn, r.manufacturer, r.package, desc);
+    }
+
+    println!("\nUse: cdb --db <db> fetch --mpn <MPN> --mfg-id <ID>  to import");
     Ok(())
 }

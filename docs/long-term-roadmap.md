@@ -8,7 +8,7 @@
 |------|------|--------|
 | kicad-json5 (原理图编译) | 可用 | 85% |
 | kicad-render (SVG 渲染) | 可用 | 75% |
-| kicad-cdb (元件数据库) | 框架就绪 | 40% |
+| kicad-cdb (元件数据库) | 华秋 API 集成完成 | 60% |
 | kicad-symgen (符号/封装生成) | 框架就绪 | 35% |
 | 设计规则 Skill 系统 | 原型 | 15% |
 | 拓扑选型与参数推导 | 基础分析 | 20% |
@@ -28,9 +28,16 @@
 - [x] 元件分类树（层级 category）
 - [x] 供应商信息存储（SKU/价格/库存/交期）
 
+### 已完成（续）
+
+- [x] **华秋 EDA API 集成**：搜索/详情/供应链三个端点，关键词搜索 + MPN 按需拉取
+- [x] **CLI fetch/hqsearch 命令**：`cdb fetch --mpn ...` 一键拉取参数+pin+符号到 SQLite
+- [x] **.kicad_sym 解析**：从华秋下载的符号文件中自动提取 pin number/name/type
+- [x] **参数结构化解析**：华秋 API `attrShortName` → 标准化参数名，数值+单位分离
+
 ### 未完成
 
-- [ ] **数据导入工具**：从 LCSC/DigiKey/Mouser API 或 CSV 批量导入元件数据
+- [ ] **数据批量导入**：CSV/Excel 批量导入元件数据
 - [ ] **Datasheet 解析**：从 PDF datasheet 自动提取参数填入 parameters 表
 - [ ] **Pin 功能映射**：MCU 等复杂 IC 的引脚复用功能结构化存储（alt_functions 当前为纯文本）
 - [ ] **KiCad 符号关联**：components.kicad_symbol / kicad_footprint 字段关联到实际 .kicad_sym 文件
@@ -119,6 +126,8 @@
 
 ### 断裂点 1：元件不可见 → 元件库
 
+- [x] **在线元件搜索**：`cdb hqsearch "74hc04"` → 华秋 API → 返回候选列表
+- [x] **按需拉取**：`cdb fetch --mpn MCP6444T-E/ST --mfg-id 4901` → 参数+pin+符号一键入库
 - [ ] **AI 查询接口**：让 Claude/LLM 通过自然语言查询元件库
   - 示例：`"找一个 100mA LDO，输入 5V 输出 3.3V"` → SQL 查询 → 返回候选列表
 - [ ] **元件推荐**：根据设计规则自动推荐满足约束的元件
@@ -170,11 +179,12 @@
 
 | 优先级 | 任务 | 理由 |
 |--------|------|------|
-| **P0** | 元件数据导入工具 + 常用元件库填充 | 地基：没有数据，上层无法工作 |
+| **P0** | ~~元件数据导入工具~~ → ✅ 华秋 API 集成完成 | 地基已打通：搜索+拉取+pin 提取 |
 | **P0** | AI 查询接口（自然语言 → SQL） | 让 AI 真正"看见"元件 |
 | **P1** | 内置 Skill 库（电源域 5 条核心规则） | 最常见的设计场景，验证规则引擎可用性 |
 | **P1** | 拓扑模板库（Buck/LDO/LED 3 个模板） | 验证"需求 → 拓扑 → 参数"链路 |
 | **P1** | 端到端演示：`5V→3.3V LDO` 全流程 | 从需求到出图的最小闭环 |
+| **P1** | 常用元件库填充（20-50 颗核心 IC） | 用 fetch 批量拉取，让数据库真正可用 |
 | **P2** | kicad-symgen 与 cdb 集成 | 消除手动创建符号的瓶颈 |
 | **P2** | 封装模板补全（QFP/QFN/BGA） | 覆盖更多常见封装 |
 | **P2** | 设计决策追溯系统 | 提升设计可审计性 |
@@ -193,6 +203,7 @@
 - [x] ~~kicad-cdb：`unwrap()` 裸用~~ — 已替换为 `expect()`/`context()`
 - [x] ~~kicad-symgen：magic number~~ — 已提取为模块级常量
 - [x] ~~所有 crate：裸 `unwrap()` 替换为 `expect()`/`context()`~~ — 生产代码已清理
+- [ ] kicad-cdb：hqapi 集成测试（需要网络，当前仅有单元测试）
 - [ ] kicad-cdb：测试覆盖仍不够完善（规则引擎和查询 API）
 - [ ] kicad-symgen：未与 workspace 其他 crate 建立依赖关系
 - [ ] 所有 crate：缺少 CI/CD 配置
