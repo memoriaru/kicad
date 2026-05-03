@@ -94,6 +94,57 @@ pub fn load_template(path: &Path) -> Result<IcCoreTemplate> {
     Ok(template)
 }
 
+/// Fetch pin list from HuaQiu EDA API by MPN.
+/// Searches for the component, downloads its KiCad symbol, and extracts pin info.
+pub fn fetch_pins_from_hqapi(mpn: &str) -> Result<Vec<IcPin>> {
+    let client = crate::hqapi::HqClient::new()?;
+
+    // Search to find manufacturer_id
+    let results = client.search(mpn, 5)?;
+    if results.is_empty() {
+        anyhow::bail!("No results found for '{}'", mpn);
+    }
+    let first = &results[0];
+
+    // Get product detail
+    let detail = client.product_detail(&first.manufacturer_id, &first.mpn)?;
+
+    // Download symbol and extract pins
+    let extracted = if let Some(sym_url) = detail.cad_urls.iter().find(|c| c.url_type == "symbol") {
+        match client.download_text(&sym_url.url) {
+            Ok(sym_text) => crate::hqapi::sym_parser::extract_pins(&sym_text),
+            Err(e) => {
+                eprintln!("Warning: could not download symbol: {}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Convert ExtractedPin → IcPin, mapping KiCad type codes to human-readable names
+    const TYPE_MAP: &[(&str, &str)] = &[
+        ("I", "input"), ("O", "output"), ("B", "bidirectional"),
+        ("W", "power_in"), ("w", "power_out"), ("P", "passive"),
+        ("U", "unspecified"), ("C", "open_collector"), ("E", "open_emitter"),
+        ("T", "tri_state"), ("N", "no_connect"),
+    ];
+
+    let pins: Vec<IcPin> = extracted.into_iter().map(|p| {
+        let pin_type = TYPE_MAP.iter()
+            .find(|(code, _)| *code == p.pin_type)
+            .map(|(_, name)| name.to_string())
+            .unwrap_or_else(|| p.pin_type.clone());
+        IcPin {
+            number: p.number,
+            name: p.name,
+            pin_type,
+        }
+    }).collect();
+
+    Ok(pins)
+}
+
 /// Load built-in IC template by name
 pub fn load_builtin_template(name: &str) -> Result<IcCoreTemplate> {
     let json_content = match name {
@@ -101,8 +152,12 @@ pub fn load_builtin_template(name: &str) -> Result<IcCoreTemplate> {
         "EL7156" => include_str!("../ic-templates/EL7156.json"),
         "AO3408-low-side-switch" => include_str!("../ic-templates/AO3408-low-side-switch.json"),
         "NTC-divider" => include_str!("../ic-templates/NTC-divider.json"),
+        "FP6277" => include_str!("../ic-templates/FP6277.json"),
+        "FP6276" => include_str!("../ic-templates/FP6276.json"),
+        "ME2802" => include_str!("../ic-templates/ME2802.json"),
+        "SY7208" => include_str!("../ic-templates/SY7208.json"),
         _ => anyhow::bail!(
-            "Unknown IC template: {}. Available: RT9193-ADJ, EL7156, AO3408-low-side-switch, NTC-divider",
+            "Unknown IC template: {}. Available: RT9193-ADJ, EL7156, AO3408-low-side-switch, NTC-divider, FP6277, FP6276, ME2802, SY7208",
             name
         ),
     };
@@ -337,5 +392,27 @@ mod tests {
         assert!((eval_arithmetic("2 * 3 + 1", &vars).unwrap() - 7.0).abs() < 0.001);
         assert!((eval_arithmetic("(2 + 3) * 4", &vars).unwrap() - 20.0).abs() < 0.001);
         assert!((eval_arithmetic("10 / 3", &vars).unwrap() - 3.333).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_fp6277_load() {
+        let t = load_builtin_template("FP6277").unwrap();
+        assert_eq!(t.ic.pins.len(), 6);
+        assert_eq!(t.ic.pins[0].name, "EN");
+        assert_eq!(t.ic.pins[2].name, "SW");
+        assert_eq!(t.ic.pins[5].name, "VIN");
+        assert_eq!(t.peripherals.len(), 3); // l_in, c_in, c_out
+        assert_eq!(t.interface.len(), 4); // VIN, GND, VOUT, EN
+    }
+
+    #[test]
+    fn test_sy7208_load() {
+        let t = load_builtin_template("SY7208").unwrap();
+        assert_eq!(t.ic.pins.len(), 6);
+        assert_eq!(t.ic.mpn, "SY7208");
+        assert_eq!(t.peripherals.len(), 3);
+        // Verify fixed param
+        let params = resolve_params(&t, &HashMap::new()).unwrap();
+        assert!((params["l_value"] - 4.7e-6).abs() < 1e-10);
     }
 }

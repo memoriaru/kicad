@@ -194,6 +194,16 @@ enum Commands {
         output: String,
     },
 
+    /// Fetch pin list from HuaQiu API for an MPN (for building IC templates)
+    TemplatePins {
+        /// Manufacturer Part Number to search
+        mpn: String,
+
+        /// Output as JSON fragment (for pasting into template)
+        #[arg(long)]
+        json: bool,
+    },
+
     /// List or manage design rules (Skills)
     Rules {
         /// Seed default rules into database
@@ -258,6 +268,9 @@ fn main() -> Result<()> {
         }
         Commands::Rules { seed, apply, params, candidate } => {
             cmd_rules(&db, seed, apply.as_deref(), params.as_deref(), candidate.as_deref())
+        }
+        Commands::TemplatePins { mpn, json } => {
+            cmd_template_pins(&mpn, json)
         }
     }
 }
@@ -810,5 +823,34 @@ fn cmd_ic_design(
 
     std::fs::write(output, &sch_text)?;
     println!("Written to {}", output);
+    Ok(())
+}
+
+fn cmd_template_pins(mpn: &str, json: bool) -> Result<()> {
+    println!("Fetching pins for '{}' from HuaQiu API...", mpn);
+    let pins = kicad_cdb::ic_template::fetch_pins_from_hqapi(mpn)?;
+
+    if pins.is_empty() {
+        println!("No pins found. The component may not have a symbol available on HuaQiu.");
+        return Ok(());
+    }
+
+    if json {
+        println!("\"pins\": [");
+        for (i, pin) in pins.iter().enumerate() {
+            let comma = if i + 1 < pins.len() { "," } else { "" };
+            println!(
+                "  {{ \"number\": \"{}\", \"name\": \"{}\", \"type\": \"{}\" }}{}",
+                pin.number, pin.name, pin.pin_type, comma
+            );
+        }
+        println!("]");
+    } else {
+        println!("Found {} pins:", pins.len());
+        for pin in &pins {
+            println!("  Pin {}: {} ({})", pin.number, pin.name, pin.pin_type);
+        }
+    }
+
     Ok(())
 }

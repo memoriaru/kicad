@@ -1,0 +1,66 @@
+{
+  "name": "FP6277",
+  "description": "FP6277 同步升压 DC-DC 转换器 (SOT-23-6)，固定 15V 输出",
+  "ic": {
+    "mpn": "FP6277",
+    "manufacturer": "Feeling Technology",
+    "package": "SOT-23-6",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-6",
+    "pins": [
+      { "number": "1", "name": "EN",   "type": "input" },
+      { "number": "2", "name": "GND",  "type": "power_in" },
+      { "number": "3", "name": "SW",   "type": "output" },
+      { "number": "4", "name": "NC",   "type": "no_connect" },
+      { "number": "5", "name": "VOUT", "type": "power_out" },
+      { "number": "6", "name": "VIN",  "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "l_in",
+      "lib": "Device:L",
+      "value": "computed",
+      "footprint": "Inductor_SMD:L_0805_2012Metric",
+      "pins": { "1": "VIN", "2": "SW" },
+      "description": "功率电感 (VIN → SW)"
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "22uF/25V",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VIN", "2": "GND" },
+      "description": "输入旁路电容"
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "22uF/16V",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VOUT", "2": "GND" },
+      "description": "输出电容"
+    }
+  ],
+  "params": {
+    "l_value": { "value": 10e-6, "unit": "H", "description": "电感量 (默认 10µH)" }
+  },
+  "interface": {
+    "VIN":  { "direction": "input",  "type": "power" },
+    "GND":  { "direction": "input",  "type": "power" },
+    "VOUT": { "direction": "output", "type": "power" },
+    "EN":   { "direction": "input",  "type": "signal" }
+  },
+  "constraints": {
+    "vin_min": "vin >= 2.0",
+    "vin_max": "vin <= 5.5"
+  },
+  "layout": {
+    "ic":    { "x": 40,  "y": 0 },
+    "l_in":  { "x": 20,  "y": 0 },
+    "c_in":  { "x": 10,  "y": 10 },
+    "c_out": { "x": 60,  "y": 10 }
+  },
+  "verified_instances": [
+    { "ref": "U1", "vin": 7.4, "vout": 15.0, "l_value": "10µH", "source": "ccd-power.json5" }
+  ]
+}

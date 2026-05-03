@@ -1,0 +1,158 @@
+{
+  "name": "CCD Carrier Board - Power (Full)",
+  "description": "完整 CCD 电源板：4 路 Boost (FP6277/FP6276/ME2802/SY7208) + 6 路 LDO (RT9193-ADJ)",
+  "global_nets": [
+    { "name": "VBAT_7V4", "type": "power" },
+    { "name": "PGND",     "type": "power" },
+    { "name": "AGND",     "type": "power" },
+    { "name": "DGND",     "type": "power" },
+    { "name": "+15V",     "type": "power" },
+    { "name": "+13V",     "type": "power" },
+    { "name": "+12V",     "type": "power" },
+    { "name": "+9V",      "type": "power" },
+    { "name": "+4V",      "type": "power" },
+    { "name": "+3V",      "type": "power" },
+    { "name": "+2V",      "type": "power" },
+    { "name": "-9V",      "type": "power" },
+    { "name": "-6V",      "type": "power" },
+    { "name": "CCD_PWR_EN", "type": "signal" },
+    { "name": "SEQ_U1_EN",  "type": "signal" },
+    { "name": "SEQ_U3_EN",  "type": "signal" },
+    { "name": "SEQ_U4_EN",  "type": "signal" },
+    { "name": "SEQ_U5_EN",  "type": "signal" },
+    { "name": "SEQ_U6_EN",  "type": "signal" },
+    { "name": "SEQ_U9_EN",  "type": "signal" }
+  ],
+  "modules": [
+    {
+      "id": "u1_15v",
+      "template": "FP6277",
+      "template_type": "ic-core",
+      "params": {},
+      "nets": {
+        "VIN": "VBAT_7V4",
+        "GND": "PGND",
+        "VOUT": "+15V",
+        "EN": "SEQ_U1_EN"
+      },
+      "y_offset": 0
+    },
+    {
+      "id": "u2_n9v",
+      "template": "FP6276",
+      "template_type": "ic-core",
+      "params": {},
+      "nets": {
+        "VIN": "VBAT_7V4",
+        "GND": "PGND",
+        "VOUT": "-9V",
+        "EN": "CCD_PWR_EN"
+      },
+      "y_offset": 40
+    },
+    {
+      "id": "u3_n4v",
+      "template": "ME2802",
+      "template_type": "ic-core",
+      "params": {},
+      "nets": {
+        "VIN": "VBAT_7V4",
+        "GND": "PGND",
+        "VOUT": "-4V",
+        "EN": "SEQ_U3_EN"
+      },
+      "y_offset": 80
+    },
+    {
+      "id": "u4_12v",
+      "template": "SY7208",
+      "template_type": "ic-core",
+      "params": {},
+      "nets": {
+        "VIN": "VBAT_7V4",
+        "GND": "PGND",
+        "VOUT": "+12V",
+        "EN": "SEQ_U4_EN"
+      },
+      "y_offset": 120
+    },
+    {
+      "id": "u5_13v",
+      "template": "RT9193-ADJ",
+      "template_type": "ic-core",
+      "params": { "vout": 13.0 },
+      "nets": {
+        "VIN": "+15V",
+        "GND": "AGND",
+        "VOUT": "+13V",
+        "EN": "SEQ_U5_EN"
+      },
+      "y_offset": 180
+    },
+    {
+      "id": "u6_9v",
+      "template": "RT9193-ADJ",
+      "template_type": "ic-core",
+      "params": { "vout": 9.0 },
+      "nets": {
+        "VIN": "+12V",
+        "GND": "AGND",
+        "VOUT": "+9V",
+        "EN": "SEQ_U6_EN"
+      },
+      "y_offset": 220
+    },
+    {
+      "id": "u7_4v",
+      "template": "RT9193-ADJ",
+      "template_type": "ic-core",
+      "params": { "vout": 4.0 },
+      "nets": {
+        "VIN": "+9V",
+        "GND": "DGND",
+        "VOUT": "+4V",
+        "EN": "+9V"
+      },
+      "y_offset": 260
+    },
+    {
+      "id": "u8_3v",
+      "template": "RT9193-ADJ",
+      "template_type": "ic-core",
+      "params": { "vout": 3.0 },
+      "nets": {
+        "VIN": "+4V",
+        "GND": "DGND",
+        "VOUT": "+3V",
+        "EN": "+4V"
+      },
+      "y_offset": 300
+    },
+    {
+      "id": "u9_2v",
+      "template": "RT9193-ADJ",
+      "template_type": "ic-core",
+      "params": { "vout": 2.0 },
+      "nets": {
+        "VIN": "+3V",
+        "GND": "AGND",
+        "VOUT": "+2V",
+        "EN": "SEQ_U9_EN"
+      },
+      "y_offset": 340
+    },
+    {
+      "id": "u21_n6v",
+      "template": "RT9193-ADJ",
+      "template_type": "ic-core",
+      "params": { "vout": 6.0 },
+      "nets": {
+        "VIN": "-9V",
+        "GND": "DGND",
+        "VOUT": "-6V",
+        "EN": "-9V"
+      },
+      "y_offset": 380
+    }
+  ]
+}
