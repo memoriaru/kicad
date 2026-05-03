@@ -108,3 +108,48 @@ pub fn compute_dip_outlines(
 
     (lines, Some(arc))
 }
+
+/// Compute 4 outline lines forming a rectangle centered at origin
+pub fn rect_lines(hw: f64, hh: f64, layer: OutlineLayer, width: f64) -> Vec<OutlineLine> {
+    vec![
+        OutlineLine { x1: -hw, y1: -hh, x2: hw, y2: -hh, layer, width },
+        OutlineLine { x1: hw, y1: -hh, x2: hw, y2: hh, layer, width },
+        OutlineLine { x1: hw, y1: hh, x2: -hw, y2: hh, layer, width },
+        OutlineLine { x1: -hw, y1: hh, x2: -hw, y2: -hh, layer, width },
+    ]
+}
+
+/// Compute outlines for SMD packages (SOIC/TSSOP/SOP/MSOP/QFP/QFN)
+/// Body centered at origin, width × height
+pub fn compute_smd_outlines(
+    body_w: f64,
+    body_h: f64,
+    courtyard_margin: f64,
+) -> (Vec<OutlineLine>, Option<OutlineArc>) {
+    let mut lines = Vec::new();
+    let hw = body_w / 2.0;
+    let hh = body_h / 2.0;
+
+    lines.extend(rect_lines(hw, hh, OutlineLayer::Fab, FAB_LINE_WIDTH));
+
+    let shw = hw + SILK_MARGIN;
+    let shh = hh + SILK_MARGIN;
+    lines.extend(rect_lines(shw, shh, OutlineLayer::SilkS, SILK_LINE_WIDTH));
+
+    let chw = shw + courtyard_margin;
+    let chh = shh + courtyard_margin;
+    lines.extend(rect_lines(chw, chh, OutlineLayer::CrtYd, CRTYD_LINE_WIDTH));
+
+    let arc = OutlineArc {
+        x: -hw + 0.5,
+        y: -hh,
+        mid_x: -hw + 0.25,
+        mid_y: -hh + 0.43,
+        end_x: -hw,
+        end_y: -hh,
+        layer: OutlineLayer::Fab,
+        width: FAB_LINE_WIDTH,
+    };
+
+    (lines, Some(arc))
+}

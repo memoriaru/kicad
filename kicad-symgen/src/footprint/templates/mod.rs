@@ -1,6 +1,9 @@
 pub mod dip;
 pub mod soic;
 pub mod sot;
+pub mod qfp;
+pub mod qfn;
+pub mod bga;
 
 use crate::model::{FootprintSpec, PackageType};
 use crate::footprint::pad::Pad;
@@ -26,6 +29,15 @@ pub fn generate_from_spec(spec: &FootprintSpec) -> Option<TemplateResult> {
         PackageType::Sot23 | PackageType::Sot223 | PackageType::Sot89
         | PackageType::Sot353 | PackageType::Sot363 => {
             sot::generate_sot(spec)
+        }
+        PackageType::Qfp | PackageType::Lqfp | PackageType::Tqfp => {
+            qfp::generate_qfp(spec)
+        }
+        PackageType::Qfn | PackageType::Dfn => {
+            qfn::generate_qfn(spec)
+        }
+        PackageType::Bga => {
+            bga::generate_bga(spec)
         }
         _ => None,
     }

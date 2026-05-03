@@ -125,7 +125,14 @@ fn cmd_footprint(
     let (lines, arc) = if result.is_through_hole {
         outline::compute_dip_outlines(pin_count, spec.pitch, row_spacing.unwrap_or(7.62), 0.5)
     } else {
-        (vec![], None)
+        // Compute SMD outlines from pad bounding box
+        let x_min = result.pads.iter().map(|p| p.x - p.width / 2.0).fold(f64::INFINITY, f64::min);
+        let x_max = result.pads.iter().map(|p| p.x + p.width / 2.0).fold(f64::NEG_INFINITY, f64::max);
+        let y_min = result.pads.iter().map(|p| p.y - p.height / 2.0).fold(f64::INFINITY, f64::min);
+        let y_max = result.pads.iter().map(|p| p.y + p.height / 2.0).fold(f64::NEG_INFINITY, f64::max);
+        let body_w = x_max - x_min;
+        let body_h = y_max - y_min;
+        outline::compute_smd_outlines(body_w, body_h, spec.options.courtyard_margin)
     };
 
     let content = fp_sexpr::generate_footprint(
