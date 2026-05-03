@@ -231,6 +231,19 @@ impl PinPainter {
         screen_dy.abs() > screen_dx.abs()
     }
 
+    /// Correct Y-flip for vertical pin labels: flip offset_y and swap text-anchor
+    /// so the text extends INTO the body instead of away from it.
+    fn correct_vertical_anchor(offset_y: &mut f64, text_anchor: &mut &'static str, is_vertical: bool) {
+        if is_vertical {
+            *offset_y = -*offset_y;
+            *text_anchor = match *text_anchor {
+                "start" => "end",
+                "end" => "start",
+                other => other,
+            };
+        }
+    }
+
     /// Paint the pin body and shape decorations.
     ///
     /// Matches JS `PinShapeInternals.draw()` exactly.
@@ -238,7 +251,8 @@ impl PinPainter {
     /// `p0` = body-proximal end (inner end).
     /// Rust `end_position()` = position + direction * length = p0 (body end).
     fn paint_pin_body_and_shape(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(LayerId::SymbolPin).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolPin)
+            .expect("SymbolPin layer missing from LayerSet");
         let position = self.pin.position;
         let p0 = self.pin.end_position();
         let dir = self.pin.orientation().direction();
@@ -358,7 +372,8 @@ impl PinPainter {
             return;
         }
 
-        let layer = layers.get_layer_mut(LayerId::SymbolPin).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolPin)
+            .expect("SymbolPin layer missing from LayerSet");
 
         let font_size = constants::PINNAME_SIZE;
         let pin_length = self.pin.length;
@@ -372,21 +387,11 @@ impl PinPainter {
             orient_pin_label(ox, 0.0, orientation, "left", "center")
         } else {
             let ox = pin_length / 2.0;
-            let oy = -(text_margin + thickness / 2.0 + thickness / 2.0);
+            let oy = -(text_margin + thickness);
             orient_pin_label(ox, oy, orientation, "center", "bottom")
         };
 
-        // JS renders inside an SVG <g> with Y-flip. Without the group, we must
-        // correct vertical pin labels: flip offset_y for position, and swap
-        // text-anchor so the text extends INTO the body instead of away from it.
-        if self.is_screen_vertical() {
-            offset_y = -offset_y;
-            text_anchor = match text_anchor {
-                "start" => "end",
-                "end" => "start",
-                other => other,
-            };
-        }
+        Self::correct_vertical_anchor(&mut offset_y, &mut text_anchor, self.is_screen_vertical());
 
         let text_pos = self.transform.transform(&Point::new(
             self.pin.position.x + offset_x,
@@ -411,7 +416,8 @@ impl PinPainter {
             return;
         }
 
-        let layer = layers.get_layer_mut(LayerId::SymbolPin).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolPin)
+            .expect("SymbolPin layer missing from LayerSet");
 
         let font_size = constants::PINNUM_SIZE;
         let pin_length = self.pin.length;
@@ -422,23 +428,15 @@ impl PinPainter {
 
         let (offset_x, mut offset_y, rotation, mut text_anchor, dominant_baseline) = if pin_name_offset > 0.0 {
             let ox = pin_length / 2.0;
-            let oy = -(text_margin + thickness / 2.0 + thickness / 2.0);
+            let oy = -(text_margin + thickness);
             orient_pin_label(ox, oy, orientation, "center", "bottom")
         } else {
             let ox = pin_length / 2.0;
-            let oy = text_margin + thickness / 2.0 + thickness / 2.0;
+            let oy = text_margin + thickness;
             orient_pin_label(ox, oy, orientation, "center", "top")
         };
 
-        // Y-flip correction for vertical pins (same as paint_pin_name)
-        if self.is_screen_vertical() {
-            offset_y = -offset_y;
-            text_anchor = match text_anchor {
-                "start" => "end",
-                "end" => "start",
-                other => other,
-            };
-        }
+        Self::correct_vertical_anchor(&mut offset_y, &mut text_anchor, self.is_screen_vertical());
 
         let text_pos = self.transform.transform(&Point::new(
             self.pin.position.x + offset_x,

@@ -50,7 +50,7 @@ impl SheetPainter {
     }
 
     fn paint_box(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(LayerId::SheetBackground).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SheetBackground).expect("SheetBackground layer missing from LayerSet");
         let (x, y) = (self.sheet.position.x, self.sheet.position.y);
         let (w, h) = self.sheet.size;
 
@@ -64,7 +64,7 @@ impl SheetPainter {
     }
 
     fn paint_properties(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(LayerId::SheetBackground).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SheetBackground).expect("SheetBackground layer missing from LayerSet");
         let color = Color::black();
 
         if !self.sheet.sheet_name.value.is_empty() {
@@ -95,7 +95,7 @@ impl SheetPainter {
     }
 
     fn paint_pins(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(LayerId::SheetPin).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SheetPin).expect("SheetPin layer missing from LayerSet");
         let pin_stroke = Stroke::new(constants::LINE_WIDTH, constants::wire_color());
 
         for pin in &self.sheet.pins {

@@ -79,7 +79,7 @@ impl WirePainter {
 
     /// Paint a single wire segment
     fn paint_segment(&self, layers: &mut LayerSet, segment: &WireSegment) {
-        let layer = layers.get_layer_mut(LayerId::Wire).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Wire).expect("Wire layer missing from LayerSet");
 
         let stroke = Stroke::new(self.width, self.color);
 

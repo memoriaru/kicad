@@ -25,6 +25,9 @@ pub enum LayerId {
     Interactive,
 }
 
+/// Number of built-in layers in a default LayerSet
+const LAYER_COUNT: usize = 13;
+
 impl LayerId {
     /// Z-index for rendering order (higher = rendered on top)
     pub fn z_index(self) -> i32 {
@@ -196,7 +199,7 @@ impl LayerSet {
 
 impl Default for LayerSet {
     fn default() -> Self {
-        let mut set = Self { layers: Vec::with_capacity(13) };
+        let mut set = Self { layers: Vec::with_capacity(LAYER_COUNT) };
         set.add_layer(LayerId::Grid);
         set.add_layer(LayerId::DrawingSheet);
         set.add_layer(LayerId::Notes);
