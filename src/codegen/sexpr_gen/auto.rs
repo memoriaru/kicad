@@ -7,8 +7,6 @@ struct PinInfo {
     x: f64,
     y: f64,
     rotation: f64,
-    #[allow(dead_code)]
-    net_id: u32,
 }
 
 /// Maximum Manhattan distance for wire routing (50mm ≈ 2 inches)
@@ -16,12 +14,6 @@ const MAX_WIRE_MANHATTAN: f64 = 50.0;
 
 /// Tolerance for considering two coordinates equal
 const COORD_TOL: f64 = 0.5;
-
-/// Snap value to 1.27mm grid
-#[allow(dead_code)]
-fn snap_to_grid(v: f64) -> f64 {
-    (v / 1.27).round() * 1.27
-}
 
 /// Manhattan distance between two points
 fn manhattan_distance(p1: (f64, f64), p2: (f64, f64)) -> f64 {
@@ -183,7 +175,7 @@ impl SexprGenerator {
         }
     }
 
-    pub(super) fn compute_label_rotation(lx: f64, _ly: f64, _crot: f64) -> f64 {
+    pub(super) fn compute_label_rotation(lx: f64) -> f64 {
         if lx.abs() > 0.1 {
             // Side pin (left/right): flag extends away from body
             if lx < 0.0 { 180.0 } else { 0.0 }
@@ -218,12 +210,12 @@ impl SexprGenerator {
                     let wy = cy + ry;
 
                     if pin.nc {
-                        let rot = Self::compute_label_rotation(lx, -ly, crot);
+                        let rot = Self::compute_label_rotation(lx);
                         no_connect_positions.push((wx, wy, rot, 0));
                     } else if let Some(net_id) = pin.net_id {
-                        let rot = Self::compute_label_rotation(lx, -ly, crot);
+                        let rot = Self::compute_label_rotation(lx);
                         pins_by_net.entry(net_id).or_default().push(PinInfo {
-                            x: wx, y: wy, rotation: rot, net_id,
+                            x: wx, y: wy, rotation: rot,
                         });
                     }
                 }
@@ -275,7 +267,6 @@ impl SexprGenerator {
                 x: label.position.0,
                 y: label.position.1,
                 rotation: label.position.2,
-                net_id,
             });
         }
 
@@ -304,7 +295,7 @@ impl SexprGenerator {
         sorted_net_ids.sort();
 
         for net_id in &sorted_net_ids {
-            let pins = pins_by_net.get(net_id).unwrap();
+            let pins = pins_by_net.get(net_id).expect("net_id from keys() must exist in map");
             let render = net_renders.get(net_id).copied().unwrap_or_default();
             let net_name = net_names.get(net_id).copied().unwrap_or("?");
 
