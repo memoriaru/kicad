@@ -8,10 +8,10 @@
 |------|------|--------|
 | kicad-json5 (原理图编译) | 可用 | 85% |
 | kicad-render (SVG 渲染) | 可用 | 75% |
-| kicad-cdb (元件数据库) | 华秋 API 集成完成 | 60% |
+| kicad-cdb (元件数据库) | 华秋 API 集成完成 | 75% |
 | kicad-symgen (符号/封装生成) | 框架就绪 | 35% |
-| 设计规则 Skill 系统 | 原型 | 15% |
-| 拓扑选型与参数推导 | 基础分析 | 20% |
+| 设计规则 Skill 系统 | 电源域完整框架 | 60% |
+| 拓扑选型与参数推导 | 9 拓扑 + 选型引擎 | 55% |
 
 ---
 
@@ -27,9 +27,6 @@
 - [x] 全文搜索（描述/元数据）
 - [x] 元件分类树（层级 category）
 - [x] 供应商信息存储（SKU/价格/库存/交期）
-
-### 已完成（续）
-
 - [x] **华秋 EDA API 集成**：搜索/详情/供应链三个端点，关键词搜索 + MPN 按需拉取
 - [x] **CLI fetch/hqsearch 命令**：`cdb fetch --mpn ...` 一键拉取参数+pin+符号到 SQLite
 - [x] **.kicad_sym 解析**：从华秋下载的符号文件中自动提取 pin number/name/type
@@ -58,20 +55,25 @@
 - [x] 公式求值（`l_min = (vout * (1 - vout / vin)) / (fsw * 0.3 * iout)`）
 - [x] 约束检查（`L_value >= l_min * 0.8`）
 - [x] ComponentDb.apply_rule() 接口
+- [x] **多赋值公式支持**：分号分隔的多步计算（`duty = 1 - vin/vout; c_out_min = iout * duty / (fsw * ripple_v)`）
+- [x] **condition_expr 门控**：规则前置条件求值，不满足时跳过
+- [x] **内置 Skill 库（46 条规则）**：
+  - 电源域：Buck (5) / Boost (6) / Buck-Boost (3) / Inverting (4) / SEPIC (5) / Charge Pump (3) / Flyback (7) / LDO (4)
+  - 共享辅助：电容纹波/电压裕量、电感饱和/降额、热功耗/结温、效率检查 (6)
+  - LED：限流电阻 (1)
+  - 热设计：功耗计算、结温估算 (2)
+- [x] **CLI rules 命令**：`cdb rules --seed` / `cdb rules` / `cdb rules --apply <rule> --params ... --candidate ...`
 
 ### 未完成
 
-- [ ] **内置 Skill 库**：按功能域组织的设计规则集合
-  - [ ] 电源域：Buck/Boost/LDO 选型与外围计算
-  - [ ] 信号完整性：阻抗匹配、走线长度约束
-  - [ ] EMC：去耦电容数量/位置规则、滤波器截止频率
-  - [ ] 热设计：功耗、热阻、温升计算
-  - [ ] 时序：建立/保持时间裕量
-- [ ] **Skill 输入/输出契约**：每个 Skill 声明需要哪些输入参数、输出哪些计算结果
+- [ ] **Skill 输入/输出契约**：每个 Skill 声明需要哪些输入参数、输出哪些计算结果（当前 parameters/output_params 字段已有但未被 CLI 严格校验）
 - [ ] **Skill 链式调用**：一个 Skill 的输出自动成为下一个 Skill 的输入（如 Buck 电感选型 → 电感饱和电流检查）
 - [ ] **条件分支**：根据输入条件选择不同设计路径（如 `if iout > 2A then use Buck else use LDO`）
 - [ ] **多方案比较**：同一需求生成多个候选方案并排序
 - [ ] **设计决策追溯**：记录每步计算的输入参数、公式、结果和约束检查
+- [ ] **信号完整性 Skill**：阻抗匹配、走线长度约束
+- [ ] **EMC Skill**：去耦电容数量/位置规则、滤波器截止频率
+- [ ] **时序 Skill**：建立/保持时间裕量
 
 ---
 
@@ -90,6 +92,11 @@
 - [x] SVG 原理图渲染
 - [x] 标准 Device 库嵌入（R/C/L/D/LED/NTC）
 - [x] 拓扑提取（电源域、信号路径、功能模块识别）
+- [x] **拓扑模板系统**：JSON 格式的电路拓扑描述（components + connections + layout）
+- [x] **9 个内置拓扑模板**：LDO / Buck / Boost / Buck-Boost / Inverting / SEPIC / Charge Pump / Flyback / LED
+- [x] **端到端管线**：`cdb design --template <name> --vin --vout --iout -o output.kicad_sch`
+- [x] **拓扑选型引擎**：`cdb suggest --vin --vout --iout [--isolated]` 基于 Vin/Vout/Iout/隔离需求推荐拓扑
+- [x] **lib_symbols 自动生成**：为拓扑中的 Device:R/C/L/D 和 custom:IC 自动创建符号定义
 
 ### 未完成
 
@@ -128,48 +135,43 @@
 
 - [x] **在线元件搜索**：`cdb hqsearch "74hc04"` → 华秋 API → 返回候选列表
 - [x] **按需拉取**：`cdb fetch --mpn MCP6444T-E/ST --mfg-id 4901` → 参数+pin+符号一键入库
+- [x] **拓扑选型**：`cdb suggest --vin 12 --vout 3.3 --iout 2` → 推荐 Buck/Boost/LDO/SEPIC 等
 - [ ] **AI 查询接口**：让 Claude/LLM 通过自然语言查询元件库
-  - 示例：`"找一个 100mA LDO，输入 5V 输出 3.3V"` → SQL 查询 → 返回候选列表
 - [ ] **元件推荐**：根据设计规则自动推荐满足约束的元件
 - [ ] **参数对比**：多个候选元件的参数并排对比
 
 ### 断裂点 2：设计规则不成体系 → Skill 集
 
+- [x] **46 条电源域规则**：覆盖 Buck/Boost/Buck-Boost/Inverting/SEPIC/Charge Pump/Flyback/LDO 全拓扑
+- [x] **规则引擎增强**：多赋值公式、条件门控
 - [ ] **Skill 注册机制**：可插拔的规则模块，声明适用场景
 - [ ] **自然语言 → Skill 映射**：AI 从需求描述选择合适的 Skill
 - [ ] **Skill 组合编排**：多个 Skill 协作完成复杂设计（电源树分析 = LDO Skill + 去耦 Skill + 热设计 Skill）
 
 ### 断裂点 3：知识到图纸的鸿沟 → 编译管线
 
-- [ ] **端到端管线**：需求 → 拓扑选型 → 参数计算 → 元件选型 → JSON5 → .kicad_sch
+- [x] **端到端管线**：需求 → 拓扑选型 → 参数计算 → 元件选型 → JSON5 → .kicad_sch
 - [ ] **增量更新**：修改需求后只更新受影响的部分，不重新生成全部
 - [ ] **设计空间探索**：自动生成多个设计方案供比较
 
 ### 断裂点 4：拓扑选型无形式化 → 拓扑库
 
-- [ ] **拓扑模板库**：常见电路拓扑的结构化描述
-  - Buck converter（输入范围、输出电压、电流能力、效率）
-  - LDO（压差、PSRR、噪声）
-  - I2C 上拉（总线电容、速率、电阻计算）
-  - LED 驱动（正向电压、电流、限流电阻）
-- [ ] **拓扑匹配**：从需求（`5V→3.3V, 500mA`）自动选择合适拓扑
-- [ ] **拓扑参数化**：给定拓扑模板和需求参数，自动填充外围元件值
+- [x] **拓扑模板库（9 个）**：
+  - Buck converter（电感/电容选型、占空比检查、续流二极管）
+  - Boost converter（电感/电容选型、开关电压应力）
+  - Buck-Boost（升降压，非反相）
+  - Inverting（反相输出）
+  - SEPIC（升降压非反相，耦合电容）
+  - Charge Pump（电荷泵，无电感）
+  - Flyback（反激隔离，变压器匝比、RCD 吸收）
+  - LDO（线性稳压，压差/功耗/效率）
+  - LED（限流电阻）
+- [x] **拓扑匹配**：`cdb suggest` 从需求自动推荐合适拓扑并给出效率/评分
+- [x] **拓扑参数化**：给定拓扑模板和需求参数，自动生成含正确连线的 .kicad_sch
 
 ### 断裂点 5：参数计算不可追溯 → 决策记录
 
 - [ ] **设计日志格式**：记录每步决策的结构化格式
-  ```json5
-  {
-    step: "buck_inductor_selection",
-    rule: "inductor_sizing",
-    inputs: { vin: 12, vout: 5, iout: 2, fsw: 500e3, delta_il: 0.3 },
-    formula: "L = (Vout × (1 - Vout/Vin)) / (fsw × ΔIL × Iout)",
-    result: { l_min: 5.83e-6 },
-    check: "L_value >= l_min * 0.8",
-    selected: "SRN6045-6R8Y",
-    passed: true
-  }
-  ```
 - [ ] **回溯机制**：从最终设计反向查看每个参数的计算依据
 - [ ] **变更影响分析**：修改某个参数后，标记所有受影响的下游决策
 
@@ -177,20 +179,24 @@
 
 ## 优先级排序（建议）
 
-| 优先级 | 任务 | 理由 |
-|--------|------|------|
-| **P0** | ~~元件数据导入工具~~ → ✅ 华秋 API 集成完成 | 地基已打通：搜索+拉取+pin 提取 |
-| **P0** | AI 查询接口（自然语言 → SQL） | 让 AI 真正"看见"元件 |
-| **P1** | 内置 Skill 库（电源域 5 条核心规则） | 最常见的设计场景，验证规则引擎可用性 |
-| **P1** | 拓扑模板库（Buck/LDO/LED 3 个模板） | 验证"需求 → 拓扑 → 参数"链路 |
-| **P1** | 端到端演示：`5V→3.3V LDO` 全流程 | 从需求到出图的最小闭环 |
-| **P1** | 常用元件库填充（20-50 颗核心 IC） | 用 fetch 批量拉取，让数据库真正可用 |
-| **P2** | kicad-symgen 与 cdb 集成 | 消除手动创建符号的瓶颈 |
-| **P2** | 封装模板补全（QFP/QFN/BGA） | 覆盖更多常见封装 |
-| **P2** | 设计决策追溯系统 | 提升设计可审计性 |
-| **P3** | PCB 输出 (.kicad_pcb) | 最大的单项工程，依赖 PCB 格式设计笔记 |
-| **P3** | ERC/DRC 集成 | 需要 KiCad CLI 或 headless 运行 |
-| **P3** | 交互式 SVG / PDF 导出 | 用户体验提升，非核心功能 |
+| 优先级 | 任务 | 状态 | 理由 |
+|--------|------|------|------|
+| **P0** | ~~元件数据导入工具~~ → ✅ 华秋 API 集成完成 | ✅ 已完成 | 搜索+拉取+pin 提取+10颗核心IC |
+| **P0** | ~~常用元件库填充~~ | ✅ 已完成 | 10颗核心IC: opamp/buck/LDO/MCU/CAN/ESD |
+| **P1** | ~~内置 Skill 库（5 条核心规则）~~ | ✅ 已完成 | buck/ldo/cap/led 规则 + Rules CLI |
+| **P1** | ~~拓扑模板库（3 个模板）~~ | ✅ 已完成 | ldo/buck/led 模板 + design.rs 编排器 |
+| **P1** | ~~端到端演示：5V→3.3V LDO~~ | ✅ 已完成 | `cdb design --template ldo` 全流程 |
+| **P2** | ~~电源域完整 Skill 框架~~ | ✅ 已完成 | 46 条规则覆盖 8 种 DC-DC 拓扑 |
+| **P2** | ~~6 个新拓扑模板~~ | ✅ 已完成 | boost/buckboost/inverting/sepic/chargepump/flyback |
+| **P2** | ~~拓扑选型引擎~~ | ✅ 已完成 | `cdb suggest --vin --vout --iout` |
+| **P3** | **Track C: IC 核心模板 + 模块化组合** | 🔄 进行中 | 4 个 IC 模板已验证，ic_template.rs + CLI 已完成 |
+| **P3** | Skill 链式调用 + 设计决策追溯 | 未开始 | 规则输出自动流入下游规则 |
+| **P3** | kicad-symgen 与 cdb 集成 | 未开始 | 消除手动创建符号的瓶颈 |
+| **P3** | AI 查询接口（自然语言 → SQL） | 未开始 | 让 AI 直接调 cdb CLI 或 API |
+| **P4** | 封装模板补全（QFP/QFN/BGA） | 未开始 | 覆盖更多常见封装 |
+| **P4** | PCB 输出 (.kicad_pcb) | 未开始 | 最大的单项工程 |
+| **P4** | ERC/DRC 集成 | 未开始 | 需要 KiCad CLI 或 headless 运行 |
+| **P5** | 交互式 SVG / PDF 导出 | 未开始 | 用户体验提升，非核心功能 |
 
 ---
 
@@ -204,6 +210,192 @@
 - [x] ~~kicad-symgen：magic number~~ — 已提取为模块级常量
 - [x] ~~所有 crate：裸 `unwrap()` 替换为 `expect()`/`context()`~~ — 生产代码已清理
 - [ ] kicad-cdb：hqapi 集成测试（需要网络，当前仅有单元测试）
-- [ ] kicad-cdb：测试覆盖仍不够完善（规则引擎和查询 API）
+- [ ] kicad-cdb：query.rs 未使用变量警告 (lo, hi, name)
+- [ ] kicad-cdb：hqapi::ApiError 死代码警告
 - [ ] kicad-symgen：未与 workspace 其他 crate 建立依赖关系
 - [ ] 所有 crate：缺少 CI/CD 配置
+
+---
+
+## 设计规则完整清单（46 条）
+
+### 共享辅助 (6)
+
+| 规则 | 说明 |
+|------|------|
+| `cap_voltage_derating` | 电容电压降额 |
+| `cap_ripple_current` | 电容纹波电流 (三角波近似) |
+| `inductor_saturation_check` | 电感饱和电流检查 |
+| `inductor_derating` | 电感饱和电流降额 (20% 裕量) |
+| `thermal_dissipation` | 线性器件功耗计算 |
+| `thermal_ja_rise` | 结温计算 (Tj = Ta + P*Rja) |
+| `efficiency_linear` | 线性稳压器效率 |
+
+### Buck (5)
+
+| 规则 | 说明 |
+|------|------|
+| `buck_inductor_selection` | 最小电感量 |
+| `buck_input_capacitor` | 输入电容 |
+| `buck_output_capacitor` | 输出电容 |
+| `buck_duty_cycle` | 占空比检查 (≤90%) |
+| `buck_inductor_ripple` | 电感纹波电流验证 |
+| `buck_catch_diode` | 续流二极管反向电压 |
+
+### LDO (4)
+
+| 规则 | 说明 |
+|------|------|
+| `ldo_dropout_check` | 压差检查 |
+| `ldo_power_dissipation` | 功耗计算 |
+| `ldo_efficiency` | 效率估算 |
+| `ldo_output_cap` | 输出电容估算 |
+
+### Boost (6)
+
+| 规则 | 说明 |
+|------|------|
+| `boost_duty_cycle` | 占空比 (D=1-Vin/Vout) |
+| `boost_inductor_selection` | 最小电感量 |
+| `boost_inductor_ripple` | 电感纹波验证 |
+| `boost_output_capacitor` | 输出电容 |
+| `boost_switch_voltage` | 开关管电压应力 |
+| `boost_diode_voltage` | 输出二极管反向电压 |
+
+### Buck-Boost (3)
+
+| 规则 | 说明 |
+|------|------|
+| `buckboost_duty_cycle` | 占空比 (D=Vout/(Vin+Vout)) |
+| `buckboost_inductor_selection` | 最小电感量 |
+| `buckboost_output_capacitor` | 输出电容 |
+
+### Inverting (4)
+
+| 规则 | 说明 |
+|------|------|
+| `inverting_duty_cycle` | 占空比 |
+| `inverting_inductor_selection` | 最小电感量 |
+| `inverting_output_capacitor` | 输出电容 |
+| `inverting_diode_voltage` | 二极管反向电压 (Vin+\|Vout\|) |
+
+### SEPIC (5)
+
+| 规则 | 说明 |
+|------|------|
+| `sepic_duty_cycle` | 占空比 |
+| `sepic_inductor_selection` | 最小电感量 |
+| `sepic_coupling_cap` | 耦合电容 |
+| `sepic_coupling_cap_voltage` | 耦合电容耐压 |
+| `sepic_output_capacitor` | 输出电容 |
+
+### Charge Pump (3)
+
+| 规则 | 说明 |
+|------|------|
+| `chargepump_flying_cap` | 飞跨电容 |
+| `chargepump_flying_cap_voltage` | 飞跨电容耐压 |
+| `chargepump_output_cap` | 输出电容 |
+
+### Flyback (7)
+
+| 规则 | 说明 |
+|------|------|
+| `flyback_duty_cycle` | 占空比 (≤75%) |
+| `flyback_transformer_turns` | 最小匝比 |
+| `flyback_primary_inductance` | 初级最小电感 (DCM 边界) |
+| `flyback_primary_peak_current` | 初级峰值电流 + 饱和检查 |
+| `flyback_snubber_rcd_cap` | RCD 吸收电容 |
+| `flyback_snubber_resistor` | RCD 吸收电阻 |
+| `flyback_output_capacitor` | 输出电容 |
+
+### LED (1)
+
+| 规则 | 说明 |
+|------|------|
+| `led_current_resistor` | 限流电阻计算 |
+
+---
+
+## 拓扑模板完整清单（9 个）
+
+| 模板 | 元件数 | 网络数 | 关键 Skill |
+|------|--------|--------|-----------|
+| `ldo` | 3 (regulator, c_in, c_out) | 3 (VIN, GND, VOUT) | ldo_dropout, cap_derating |
+| `buck` | 5 (controller, l_out, c_in, c_out, d_catch) | 4 (VIN, GND, SW, VOUT) | buck_inductor, buck_input_cap |
+| `boost` | 5 (controller, l_in, c_in, c_out, d_out) | 4 (VIN, GND, SW, VOUT) | boost_inductor, boost_output_cap |
+| `buckboost` | 4 (controller, l_main, c_in, c_out) | 5 (VIN, GND, SW1, SW2, VOUT) | buckboost_inductor |
+| `inverting` | 5 (controller, l_main, c_in, c_out, d_catch) | 5 (VIN, GND, SW, -VOUT, COM) | inverting_inductor |
+| `sepic` | 7 (controller, l1, l2, c_coupling, c_in, c_out, d_out) | 5 (VIN, GND, SW, CS, VOUT) | sepic_inductor, sepic_coupling_cap |
+| `chargepump` | 4 (controller, c_fly, c_in, c_out) | 5 (VIN, GND, C+, C-, VOUT) | chargepump_flying_cap |
+| `flyback` | 7 (controller, t1, c_in, c_out, d_out, r_snub, c_snub) | 8 (VIN, GND, SW, ...) | flyback_transformer, flyback_snubber |
+| `led` | 2 (r_limit, led) | 3 (VIN, GND, N_LED) | led_current_resistor |
+
+---
+
+## P3: Track C — 模块化组合设计
+
+### 设计理念
+
+Track A（自动管线）适合公式驱动的电源拓扑，Track B（对话驱动）适合复杂系统设计。Track C 在两者之间：
+
+- **Skill 驱动模块**：电源域、无源元件选型 → 公式计算，全自动
+- **模板驱动模块**：IC 核心电路 → 从 datasheet 提取固定连接模式，半自动
+- **模块组合**：通过 KiCad 原生 label 层级定义接口（local label = 模块私有，global label = 全局共享）
+
+### 模块分类
+
+| 模块类型 | 驱动方式 | 知识来源 | 当前状态 |
+|---------|---------|---------|---------|
+| 电源域 | Skill | 物理公式 | ✅ P2 完成 |
+| IC 核心电路 | 模板 | Datasheet 典型应用 | 🔄 P3 进行中 |
+| 接口转换 | 模板 | Datasheet 参考设计 | 待开始 |
+| 信号链 | 混合 | Datasheet + 公式 | 待开始 |
+| 保护/EMI | Skill | 经验公式 | 待开始 |
+
+### IC 核心模板
+
+**目标：** 为常见 IC 定义"典型应用电路模板"，包含：
+- IC 本体（pin 映射从 cdb/华秋 API 获取）
+- 必需外围元件（去耦电容、上拉/下拉、反馈网络等）
+- 连接关系（哪些 pin 接哪些外围元件）
+- 可调参数（容值、阻值范围）
+- 接口声明（global label = 对外网络）
+
+**已验证模板（4 个）：**
+
+| 模板 | 类型 | 元件数 | 验证实例 | 来源 |
+|------|------|--------|---------|------|
+| RT9193-ADJ | LDO 稳压器 | 5 (IC+2C+2R) | 6 例 | ccd-power.json5 |
+| EL7156 | 时钟驱动器 | 4 (IC+2C+1R) | 10 例 | ccd-clock.json5 |
+| AO3408-low-side-switch | MOSFET 开关 | 2 (MOS+R) | 2 例 | ccd-control.json5 |
+| NTC-divider | 温度采样 | 2 (NTC+R) | 1 例 | ccd-control.json5 |
+
+**待扩展模板：**
+
+| IC | 用途 | 使用次数 | 复杂度 | 验证来源 |
+|----|------|---------|--------|---------|
+| 74HC04 | 六反相器 | 1 | 低 | ccd-control.json5 |
+| KAF-09001 | CCD 传感器 | 1 | 高 | ccd-sensor.json5 |
+| FP6277 | Buck 控制器 | 1 | 中 | ccd-power.json5 |
+| SY7208 | Boost 控制器 | 1 | 中 | ccd-power.json5 |
+
+### 已完成的实施步骤
+
+1. ✅ **IC 核心模板数据结构** — `ic_template.rs`：IcCoreTemplate + 公式求解器 + 参数依赖解析
+2. ✅ **原理图生成** — `design.rs` 扩展 `generate_ic_schematic()`：IC + 外围元件 → .kicad_sch
+3. ✅ **CLI 集成** — `cdb ic-design --template <name> --params <k=v> --nets <k=v> -o <file>`
+
+### 待完成
+
+4. **华秋 API 联动** — 模板中 `ic.mpn` 自动拉取 pin 信息填充
+5. **模块组合验证** — 用 CCD 承载板验证 Skill 模块 + IC 模板组合输出完整原理图
+
+### 不同设计的模块组合示例
+
+| 设计 | Skill 模块 | IC 模板 | 说明 |
+|------|-----------|---------|------|
+| CCD 承载板 | power(4路LDO+Buck) | EL7156×10, KAF-09001, 74HC04 | 已有原理图可验证 |
+| STM32+RGB屏 | power(2路) | STM32F4, RGB驱动IC, LCD | 需新建模板 |
+| 电机驱动板 | power+驱动 | 电机驱动IC, 栅极驱动 | 需新建模板 |
+| FPGA板 | power(多路) | FPGA, DDR, 配置Flash | 需新建模板 |
