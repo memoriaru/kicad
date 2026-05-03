@@ -139,6 +139,26 @@ impl ComponentDb {
         ).optional().map_err(|e| e.into())
     }
 
+    pub fn get_component_by_mpn_any(&self, mpn: &str) -> Result<Option<Component>> {
+        self.conn.query_row(
+            "SELECT id, mpn, manufacturer, category_id, description, package, lifecycle, datasheet_url, kicad_symbol, kicad_footprint
+             FROM components WHERE mpn = ?1 LIMIT 1",
+            params![mpn],
+            |row| Ok(Component {
+                id: Some(row.get(0)?),
+                mpn: row.get(1)?,
+                manufacturer: row.get(2)?,
+                category_id: row.get(3)?,
+                description: row.get(4)?,
+                package: row.get(5)?,
+                lifecycle: row.get(6)?,
+                datasheet_url: row.get(7)?,
+                kicad_symbol: row.get(8)?,
+                kicad_footprint: row.get(9)?,
+            }),
+        ).optional().map_err(|e| e.into())
+    }
+
     pub fn update_component(&self, comp: &Component) -> Result<bool> {
         let id = comp.id.context("Component id required for update")?;
         let affected = self.conn.execute(
@@ -354,5 +374,25 @@ impl ComponentDb {
             })
         })?.collect::<Result<Vec<_>, _>>()?;
         Ok(rules)
+    }
+
+    pub fn get_rule_by_name(&self, name: &str) -> Result<Option<DesignRule>> {
+        self.conn.query_row(
+            "SELECT id, name, category_id, description, condition_expr, formula_expr, check_expr, parameters, output_params, source
+             FROM design_rules WHERE name = ?1",
+            params![name],
+            |row| Ok(DesignRule {
+                id: Some(row.get(0)?),
+                name: row.get(1)?,
+                category_id: row.get(2)?,
+                description: row.get(3)?,
+                condition_expr: row.get(4)?,
+                formula_expr: row.get(5)?,
+                check_expr: row.get(6)?,
+                parameters: row.get(7)?,
+                output_params: row.get(8)?,
+                source: row.get(9)?,
+            }),
+        ).optional().map_err(|e| e.into())
     }
 }

@@ -10,8 +10,6 @@ pub struct HqClient {
     client: Client,
 }
 
-#[derive(Debug)]
-pub struct ApiError(String);
 
 impl HqClient {
     pub fn new() -> Result<Self> {

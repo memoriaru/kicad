@@ -510,7 +510,7 @@ impl ComponentDb {
 }
 
 /// A topology candidate from suggestion engine
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct TopologyCandidate {
     pub topology: String,
     pub estimated_efficiency: f64,

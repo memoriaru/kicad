@@ -3,7 +3,7 @@ pub mod parser;
 pub mod sym_parser;
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ComponentDb;
 
@@ -19,7 +19,7 @@ where
 }
 
 /// Search result item from queryPage API
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
     pub mpn: String,
     pub manufacturer: String,
@@ -45,7 +45,7 @@ pub struct SearchResult {
     pub attrs: Vec<SearchAttr>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SearchAttr {
     #[serde(rename = "name_display", default)]
     pub name_display: String,

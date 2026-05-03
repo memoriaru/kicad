@@ -41,13 +41,13 @@ impl ComponentDb {
         max: Option<f64>,
     ) -> Result<Vec<Component>> {
         let sql = match (min, max) {
-            (Some(lo), Some(hi)) =>
+            (Some(_lo), Some(_hi)) =>
                 "SELECT c.* FROM components c JOIN parameters p ON c.id = p.component_id \
                  WHERE p.name = ?1 AND p.value_numeric >= ?2 AND p.value_numeric <= ?3",
-            (Some(lo), None) =>
+            (Some(_lo), None) =>
                 "SELECT c.* FROM components c JOIN parameters p ON c.id = p.component_id \
                  WHERE p.name = ?1 AND p.value_numeric >= ?2",
-            (None, Some(hi)) =>
+            (None, Some(_hi)) =>
                 "SELECT c.* FROM components c JOIN parameters p ON c.id = p.component_id \
                  WHERE p.name = ?1 AND p.value_numeric <= ?2",
             (None, None) =>
@@ -124,7 +124,7 @@ impl ComponentDb {
         }
         sql.push_str(" WHERE ");
         let mut conditions = Vec::new();
-        for (i, (name, min, max)) in filters.iter().enumerate() {
+        for (i, (_name, min, max)) in filters.iter().enumerate() {
             match (min, max) {
                 (Some(_), Some(_)) => {
                     conditions.push(format!(
@@ -221,5 +221,30 @@ impl ComponentDb {
                 kicad_symbol: row.get(8)?, kicad_footprint: row.get(9)?,
             })
         }
+    }
+
+    /// List distinct parameter names, optionally filtered by category
+    pub fn list_parameter_names(&self, category: Option<&str>) -> Result<Vec<String>> {
+        let sql = match category {
+            Some(_) =>
+                "SELECT DISTINCT p.name FROM parameters p \
+                 JOIN components c ON p.component_id = c.id \
+                 JOIN categories cat ON c.category_id = cat.id \
+                 WHERE cat.name = ?1 ORDER BY p.name",
+            None =>
+                "SELECT DISTINCT name FROM parameters ORDER BY name",
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let names: Vec<String> = match category {
+            Some(cat) => {
+                let rows = stmt.query_map(params![cat], |row| row.get::<_, String>(0))?;
+                rows.filter_map(|r| r.ok()).collect()
+            }
+            None => {
+                let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+                rows.filter_map(|r| r.ok()).collect()
+            }
+        };
+        Ok(names)
     }
 }

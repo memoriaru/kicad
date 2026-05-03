@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Context, Result};
+use serde::Serialize;
 
 use crate::models::DesignRule;
 
 /// Result of applying a design rule
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct RuleResult {
     pub pass: bool,
     pub outputs: HashMap<String, f64>,

@@ -1,6 +1,7 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use kicad_cdb::ComponentDb;
+use serde::Serialize;
 
 #[derive(Parser)]
 #[command(name = "cdb", about = "Component Database CLI for AI-assisted circuit design")]
@@ -45,9 +46,13 @@ enum Commands {
         #[arg(long)]
         category: Option<String>,
 
-        /// Parameter filter: name>=min (e.g. "capacitance>=1e-7")
+        /// Parameter filter: name:min:max (e.g. "capacitance:1e-7:1e-6", "capacitance:1e-7:")
         #[arg(long)]
         param: Option<String>,
+
+        /// Manufacturer filter
+        #[arg(long)]
+        manufacturer: Option<String>,
 
         /// Package filter
         #[arg(long)]
@@ -60,16 +65,32 @@ enum Commands {
         /// Show only in-stock components
         #[arg(long)]
         in_stock: bool,
+
+        /// Limit number of results
+        #[arg(short, long)]
+        limit: Option<usize>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Show component details
     Show {
         /// Component MPN
         mpn: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// List all categories
-    Categories,
+    Categories {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Apply a design rule with given parameters
     Check {
@@ -84,6 +105,10 @@ enum Commands {
         /// Candidate component value to check (name=value)
         #[arg(long)]
         candidate: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Export component(s) as KiCad .kicad_sym or JSON5 spec
@@ -124,6 +149,10 @@ enum Commands {
         /// Max results
         #[arg(short, long, default_value = "20")]
         limit: usize,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Generate a schematic from a topology template
@@ -166,6 +195,10 @@ enum Commands {
         /// Require galvanic isolation
         #[arg(long, default_value = "false")]
         isolated: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Compose multiple modules into a single schematic
@@ -243,7 +276,25 @@ enum Commands {
         /// Candidate component value to check (name=value)
         #[arg(long)]
         candidate: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
+
+    /// List parameter names available in the database
+    ListParams {
+        /// Filter by category name
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Start MCP server for AI integration (stdio transport)
+    Serve,
 }
 
 fn main() -> Result<()> {
@@ -259,13 +310,13 @@ fn main() -> Result<()> {
         Commands::ImportModel { mpn, model_type, path, format } => {
             cmd_import_model(&db, &mpn, &model_type, &path, &format)
         }
-        Commands::Query { category, param, package, search, in_stock } => {
-            cmd_query(&db, category.as_deref(), param.as_deref(), package.as_deref(), search.as_deref(), in_stock)
+        Commands::Query { category, param, manufacturer, package, search, in_stock, limit, json } => {
+            cmd_query(&db, category.as_deref(), param.as_deref(), manufacturer.as_deref(), package.as_deref(), search.as_deref(), in_stock, limit, json)
         }
-        Commands::Show { mpn } => cmd_show(&db, &mpn),
-        Commands::Categories => cmd_categories(&db),
-        Commands::Check { rule, params, candidate } => {
-            cmd_check(&db, &rule, &params, candidate.as_deref())
+        Commands::Show { mpn, json } => cmd_show(&db, &mpn, json),
+        Commands::Categories { json } => cmd_categories(&db, json),
+        Commands::Check { rule, params, candidate, json } => {
+            cmd_check(&db, &rule, &params, candidate.as_deref(), json)
         }
         Commands::Export { mpn, category, format, output } => {
             cmd_export(&db, mpn.as_deref(), category.as_deref(), &format, &output)
@@ -282,14 +333,14 @@ fn main() -> Result<()> {
         Commands::IcDesign { template, params, nets, output } => {
             cmd_ic_design(&db, &template, &params, nets.as_deref(), &output)
         }
-        Commands::Suggest { vin, vout, iout, isolated } => {
-            cmd_suggest(vin, vout, iout, isolated)
+        Commands::Suggest { vin, vout, iout, isolated, json } => {
+            cmd_suggest(vin, vout, iout, isolated, json)
         }
-        Commands::HqSearch { keyword, limit } => {
-            cmd_hqsearch(&keyword, limit)
+        Commands::HqSearch { keyword, limit, json } => {
+            cmd_hqsearch(&keyword, limit, json)
         }
-        Commands::Rules { seed, apply, params, candidate } => {
-            cmd_rules(&db, seed, apply.as_deref(), params.as_deref(), candidate.as_deref())
+        Commands::Rules { seed, apply, params, candidate, json } => {
+            cmd_rules(&db, seed, apply.as_deref(), params.as_deref(), candidate.as_deref(), json)
         }
         Commands::TemplatePins { mpn, json } => {
             cmd_template_pins(&mpn, json)
@@ -297,8 +348,24 @@ fn main() -> Result<()> {
         Commands::Pipeline { name, list, params, json } => {
             cmd_pipeline(&db, name.as_deref(), list, params.as_deref(), json)
         }
+        Commands::ListParams { category, json } => {
+            cmd_list_params(&db, category.as_deref(), json)
+        }
+        Commands::Serve => kicad_cdb::mcp::serve(&db),
     }
 }
+
+// ---------------------------------------------------------------------------
+// JSON output helpers
+// ---------------------------------------------------------------------------
+
+fn print_json(value: &impl Serialize) {
+    println!("{}", serde_json::to_string_pretty(value).unwrap_or_else(|e| format!("{{\"error\":\"{}\"}}", e)));
+}
+
+// ---------------------------------------------------------------------------
+// Command handlers
+// ---------------------------------------------------------------------------
 
 fn cmd_import(db: &ComponentDb, path: &str) -> Result<()> {
     let content = std::fs::read_to_string(path)?;
@@ -321,7 +388,6 @@ fn cmd_import(db: &ComponentDb, path: &str) -> Result<()> {
 }
 
 fn cmd_import_model(db: &ComponentDb, mpn: &str, model_type: &str, path: &str, format: &str) -> Result<()> {
-    // Find component by MPN (any manufacturer)
     let comp = db.conn.query_row(
         "SELECT id FROM components WHERE mpn = ?1 LIMIT 1",
         rusqlite::params![mpn],
@@ -334,237 +400,221 @@ fn cmd_import_model(db: &ComponentDb, mpn: &str, model_type: &str, path: &str, f
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// query
+// ---------------------------------------------------------------------------
+
 fn cmd_query(
     db: &ComponentDb,
     category: Option<&str>,
     param: Option<&str>,
+    manufacturer: Option<&str>,
     package: Option<&str>,
     search: Option<&str>,
     in_stock: bool,
+    limit: Option<usize>,
+    json: bool,
 ) -> Result<()> {
-    let mut results = Vec::new();
-
-    if let Some(cat) = category {
-        results = db.query_components_by_category(cat)?;
-    }
-
-    if let Some(query) = search {
-        results = db.search(query)?;
-    }
-
-    if in_stock {
-        let stocked = db.query_in_stock()?;
-        if results.is_empty() {
-            results = stocked;
-        } else {
-            let stocked_ids: std::collections::HashSet<i64> = stocked.iter()
-                .filter_map(|c| c.id).collect();
-            results.retain(|c| c.id.map(|id| stocked_ids.contains(&id)).unwrap_or(false));
+    let param_filter = match param {
+        Some(p) => {
+            let (name, min, max) = parse_param_filter(p)?;
+            Some((name, min, max))
         }
-    }
+        None => None,
+    };
 
-    if let Some(pkg) = package {
-        results.retain(|c| c.package.as_deref() == Some(pkg));
-    }
+    let results = kicad_cdb::service::query_filtered(
+        db, search, category, manufacturer, package, param_filter, in_stock, limit,
+    )?;
 
-    if let Some(param_filter) = param {
-        let (name, min) = parse_param_filter(param_filter)?;
-        let filtered = db.query_by_parameter_range(name, Some(min), None)?;
-        if results.is_empty() {
-            results = filtered;
-        } else {
-            let filtered_ids: std::collections::HashSet<i64> = filtered.iter()
-                .filter_map(|c| c.id).collect();
-            results.retain(|c| c.id.map(|id| filtered_ids.contains(&id)).unwrap_or(false));
-        }
-    }
-
-    if results.is_empty() {
+    if json {
+        #[derive(Serialize)]
+        struct Out { count: usize, components: Vec<kicad_cdb::Component> }
+        print_json(&Out { count: results.len(), components: results });
+    } else if results.is_empty() {
         println!("No components found");
     } else {
         println!("Found {} components:", results.len());
         for c in &results {
             println!("  {} | {} | {} | {}",
-                c.mpn,
-                c.manufacturer,
+                c.mpn, c.manufacturer,
                 c.package.as_deref().unwrap_or("-"),
-                c.description.as_deref().unwrap_or("-")
-            );
+                c.description.as_deref().unwrap_or("-"));
         }
     }
     Ok(())
 }
 
-fn parse_param_filter(filter: &str) -> Result<(&str, f64)> {
+/// Parse param filter: "name:min:max" or "name>=min" (legacy)
+fn parse_param_filter(filter: &str) -> Result<(&str, Option<f64>, Option<f64>)> {
+    // Legacy format: name>=value
     if let Some(pos) = filter.find(">=") {
         let name = filter[..pos].trim();
         let val: f64 = filter[pos+2..].parse()?;
-        return Ok((name, val));
+        return Ok((name, Some(val), None));
     }
-    anyhow::bail!("Parameter filter must be 'name>=value', got: {}", filter);
+    // Three-part format: name:min:max
+    let parts: Vec<&str> = filter.splitn(3, ':').collect();
+    if parts.len() >= 2 && !parts[0].is_empty() {
+        let name = parts[0].trim();
+        let min = if parts.len() > 1 && !parts[1].is_empty() {
+            Some(parts[1].parse()?)
+        } else { None };
+        let max = if parts.len() > 2 && !parts[2].is_empty() {
+            Some(parts[2].parse()?)
+        } else { None };
+        return Ok((name, min, max));
+    }
+    anyhow::bail!("Parameter filter must be 'name:min:max' or 'name>=value', got: {}", filter);
 }
 
-fn cmd_show(db: &ComponentDb, mpn: &str) -> Result<()> {
-    let comp = db.conn.query_row(
-        "SELECT id, mpn, manufacturer, category_id, description, package, lifecycle, datasheet_url, kicad_symbol, kicad_footprint
-         FROM components WHERE mpn = ?1 LIMIT 1",
-        rusqlite::params![mpn],
-        |row| Ok(kicad_cdb::Component {
-            id: Some(row.get(0)?), mpn: row.get(1)?, manufacturer: row.get(2)?,
-            category_id: row.get(3)?, description: row.get(4)?, package: row.get(5)?,
-            lifecycle: row.get(6)?, datasheet_url: row.get(7)?,
-            kicad_symbol: row.get(8)?, kicad_footprint: row.get(9)?,
-        }),
-    ).map_err(|_| anyhow::anyhow!("Component '{}' not found", mpn))?;
+// ---------------------------------------------------------------------------
+// show
+// ---------------------------------------------------------------------------
+
+fn cmd_show(db: &ComponentDb, mpn: &str, json: bool) -> Result<()> {
+    let comp = db.get_component_by_mpn_any(mpn)?
+        .ok_or_else(|| anyhow::anyhow!("Component '{}' not found", mpn))?;
 
     let id = comp.id.unwrap();
-
-    println!("MPN:          {}", comp.mpn);
-    println!("Manufacturer: {}", comp.manufacturer);
-    println!("Package:      {}", comp.package.as_deref().unwrap_or("-"));
-    println!("Lifecycle:    {}", comp.lifecycle);
-    if let Some(ref desc) = comp.description { println!("Description:  {}", desc); }
-    if let Some(ref url) = comp.datasheet_url { println!("Datasheet:    {}", url); }
-    if let Some(ref sym) = comp.kicad_symbol { println!("KiCad Symbol: {}", sym); }
-    if let Some(ref fp) = comp.kicad_footprint { println!("KiCad Footprint: {}", fp); }
-
-    // Pins
     let pins = db.get_pins(id)?;
-    if !pins.is_empty() {
-        println!("\n--- Pins ({}) ---", pins.len());
-        for p in &pins {
-            let alts = p.alt_functions.as_ref()
-                .map(|a| format!(" [{}]", a.join(", ")))
-                .unwrap_or_default();
-            println!("  {:>4} {:<12} {:<15}{}{}", p.pin_number, p.pin_name,
-                p.electrical_type.as_deref().unwrap_or("-"), alts,
-                p.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default());
-        }
-    }
-
-    // Parameters
     let params = db.get_parameters(id)?;
-    if !params.is_empty() {
-        println!("\n--- Parameters ({}) ---", params.len());
-        for p in &params {
-            let val = match (p.value_numeric, &p.value_text) {
-                (Some(n), _) => format!("{:.6e}", n),
-                (_, Some(t)) => t.clone(),
-                _ => "-".to_string(),
-            };
-            let typ = if p.typical { "typ" } else { "" };
-            println!("  {:<20} {} {} {}", p.name, val, p.unit.as_deref().unwrap_or(""), typ);
-        }
-    }
-
-    // Simulation models
     let models = db.get_simulation_models(id)?;
-    if !models.is_empty() {
-        println!("\n--- Simulation Models ({}) ---", models.len());
-        for m in &models {
-            println!("  {} ({}) - {} chars", m.model_type,
-                m.format.as_deref().unwrap_or("?"), m.model_text.len());
-        }
-    }
-
-    // Supply info
     let supply = db.get_supply_info(id)?;
-    if !supply.is_empty() {
-        println!("\n--- Supply ({}) ---", supply.len());
-        for s in &supply {
-            println!("  {} | SKU: {} | Stock: {}",
-                s.supplier, s.sku.as_deref().unwrap_or("-"),
-                s.stock.map(|n| n.to_string()).unwrap_or("-".to_string()));
+
+    if json {
+        #[derive(Serialize)]
+        struct Out {
+            component: kicad_cdb::Component,
+            pins: Vec<kicad_cdb::Pin>,
+            parameters: Vec<kicad_cdb::Parameter>,
+            models: Vec<kicad_cdb::SimulationModel>,
+            supply: Vec<kicad_cdb::SupplyInfo>,
+        }
+        print_json(&Out { component: comp, pins, parameters: params, models, supply });
+    } else {
+        println!("MPN:          {}", comp.mpn);
+        println!("Manufacturer: {}", comp.manufacturer);
+        println!("Package:      {}", comp.package.as_deref().unwrap_or("-"));
+        println!("Lifecycle:    {}", comp.lifecycle);
+        if let Some(ref desc) = comp.description { println!("Description:  {}", desc); }
+        if let Some(ref url) = comp.datasheet_url { println!("Datasheet:    {}", url); }
+        if let Some(ref sym) = comp.kicad_symbol { println!("KiCad Symbol: {}", sym); }
+        if let Some(ref fp) = comp.kicad_footprint { println!("KiCad Footprint: {}", fp); }
+
+        if !pins.is_empty() {
+            println!("\n--- Pins ({}) ---", pins.len());
+            for p in &pins {
+                let alts = p.alt_functions.as_ref()
+                    .map(|a| format!(" [{}]", a.join(", ")))
+                    .unwrap_or_default();
+                println!("  {:>4} {:<12} {:<15}{}{}", p.pin_number, p.pin_name,
+                    p.electrical_type.as_deref().unwrap_or("-"), alts,
+                    p.description.as_ref().map(|d| format!(" - {}", d)).unwrap_or_default());
+            }
+        }
+
+        if !params.is_empty() {
+            println!("\n--- Parameters ({}) ---", params.len());
+            for p in &params {
+                let val = match (p.value_numeric, &p.value_text) {
+                    (Some(n), _) => format!("{:.6e}", n),
+                    (_, Some(t)) => t.clone(),
+                    _ => "-".to_string(),
+                };
+                let typ = if p.typical { "typ" } else { "" };
+                println!("  {:<20} {} {} {}", p.name, val, p.unit.as_deref().unwrap_or(""), typ);
+            }
+        }
+
+        if !models.is_empty() {
+            println!("\n--- Simulation Models ({}) ---", models.len());
+            for m in &models {
+                println!("  {} ({}) - {} chars", m.model_type,
+                    m.format.as_deref().unwrap_or("?"), m.model_text.len());
+            }
+        }
+
+        if !supply.is_empty() {
+            println!("\n--- Supply ({}) ---", supply.len());
+            for s in &supply {
+                println!("  {} | SKU: {} | Stock: {}",
+                    s.supplier, s.sku.as_deref().unwrap_or("-"),
+                    s.stock.map(|n| n.to_string()).unwrap_or("-".to_string()));
+            }
         }
     }
-
     Ok(())
 }
 
-fn cmd_categories(db: &ComponentDb) -> Result<()> {
+// ---------------------------------------------------------------------------
+// categories
+// ---------------------------------------------------------------------------
+
+fn cmd_categories(db: &ComponentDb, json: bool) -> Result<()> {
     let cats: Vec<kicad_cdb::Category> = db.conn
         .prepare("SELECT id, name, parent_id, description FROM categories ORDER BY name")?
         .query_map([], |row| Ok(kicad_cdb::Category {
             id: Some(row.get(0)?), name: row.get(1)?, parent_id: row.get(2)?, description: row.get(3)?,
         }))?.filter_map(|r| r.ok()).collect();
 
-    for cat in &cats {
-        let indent = if cat.parent_id.is_some() { "  " } else { "" };
-        println!("{}{} (id={})", indent, cat.name, cat.id.unwrap());
+    if json {
+        #[derive(Serialize)]
+        struct Out { categories: Vec<kicad_cdb::Category> }
+        print_json(&Out { categories: cats });
+    } else {
+        for cat in &cats {
+            let indent = if cat.parent_id.is_some() { "  " } else { "" };
+            println!("{}{} (id={})", indent, cat.name, cat.id.unwrap());
+        }
+        println!("\nTotal: {} categories", cats.len());
     }
-    println!("\nTotal: {} categories", cats.len());
     Ok(())
 }
 
-fn cmd_check(db: &ComponentDb, rule_name: &str, params_str: &str, candidate: Option<&str>) -> Result<()> {
-    let rule = db.conn.query_row(
-        "SELECT id, name, category_id, description, condition_expr, formula_expr, check_expr, parameters, output_params, source
-         FROM design_rules WHERE name = ?1",
-        rusqlite::params![rule_name],
-        |row| Ok(kicad_cdb::DesignRule {
-            id: Some(row.get(0)?), name: row.get(1)?, category_id: row.get(2)?,
-            description: row.get(3)?, condition_expr: row.get(4)?, formula_expr: row.get(5)?,
-            check_expr: row.get(6)?, parameters: row.get(7)?, output_params: row.get(8)?,
-            source: row.get(9)?,
-        }),
-    ).map_err(|_| anyhow::anyhow!("Rule '{}' not found", rule_name))?;
+// ---------------------------------------------------------------------------
+// check (single rule)
+// ---------------------------------------------------------------------------
 
-    // Parse params
-    let mut inputs = serde_json::Map::new();
-    for pair in params_str.split(',') {
-        let kv: Vec<&str> = pair.splitn(2, '=').collect();
-        if kv.len() == 2 {
-            let val: f64 = kv[1].parse().context(format!("Invalid number: {}", kv[1]))?;
-            inputs.insert(kv[0].trim().to_string(), serde_json::Value::from(val));
+fn cmd_check(db: &ComponentDb, rule_name: &str, params_str: &str, candidate: Option<&str>, json: bool) -> Result<()> {
+    let (rule, result) = kicad_cdb::service::apply_rule_with_str_params(db, rule_name, params_str, candidate)?;
+
+    if json {
+        #[derive(Serialize)]
+        struct Out {
+            rule: String,
+            description: Option<String>,
+            outputs: std::collections::HashMap<String, f64>,
+            check_expr: String,
+            pass: bool,
         }
-    }
-
-    // Parse candidate
-    let (cand_name, cand_val) = match candidate {
-        Some(c) => {
-            let kv: Vec<&str> = c.splitn(2, '=').collect();
-            if kv.len() == 2 {
-                (Some(kv[0].trim().to_string()), Some(kv[1].parse::<f64>()?))
-            } else {
-                (None, None)
-            }
+        print_json(&Out {
+            rule: rule.name.clone(),
+            description: rule.description.clone(),
+            outputs: result.outputs,
+            check_expr: result.check_expression,
+            pass: result.pass,
+        });
+    } else {
+        println!("Rule: {}", rule_name);
+        if let Some(desc) = &rule.description { println!("  {}", desc); }
+        for (name, val) in &result.outputs {
+            println!("  {} = {:.6e}", name, val);
         }
-        None => (None, None),
-    };
-
-    let result = db.apply_rule(&rule, &serde_json::Value::Object(inputs), cand_name.as_deref(), cand_val)?;
-
-    println!("Rule: {}", rule_name);
-    if let Some(desc) = &rule.description { println!("  {}", desc); }
-    for (name, val) in &result.outputs {
-        println!("  {} = {:.6e}", name, val);
+        println!("Check: {} => {}", result.check_expression, if result.pass { "PASS" } else { "FAIL" });
     }
-    println!("Check: {} => {}", result.check_expression, if result.pass { "PASS" } else { "FAIL" });
-
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// export
+// ---------------------------------------------------------------------------
 
 fn cmd_export(db: &ComponentDb, mpn: Option<&str>, category: Option<&str>, format: &str, output: &str) -> Result<()> {
     let components = match (mpn, category) {
         (Some(mpn), _) => {
-            let comp = db.get_component_by_mpn(mpn, "")?;
-            // Try without manufacturer
-            if comp.is_none() {
-                let c = db.conn.query_row(
-                    "SELECT id, mpn, manufacturer, category_id, description, package, lifecycle, datasheet_url, kicad_symbol, kicad_footprint
-                     FROM components WHERE mpn = ?1 LIMIT 1",
-                    rusqlite::params![mpn],
-                    |row| Ok(kicad_cdb::Component {
-                        id: Some(row.get(0)?), mpn: row.get(1)?, manufacturer: row.get(2)?,
-                        category_id: row.get(3)?, description: row.get(4)?, package: row.get(5)?,
-                        lifecycle: row.get(6)?, datasheet_url: row.get(7)?,
-                        kicad_symbol: row.get(8)?, kicad_footprint: row.get(9)?,
-                    }),
-                ).ok();
-                vec![c].into_iter().flatten().collect()
-            } else {
-                vec![comp.unwrap()]
-            }
+            let comp = db.get_component_by_mpn_any(mpn)?;
+            vec![comp].into_iter().flatten().collect()
         }
         (None, Some(cat)) => db.query_components_by_category(cat)?,
         _ => anyhow::bail!("Specify --mpn or --category for export"),
@@ -580,10 +630,7 @@ fn cmd_export(db: &ComponentDb, mpn: Option<&str>, category: Option<&str>, forma
     }
 }
 
-/// Export as JSON5 SymbolSpec format (for symgen consumption)
 fn cmd_export_spec(db: &ComponentDb, components: &[kicad_cdb::Component], output: &str) -> Result<()> {
-    use serde::Serialize;
-
     #[derive(Serialize)]
     struct SpecOutput {
         mpn: String,
@@ -646,7 +693,7 @@ fn cmd_export_spec(db: &ComponentDb, components: &[kicad_cdb::Component], output
         };
 
         out.push_str(&serde_json::to_string_pretty(&spec)?);
-        out.push_str("\n");
+        out.push('\n');
     }
 
     std::fs::write(output, &out)?;
@@ -668,7 +715,6 @@ fn infer_ref_prefix(symbol_name: &str) -> String {
 }
 
 fn cmd_export_kicad_sym(db: &ComponentDb, components: &[kicad_cdb::Component], output: &str) -> Result<()> {
-    // Generate .kicad_sym
     let mut out = String::new();
     out.push_str("(kicad_symbol_lib\n");
     out.push_str("  (version \"20231120\")\n");
@@ -683,8 +729,7 @@ fn cmd_export_kicad_sym(db: &ComponentDb, components: &[kicad_cdb::Component], o
         out.push_str("    (in_bom yes)\n");
         out.push_str("    (on_board yes)\n");
 
-        // Properties
-        out.push_str(&format!("    (property \"Reference\" \"U?\" (at 0 1.27 0)\n"));
+        out.push_str("    (property \"Reference\" \"U?\" (at 0 1.27 0)\n");
         out.push_str("      (effects (font (size 1.27 1.27))))\n");
         out.push_str(&format!("    (property \"Value\" \"{}\" (at 0 -1.27 0)\n", comp.mpn));
         out.push_str("      (effects (font (size 1.27 1.27))))\n");
@@ -693,7 +738,6 @@ fn cmd_export_kicad_sym(db: &ComponentDb, components: &[kicad_cdb::Component], o
             out.push_str("      (effects (font (size 1.27 1.27)) hide))\n");
         }
 
-        // Body rectangle (_0_1)
         let pin_count = pins.len() as f64;
         let left_pins = (pin_count / 2.0).ceil() as i32;
         let body_half_h = left_pins as f64 * 1.27;
@@ -704,7 +748,6 @@ fn cmd_export_kicad_sym(db: &ComponentDb, components: &[kicad_cdb::Component], o
         out.push_str("        (fill (type background)))\n");
         out.push_str("    )\n");
 
-        // Pins (_1_1)
         if !pins.is_empty() {
             out.push_str(&format!("    (symbol \"{}_1_1\"\n", name));
             let mut y_left = body_half_h;
@@ -729,180 +772,101 @@ fn cmd_export_kicad_sym(db: &ComponentDb, components: &[kicad_cdb::Component], o
     }
 
     out.push_str(")\n");
-
     std::fs::write(output, &out)?;
     println!("Exported {} components to {}", components.len(), output);
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// fetch / hq-search
+// ---------------------------------------------------------------------------
+
 fn cmd_fetch(db: &ComponentDb, mpn: &str, mfg_id: Option<&str>) -> Result<()> {
     println!("Fetching '{}' from HuaQiu EDA...", mpn);
     let id = kicad_cdb::hqapi::fetch_and_import(db, mpn, mfg_id)?;
 
-    // Show what was imported
     let comp = db.get_component(id)?.unwrap();
     println!("\nImported: {} - {} (id={})", comp.mpn, comp.manufacturer, id);
-    if let Some(ref desc) = comp.description {
-        println!("  {}", desc);
-    }
-    if let Some(ref pkg) = comp.package {
-        println!("  Package: {}", pkg);
-    }
+    if let Some(ref desc) = comp.description { println!("  {}", desc); }
+    if let Some(ref pkg) = comp.package { println!("  Package: {}", pkg); }
 
     let pins = db.get_pins(id)?;
     let params = db.get_parameters(id)?;
     println!("  Pins: {} | Parameters: {}", pins.len(), params.len());
-
     Ok(())
 }
 
-fn cmd_hqsearch(keyword: &str, limit: usize) -> Result<()> {
+fn cmd_hqsearch(keyword: &str, limit: usize, json: bool) -> Result<()> {
     let client = kicad_cdb::hqapi::HqClient::new()?;
     let results = client.search(keyword, limit)?;
 
-    if results.is_empty() {
+    if json {
+        #[derive(Serialize)]
+        struct Out<'a> { count: usize, results: &'a [kicad_cdb::hqapi::SearchResult] }
+        print_json(&Out { count: results.len(), results: &results });
+    } else if results.is_empty() {
         println!("No results for '{}'", keyword);
-        return Ok(());
+    } else {
+        println!("Found {} results for '{}':\n", results.len(), keyword);
+        println!("{:<30} {:<20} {:<10} {}", "MPN", "Manufacturer", "Package", "Description");
+        println!("{}", "-".repeat(90));
+        for r in &results {
+            let desc = r.description.chars().take(40).collect::<String>();
+            println!("{:<30} {:<20} {:<10} {}", r.mpn, r.manufacturer, r.package, desc);
+        }
+        println!("\nUse: cdb --db <db> fetch --mpn <MPN> --mfg-id <ID>  to import");
     }
-
-    println!("Found {} results for '{}':\n", results.len(), keyword);
-    println!("{:<30} {:<20} {:<10} {}", "MPN", "Manufacturer", "Package", "Description");
-    println!("{}", "-".repeat(90));
-    for r in &results {
-        let desc = r.description.chars().take(40).collect::<String>();
-        println!("{:<30} {:<20} {:<10} {}",
-            r.mpn, r.manufacturer, r.package, desc);
-    }
-
-    println!("\nUse: cdb --db <db> fetch --mpn <MPN> --mfg-id <ID>  to import");
     Ok(())
 }
 
-fn cmd_rules(
-    db: &ComponentDb,
-    seed: bool,
-    apply: Option<&str>,
-    params: Option<&str>,
-    candidate: Option<&str>,
-) -> Result<()> {
-    if seed {
-        let count = db.seed_default_rules()?;
-        if count > 0 {
-            println!("Seeded {} new rules", count);
-        } else {
-            println!("All default rules already exist");
-        }
-        return Ok(());
-    }
-
-    if let Some(rule_name) = apply {
-        let rules = db.get_all_design_rules()?;
-        let rule = rules.iter().find(|r| r.name == rule_name)
-            .ok_or_else(|| anyhow::anyhow!("Rule '{}' not found. Use 'cdb rules --seed' first.", rule_name))?;
-
-        let mut inputs = serde_json::Map::new();
-        if let Some(params_str) = params {
-            for pair in params_str.split(',') {
-                let kv: Vec<&str> = pair.splitn(2, '=').collect();
-                if kv.len() == 2 {
-                    let val: f64 = kv[1].parse().context(format!("Invalid number: {}", kv[1]))?;
-                    inputs.insert(kv[0].trim().to_string(), serde_json::Value::from(val));
-                }
-            }
-        }
-
-        let (cand_name, cand_val) = match candidate {
-            Some(c) => {
-                let kv: Vec<&str> = c.splitn(2, '=').collect();
-                if kv.len() == 2 {
-                    (Some(kv[0].trim().to_string()), Some(kv[1].parse::<f64>()?))
-                } else {
-                    (None, None)
-                }
-            }
-            None => (None, None),
-        };
-
-        let result = db.apply_rule(rule, &serde_json::Value::Object(inputs), cand_name.as_deref(), cand_val)?;
-
-        println!("Rule: {}", rule.name);
-        if let Some(desc) = &rule.description { println!("  {}", desc); }
-        for (name, val) in &result.outputs {
-            println!("  {} = {:.6e}", name, val);
-        }
-        println!("Check: {} => {}", result.check_expression, if result.pass { "PASS" } else { "FAIL" });
-        return Ok(());
-    }
-
-    // Default: list all rules
-    let rules = db.get_all_design_rules()?;
-    if rules.is_empty() {
-        println!("No rules. Use 'cdb rules --seed' to add default rules.");
-        return Ok(());
-    }
-
-    println!("Design Rules ({}):\n", rules.len());
-    for r in &rules {
-        println!("  {}", r.name);
-        if let Some(desc) = &r.description {
-            println!("    {}", desc);
-        }
-        if let Some(formula) = &r.formula_expr {
-            println!("    Formula: {}", formula);
-        }
-        if let Some(check) = &r.check_expr {
-            println!("    Check:   {}", check);
-        }
-        println!();
-    }
-
-    Ok(())
-}
+// ---------------------------------------------------------------------------
+// design / compose / ic-design
+// ---------------------------------------------------------------------------
 
 fn cmd_design(db: &ComponentDb, template: &str, vin: f64, vout: f64, iout: f64, output: &str) -> Result<()> {
     println!("Generating {} schematic: {}V -> {}V, {}A", template, vin, vout, iout);
-
     let sch_text = kicad_cdb::design::generate_schematic(db, template, vin, vout, iout)?;
-
     std::fs::write(output, &sch_text)?;
     println!("Written to {}", output);
     Ok(())
 }
 
-fn cmd_suggest(vin: f64, vout: f64, iout: f64, isolated: bool) -> Result<()> {
+fn cmd_suggest(vin: f64, vout: f64, iout: f64, isolated: bool, json: bool) -> Result<()> {
     let candidates = kicad_cdb::skills::suggest_topologies(vin, vout, iout, isolated);
 
-    println!("Power topology suggestions for {}V -> {}V @ {}A{}\n",
-        vin, vout, iout, if isolated { " [isolated]" } else { "" });
-    println!("{:<15} {:>8} {:>8}  {}", "Topology", "Eff%", "Score", "Reason");
-    println!("{}", "-".repeat(80));
-
-    for c in &candidates {
-        println!("{:<15} {:>7.0}% {:>7.2}  {}",
-            c.topology,
-            c.estimated_efficiency * 100.0,
-            c.score,
-            c.reason);
-    }
-
-    if let Some(best) = candidates.first() {
-        println!("\nRecommended: {} (score {:.2})", best.topology, best.score);
+    if json {
+        #[derive(Serialize)]
+        struct Out {
+            requirements: serde_json::Value,
+            recommendations: Vec<kicad_cdb::skills::TopologyCandidate>,
+        }
+        print_json(&Out {
+            requirements: serde_json::json!({ "vin": vin, "vout": vout, "iout": iout, "isolated": isolated }),
+            recommendations: candidates,
+        });
+    } else {
+        println!("Power topology suggestions for {}V -> {}V @ {}A{}\n",
+            vin, vout, iout, if isolated { " [isolated]" } else { "" });
+        println!("{:<15} {:>8} {:>8}  {}", "Topology", "Eff%", "Score", "Reason");
+        println!("{}", "-".repeat(80));
+        for c in &candidates {
+            println!("{:<15} {:>7.0}% {:>7.2}  {}",
+                c.topology, c.estimated_efficiency * 100.0, c.score, c.reason);
+        }
+        if let Some(best) = candidates.first() {
+            println!("\nRecommended: {} (score {:.2})", best.topology, best.score);
+        }
     }
     Ok(())
 }
 
 fn cmd_compose(db: &ComponentDb, file: &str, output: &str) -> Result<()> {
-    let composition = kicad_cdb::composition::load_composition(
-        std::path::Path::new(file)
-    )?;
-
+    let composition = kicad_cdb::composition::load_composition(std::path::Path::new(file))?;
     println!("Composing '{}' — {} modules", composition.name, composition.modules.len());
     for m in &composition.modules {
         println!("  {} [{}] ({})", m.id, m.template, m.template_type);
     }
-
     let sch_text = kicad_cdb::design::generate_composed_schematic(db, &composition)?;
-
     std::fs::write(output, &sch_text)?;
     println!("Written to {}", output);
     Ok(())
@@ -915,17 +879,8 @@ fn cmd_ic_design(
     nets_str: Option<&str>,
     output: &str,
 ) -> Result<()> {
-    // Parse params
-    let mut user_params = std::collections::HashMap::new();
-    for pair in params_str.split(',') {
-        let kv: Vec<&str> = pair.splitn(2, '=').collect();
-        if kv.len() == 2 {
-            let val: f64 = kv[1].parse().context(format!("Invalid number: {}", kv[1]))?;
-            user_params.insert(kv[0].trim().to_string(), val);
-        }
-    }
+    let user_params = kicad_cdb::service::parse_kv_f64(params_str)?;
 
-    // Parse net overrides
     let mut net_map = std::collections::HashMap::new();
     if let Some(nets) = nets_str {
         for pair in nets.split(',') {
@@ -937,9 +892,7 @@ fn cmd_ic_design(
     }
 
     println!("Generating {} IC circuit...", template);
-
     let sch_text = kicad_cdb::design::generate_ic_schematic(db, template, &user_params, &net_map)?;
-
     std::fs::write(output, &sch_text)?;
     println!("Written to {}", output);
     Ok(())
@@ -958,10 +911,8 @@ fn cmd_template_pins(mpn: &str, json: bool) -> Result<()> {
         println!("\"pins\": [");
         for (i, pin) in pins.iter().enumerate() {
             let comma = if i + 1 < pins.len() { "," } else { "" };
-            println!(
-                "  {{ \"number\": \"{}\", \"name\": \"{}\", \"type\": \"{}\" }}{}",
-                pin.number, pin.name, pin.pin_type, comma
-            );
+            println!("  {{ \"number\": \"{}\", \"name\": \"{}\", \"type\": \"{}\" }}{}",
+                pin.number, pin.name, pin.pin_type, comma);
         }
         println!("]");
     } else {
@@ -970,9 +921,12 @@ fn cmd_template_pins(mpn: &str, json: bool) -> Result<()> {
             println!("  Pin {}: {} ({})", pin.number, pin.name, pin.pin_type);
         }
     }
-
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// pipeline
+// ---------------------------------------------------------------------------
 
 fn cmd_pipeline(
     db: &ComponentDb,
@@ -984,12 +938,31 @@ fn cmd_pipeline(
     let pipelines = kicad_cdb::pipeline::builtin_pipelines();
 
     if list || name.is_none() {
-        println!("Available design pipelines:\n");
-        for p in &pipelines {
-            println!("  {} — {}", p.name, p.description);
-            println!("    Required inputs: {}", p.user_inputs.join(", "));
-            println!("    Steps: {}", p.steps.iter().map(|s| s.rule_name.as_str()).collect::<Vec<_>>().join(" → "));
-            println!();
+        if json {
+            #[derive(Serialize)]
+            struct PipelineInfo {
+                name: String,
+                description: String,
+                user_inputs: Vec<String>,
+                steps: Vec<String>,
+            }
+            let infos: Vec<PipelineInfo> = pipelines.iter().map(|p| PipelineInfo {
+                name: p.name.clone(),
+                description: p.description.clone(),
+                user_inputs: p.user_inputs.clone(),
+                steps: p.steps.iter().map(|s| s.rule_name.clone()).collect(),
+            }).collect();
+            #[derive(Serialize)]
+            struct Out { pipelines: Vec<PipelineInfo> }
+            print_json(&Out { pipelines: infos });
+        } else {
+            println!("Available design pipelines:\n");
+            for p in &pipelines {
+                println!("  {} — {}", p.name, p.description);
+                println!("    Required inputs: {}", p.user_inputs.join(", "));
+                println!("    Steps: {}", p.steps.iter().map(|s| s.rule_name.as_str()).collect::<Vec<_>>().join(" → "));
+                println!();
+            }
         }
         return Ok(());
     }
@@ -998,50 +971,35 @@ fn cmd_pipeline(
     let pipeline = kicad_cdb::pipeline::get_builtin_pipeline(pipeline_name)
         .ok_or_else(|| anyhow::anyhow!("Unknown pipeline '{}'. Use --list to see available.", pipeline_name))?;
 
-    let mut user_params = std::collections::HashMap::new();
-    if let Some(params) = params_str {
-        for pair in params.split(',') {
-            let kv: Vec<&str> = pair.splitn(2, '=').collect();
-            if kv.len() == 2 {
-                let val: f64 = kv[1].parse().context(format!("Invalid number: {}", kv[1]))?;
-                user_params.insert(kv[0].trim().to_string(), val);
-            }
-        }
-    }
+    let user_params = match params_str {
+        Some(s) => kicad_cdb::service::parse_kv_f64(s)?,
+        None => std::collections::HashMap::new(),
+    };
 
     let log = kicad_cdb::pipeline::run_pipeline(db, &pipeline, &user_params)?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&log)?);
+        print_json(&log);
         return Ok(());
     }
 
     println!("Pipeline: {} ({})", log.pipeline_name, pipeline.description);
     print!("Inputs: ");
     let input_strs: Vec<String> = log.user_inputs.iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect();
+        .map(|(k, v)| format!("{}={}", k, v)).collect();
     println!("{}", input_strs.join(", "));
     println!();
 
     for step in &log.steps {
         if step.skipped {
             println!("Step {}: {} — SKIPPED", step.seq, step.rule_name);
-            if let Some(reason) = &step.skip_reason {
-                println!("  Reason: {}", reason);
-            }
+            if let Some(reason) = &step.skip_reason { println!("  Reason: {}", reason); }
         } else {
             println!("Step {}: {}", step.seq, step.rule_name);
-            if !step.description.is_empty() {
-                println!("  {}", step.description);
-            }
-            if !step.formula.is_empty() {
-                println!("  Formula: {}", step.formula);
-            }
+            if !step.description.is_empty() { println!("  {}", step.description); }
+            if !step.formula.is_empty() { println!("  Formula: {}", step.formula); }
             if !step.outputs.is_empty() {
-                for (name, val) in &step.outputs {
-                    println!("  {} = {:.6e}", name, val);
-                }
+                for (name, val) in &step.outputs { println!("  {} = {:.6e}", name, val); }
             }
             if !step.check_expr.is_empty() {
                 println!("  Check: {} => {}", step.check_expr, if step.passed { "PASS" } else { "FAIL" });
@@ -1050,8 +1008,97 @@ fn cmd_pipeline(
         println!();
     }
 
-    println!("Summary: {} passed, {} skipped, {} failed",
-        log.passed, log.skipped, log.failed);
+    println!("Summary: {} passed, {} skipped, {} failed", log.passed, log.skipped, log.failed);
+    Ok(())
+}
 
+// ---------------------------------------------------------------------------
+// rules
+// ---------------------------------------------------------------------------
+
+fn cmd_rules(
+    db: &ComponentDb,
+    seed: bool,
+    apply: Option<&str>,
+    params: Option<&str>,
+    candidate: Option<&str>,
+    json: bool,
+) -> Result<()> {
+    if seed {
+        let count = db.seed_default_rules()?;
+        if count > 0 {
+            println!("Seeded {} new rules", count);
+        } else {
+            println!("All default rules already exist");
+        }
+        return Ok(());
+    }
+
+    if let Some(rule_name) = apply {
+        let params_str = params.unwrap_or("");
+        let (rule, result) = kicad_cdb::service::apply_rule_with_str_params(db, rule_name, params_str, candidate)?;
+
+        if json {
+            #[derive(Serialize)]
+            struct Out {
+                rule: String,
+                description: Option<String>,
+                outputs: std::collections::HashMap<String, f64>,
+                check_expr: String,
+                pass: bool,
+            }
+            print_json(&Out {
+                rule: rule.name.clone(),
+                description: rule.description.clone(),
+                outputs: result.outputs,
+                check_expr: result.check_expression,
+                pass: result.pass,
+            });
+        } else {
+            println!("Rule: {}", rule.name);
+            if let Some(desc) = &rule.description { println!("  {}", desc); }
+            for (name, val) in &result.outputs { println!("  {} = {:.6e}", name, val); }
+            println!("Check: {} => {}", result.check_expression, if result.pass { "PASS" } else { "FAIL" });
+        }
+        return Ok(());
+    }
+
+    // Default: list all rules
+    let rules = db.get_all_design_rules()?;
+    if json {
+        #[derive(Serialize)]
+        struct Out { rules: Vec<kicad_cdb::DesignRule> }
+        print_json(&Out { rules });
+    } else if rules.is_empty() {
+        println!("No rules. Use 'cdb rules --seed' to add default rules.");
+    } else {
+        println!("Design Rules ({}):\n", rules.len());
+        for r in &rules {
+            println!("  {}", r.name);
+            if let Some(desc) = &r.description { println!("    {}", desc); }
+            if let Some(formula) = &r.formula_expr { println!("    Formula: {}", formula); }
+            if let Some(check) = &r.check_expr { println!("    Check:   {}", check); }
+            println!();
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// list-params
+// ---------------------------------------------------------------------------
+
+fn cmd_list_params(db: &ComponentDb, category: Option<&str>, json: bool) -> Result<()> {
+    let names = db.list_parameter_names(category)?;
+    if json {
+        #[derive(Serialize)]
+        struct Out { parameters: Vec<String> }
+        print_json(&Out { parameters: names });
+    } else if names.is_empty() {
+        println!("No parameters found");
+    } else {
+        println!("Parameters ({}):", names.len());
+        for n in &names { println!("  {}", n); }
+    }
     Ok(())
 }

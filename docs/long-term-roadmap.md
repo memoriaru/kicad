@@ -8,7 +8,7 @@
 |------|------|--------|
 | kicad-json5 (原理图编译) | 可用 | 85% |
 | kicad-render (SVG 渲染) | 可用 | 75% |
-| kicad-cdb (元件数据库) | Pipeline + spec 导出完成 | 80% |
+| kicad-cdb (元件数据库) | CLI --json + MCP Server + 代码重构 | 90% |
 | kicad-symgen (符号/封装生成) | 独立 CLI，智能布局 + 封装模板 | 45% |
 | 设计规则 Skill 系统 | Pipeline 链式调用 + 决策追溯 | 75% |
 | 拓扑选型与参数推导 | 9 拓扑 + 选型引擎 | 55% |
@@ -118,7 +118,7 @@
 - [x] **独立 crate 架构**：kicad-symgen 与 kicad-cdb 零交叉依赖，通过 JSON5 spec 文件协作
 - [x] **智能引脚布局**：按电气类型自动分类（电源→顶部，地→底部，输入→左侧，输出→右侧）
 - [x] **封装模板**：DIP/SOIC/TSSOP/SOP/MSOP/SOT-23/SOT-223
-- [ ] **更多封装模板**：QFP/QFN/BGA/WLCSP/DFN/QFN-EP 等
+- [x] **更多封装模板**：QFP/QFN/BGA/DFN 等已添加
 - [ ] **符号图形丰富化**：op-amp 三角形、MCU 功能分区等特殊图形
 - [ ] **批量库生成**：从元件列表批量生成完整 .kicad_sym 库文件
 
@@ -139,7 +139,7 @@
 - [x] **在线元件搜索**：`cdb hqsearch "74hc04"` → 华秋 API → 返回候选列表
 - [x] **按需拉取**：`cdb fetch --mpn MCP6444T-E/ST --mfg-id 4901` → 参数+pin+符号一键入库
 - [x] **拓扑选型**：`cdb suggest --vin 12 --vout 3.3 --iout 2` → 推荐 Buck/Boost/LDO/SEPIC 等
-- [ ] **AI 查询接口**：让 Claude/LLM 通过自然语言查询元件库
+- [x] **AI 查询接口**：CLI `--json` 模式 + MCP Server (`cdb serve`)，9 个 tools，Claude 直接查询元件库
 - [ ] **元件推荐**：根据设计规则自动推荐满足约束的元件
 - [ ] **参数对比**：多个候选元件的参数并排对比
 
@@ -198,8 +198,8 @@
 | **P3** | ~~Track C: IC 核心模板 + 模块化组合~~ | ✅ 已完成 | 8 个 IC 模板 + 华秋 API pin 获取 + CCD 全板组合验证 |
 | **P3** | ~~Skill 链式调用 + 设计决策追溯~~ | ✅ 已完成 | 4 条 pipeline + DesignLog JSON 输出 |
 | **P3** | ~~kicad-symgen 与 cdb 集成~~ | ✅ 已完成 | 三 crate 独立架构 + JSON5 spec 桥接 |
-| **P3** | AI 查询接口（自然语言 → SQL） | 未开始 | 让 AI 直接调 cdb CLI 或 API |
-| **P4** | 封装模板补全（QFP/QFN/BGA） | 未开始 | 覆盖更多常见封装 |
+| **P3** | ~~AI 查询接口（自然语言 → SQL）~~ | ✅ 已完成 | CLI --json + MCP Server (9 tools) + service.rs 重构 |
+| **P4** | ~~封装模板补全（QFP/QFN/BGA）~~ | ✅ 已完成 | kicad-symgen QFP/QFN/DFN/BGA 模板 |
 | **P4** | PCB 输出 (.kicad_pcb) | 未开始 | 最大的单项工程 |
 | **P4** | ERC/DRC 集成 | 未开始 | 需要 KiCad CLI 或 headless 运行 |
 | **P5** | 交互式 SVG / PDF 导出 | 未开始 | 用户体验提升，非核心功能 |
@@ -216,10 +216,11 @@
 - [x] ~~kicad-symgen：magic number~~ — 已提取为模块级常量
 - [x] ~~所有 crate：裸 `unwrap()` 替换为 `expect()`/`context()`~~ — 生产代码已清理
 - [x] ~~kicad-cdb：hqapi 集成测试（需要网络，当前仅有单元测试）~~ — 已完成（下载测试 + 测试 DB 切换为正式 DB）
-- [x] ~~kicad-cdb：query.rs 未使用变量警告~~ — 变量已正确使用，警告不存在
+- [x] ~~kicad-cdb：query.rs 未使用变量警告~~ — 已加 `_` 前缀
 - [x] ~~kicad-symgen：独立 CLI，不依赖 workspace 其他 crate~~ — 已确认零 workspace 依赖
-- [ ] kicad-cdb：hqapi::ApiError 死代码警告
-- [ ] kicad-cdb：pipeline.rs Context 未使用导入
+- [x] ~~kicad-cdb：hqapi::ApiError 死代码~~ — 已删除
+- [x] ~~kicad-cdb：pipeline.rs Context 未使用导入~~ — 已删除
+- [x] ~~cdb.rs 代码重复~~ — 提取 service.rs，消除 6x 参数解析、4x SQL、2x 查询过滤链重复
 - [ ] 所有 crate：缺少 CI/CD 配置
 
 ---

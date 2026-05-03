@@ -11,6 +11,8 @@ pub mod ic_template;
 pub mod composition;
 pub mod design;
 pub mod pipeline;
+pub mod mcp;
+pub mod service;
 
 pub use db::ComponentDb;
 pub use models::*;
