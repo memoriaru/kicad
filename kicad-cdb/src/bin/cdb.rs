@@ -86,7 +86,7 @@ enum Commands {
         candidate: Option<String>,
     },
 
-    /// Export component(s) as KiCad .kicad_sym
+    /// Export component(s) as KiCad .kicad_sym or JSON5 spec
     Export {
         /// MPN to export
         #[arg(long)]
@@ -95,6 +95,10 @@ enum Commands {
         /// Category to export (all components in category)
         #[arg(long)]
         category: Option<String>,
+
+        /// Output format: kicad_sym (default) or spec (JSON5 for symgen)
+        #[arg(long, default_value = "kicad_sym")]
+        format: String,
 
         /// Output file path
         #[arg(short, long)]
@@ -263,8 +267,8 @@ fn main() -> Result<()> {
         Commands::Check { rule, params, candidate } => {
             cmd_check(&db, &rule, &params, candidate.as_deref())
         }
-        Commands::Export { mpn, category, output } => {
-            cmd_export(&db, mpn.as_deref(), category.as_deref(), &output)
+        Commands::Export { mpn, category, format, output } => {
+            cmd_export(&db, mpn.as_deref(), category.as_deref(), &format, &output)
         }
         Commands::Fetch { mpn, mfg_id } => {
             cmd_fetch(&db, &mpn, mfg_id.as_deref())
@@ -540,7 +544,7 @@ fn cmd_check(db: &ComponentDb, rule_name: &str, params_str: &str, candidate: Opt
     Ok(())
 }
 
-fn cmd_export(db: &ComponentDb, mpn: Option<&str>, category: Option<&str>, output: &str) -> Result<()> {
+fn cmd_export(db: &ComponentDb, mpn: Option<&str>, category: Option<&str>, format: &str, output: &str) -> Result<()> {
     let components = match (mpn, category) {
         (Some(mpn), _) => {
             let comp = db.get_component_by_mpn(mpn, "")?;
@@ -570,13 +574,107 @@ fn cmd_export(db: &ComponentDb, mpn: Option<&str>, category: Option<&str>, outpu
         anyhow::bail!("No components found to export");
     }
 
+    match format {
+        "spec" => cmd_export_spec(db, &components, output),
+        "kicad_sym" | _ => cmd_export_kicad_sym(db, &components, output),
+    }
+}
+
+/// Export as JSON5 SymbolSpec format (for symgen consumption)
+fn cmd_export_spec(db: &ComponentDb, components: &[kicad_cdb::Component], output: &str) -> Result<()> {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct SpecOutput {
+        mpn: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        lib_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reference_prefix: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        datasheet_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        footprint: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        manufacturer: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        package: Option<String>,
+        pins: Vec<SpecPin>,
+    }
+
+    #[derive(Serialize)]
+    struct SpecPin {
+        number: String,
+        name: String,
+        #[serde(rename = "type")]
+        pin_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        alt_functions: Option<Vec<String>>,
+    }
+
+    let mut out = String::new();
+    for comp in components {
+        let id = comp.id.unwrap();
+        let db_pins = db.get_pins(id)?;
+
+        let pins: Vec<SpecPin> = db_pins.into_iter().map(|p| SpecPin {
+            number: p.pin_number,
+            name: p.pin_name,
+            pin_type: p.electrical_type.unwrap_or_else(|| "passive".into()),
+            group: p.pin_group,
+            alt_functions: p.alt_functions,
+        }).collect();
+
+        let spec = SpecOutput {
+            mpn: comp.mpn.clone(),
+            lib_name: comp.kicad_symbol.as_ref()
+                .and_then(|s| s.split(':').next())
+                .map(|s| s.to_string()),
+            reference_prefix: comp.kicad_symbol.as_ref()
+                .and_then(|s| s.split(':').last())
+                .map(|s| infer_ref_prefix(s).into()),
+            description: comp.description.clone(),
+            datasheet_url: comp.datasheet_url.clone(),
+            footprint: comp.kicad_footprint.clone(),
+            manufacturer: Some(comp.manufacturer.clone()),
+            package: comp.package.clone(),
+            pins,
+        };
+
+        out.push_str(&serde_json::to_string_pretty(&spec)?);
+        out.push_str("\n");
+    }
+
+    std::fs::write(output, &out)?;
+    println!("Exported {} spec(s) → {}", components.len(), output);
+    Ok(())
+}
+
+fn infer_ref_prefix(symbol_name: &str) -> String {
+    let upper = symbol_name.to_uppercase();
+    if upper.starts_with("R") && !upper.starts_with("REG") && !upper.contains("RELAY") { return "R".into(); }
+    if upper.starts_with("C") && !upper.starts_with("CONN") && !upper.starts_with("CRYSTAL") { return "C".into(); }
+    if upper.starts_with("L") && !upper.starts_with("LED") && !upper.starts_with("LCD") { return "L".into(); }
+    if upper.starts_with("LED") { return "D".into(); }
+    if upper.starts_with("D") && !upper.starts_with("DIP") { return "D".into(); }
+    if upper.starts_with("CONN") || upper.starts_with("J") { return "J".into(); }
+    if upper.starts_with("SW") { return "SW".into(); }
+    if upper.starts_with("CRYSTAL") || upper.starts_with("XTAL") { return "Y".into(); }
+    "U".into()
+}
+
+fn cmd_export_kicad_sym(db: &ComponentDb, components: &[kicad_cdb::Component], output: &str) -> Result<()> {
     // Generate .kicad_sym
     let mut out = String::new();
     out.push_str("(kicad_symbol_lib\n");
     out.push_str("  (version \"20231120\")\n");
     out.push_str("  (generator \"component-db\")\n");
 
-    for comp in &components {
+    for comp in components {
         let id = comp.id.unwrap();
         let pins = db.get_pins(id)?;
         let name = comp.mpn.replace('.', "_");

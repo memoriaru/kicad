@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::Path;
 
 use kicad_symgen::input;
 use kicad_symgen::model::*;
@@ -11,7 +10,7 @@ use kicad_symgen::symbol::sexpr as sym_sexpr;
 use kicad_symgen::lib_table;
 
 #[derive(Parser)]
-#[command(name = "symgen", about = "KiCad symbol and footprint generator for AI-assisted circuit design")]
+#[command(name = "symgen", about = "KiCad symbol and footprint generator")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -19,26 +18,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Generate a .kicad_sym symbol library file
+    /// Generate a .kicad_sym symbol library from a JSON5 spec file
     Symbol {
-        /// SQLite database path (requires --mpn or --category)
+        /// JSON5 input file
         #[arg(long)]
-        db: Option<String>,
-        /// Component MPN to export (requires --db)
-        #[arg(long)]
-        mpn: Option<String>,
-        /// Category to export all components (requires --db)
-        #[arg(long)]
-        category: Option<String>,
-        /// JSON5 input file (alternative to --db)
-        #[arg(long)]
-        input: Option<String>,
+        input: String,
         /// Output .kicad_sym file path
         #[arg(short, long)]
         output: String,
-        /// Library name prefix (default: "custom")
-        #[arg(long, default_value = "custom")]
-        lib_name: String,
+        /// Library name prefix (default: from spec)
+        #[arg(long)]
+        lib_name: Option<String>,
         /// KiCad version: 7, 8, 9, 10 (default: 8)
         #[arg(long, default_value = "8")]
         kicad_version: u8,
@@ -69,90 +59,38 @@ enum Commands {
         #[arg(long)]
         dir: String,
     },
-
-    /// Batch generate symbols and footprints from database
-    Batch {
-        /// SQLite database path
-        #[arg(long)]
-        db: String,
-        /// Category to export
-        #[arg(long)]
-        category: String,
-        /// Output directory
-        #[arg(long)]
-        output_dir: String,
-        /// Library name prefix
-        #[arg(long, default_value = "custom")]
-        lib_name: String,
-        /// Also generate footprints
-        #[arg(long)]
-        with_footprints: bool,
-        /// KiCad version
-        #[arg(long, default_value = "8")]
-        kicad_version: u8,
-    },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Symbol {
-            db, mpn, category, input, output, lib_name, kicad_version,
-        } => cmd_symbol(db, mpn, category, input, &output, &lib_name, kicad_version),
-        Commands::Footprint {
-            package, pitch, row_spacing, output, kicad_version,
-        } => cmd_footprint(&package, pitch, row_spacing, &output, kicad_version),
+        Commands::Symbol { input, output, lib_name, kicad_version } => {
+            cmd_symbol(&input, &output, lib_name.as_deref(), kicad_version)
+        }
+        Commands::Footprint { package, pitch, row_spacing, output, kicad_version } => {
+            cmd_footprint(&package, pitch, row_spacing, &output, kicad_version)
+        }
         Commands::LibTable { dir } => cmd_lib_table(&dir),
-        Commands::Batch {
-            db, category, output_dir, lib_name, with_footprints, kicad_version,
-        } => cmd_batch(&db, &category, &output_dir, &lib_name, with_footprints, kicad_version),
     }
 }
 
 fn cmd_symbol(
-    db: Option<String>,
-    mpn: Option<String>,
-    category: Option<String>,
-    input_file: Option<String>,
+    input_file: &str,
     output: &str,
-    lib_name: &str,
+    lib_name: Option<&str>,
     kicad_version: u8,
 ) -> Result<()> {
     let version = KicadVersion::from_u8(kicad_version);
-    let mut specs = Vec::new();
-
-    match (input_file, &db, &mpn, &category) {
-        (Some(path), _, _, _) => {
-            specs.push(input::from_json5_file(&path)?);
-        }
-        (_, Some(db_path), Some(mpn_val), _) => {
-            let cdb = kicad_cdb::ComponentDb::open(db_path)?;
-            let mut spec = input::from_database(&cdb, mpn_val)?;
-            if lib_name != "custom" { spec.lib_name = lib_name.to_string(); }
-            specs.push(spec);
-        }
-        (_, Some(db_path), _, Some(cat)) => {
-            let cdb = kicad_cdb::ComponentDb::open(db_path)?;
-            let mut batch = input::from_database_category(&cdb, cat)?;
-            if lib_name != "custom" {
-                for spec in &mut batch { spec.lib_name = lib_name.to_string(); }
-            }
-            specs = batch;
-        }
-        _ => anyhow::bail!("Specify --input <file> or --db <path> with --mpn or --category"),
+    let mut spec = input::from_json5_file(input_file)?;
+    if let Some(name) = lib_name {
+        spec.lib_name = name.to_string();
     }
 
-    if specs.is_empty() {
-        anyhow::bail!("No components found to export");
-    }
-
-    let content = sym_sexpr::generate_symbol_lib(&specs, version);
+    let content = sym_sexpr::generate_symbol_lib(&[spec.clone()], version);
     std::fs::write(output, &content)?;
-    println!("Generated {} symbol(s) → {}", specs.len(), output);
-    for spec in &specs {
-        println!("  {} ({}, {} pins)", spec.mpn, spec.lib_id(), spec.pins.len());
-    }
+    println!("Generated {} symbol → {}", spec.mpn, output);
+    println!("  {} ({}, {} pins)", spec.mpn, spec.lib_id(), spec.pins.len());
     Ok(())
 }
 
@@ -201,7 +139,7 @@ fn cmd_footprint(
 }
 
 fn cmd_lib_table(dir: &str) -> Result<()> {
-    let dir_path = Path::new(dir);
+    let dir_path = std::path::Path::new(dir);
 
     let sym_libs = lib_table::scan_sym_libraries(dir_path)?;
     let fp_libs = lib_table::scan_fp_libraries(dir_path)?;
@@ -224,70 +162,6 @@ fn cmd_lib_table(dir: &str) -> Result<()> {
 
     if sym_libs.is_empty() && fp_libs.is_empty() {
         println!("No libraries found in {}", dir);
-    }
-    Ok(())
-}
-
-fn cmd_batch(
-    db_path: &str,
-    category: &str,
-    output_dir: &str,
-    lib_name: &str,
-    with_footprints: bool,
-    kicad_version: u8,
-) -> Result<()> {
-    let version = KicadVersion::from_u8(kicad_version);
-    let cdb = kicad_cdb::ComponentDb::open(db_path)?;
-
-    let mut specs = input::from_database_category(&cdb, category)?;
-    if lib_name != "custom" {
-        for spec in &mut specs { spec.lib_name = lib_name.to_string(); }
-    }
-
-    if specs.is_empty() {
-        anyhow::bail!("No components found in category '{}'", category);
-    }
-
-    std::fs::create_dir_all(output_dir)?;
-
-    let content = sym_sexpr::generate_symbol_lib(&specs, version);
-    let sym_path = Path::new(output_dir).join(format!("{}.kicad_sym", lib_name));
-    std::fs::write(&sym_path, &content)?;
-    println!("Generated {} symbols → {}", specs.len(), sym_path.display());
-    for spec in &specs { println!("  {} ({} pins)", spec.mpn, spec.pins.len()); }
-
-    if with_footprints {
-        let fp_dir = Path::new(output_dir).join(format!("{}.pretty", lib_name));
-        std::fs::create_dir_all(&fp_dir)?;
-
-        let mut fp_count = 0;
-        for spec in &specs {
-            if let Some(ref pkg) = spec.package {
-                if let (Some(pkg_type), Some(pin_count)) = (PackageType::from_package_str(pkg), extract_pin_count(pkg)) {
-                    let fp_spec = FootprintSpec {
-                        name: pkg.clone(),
-                        package_type: pkg_type,
-                        pin_count,
-                        pitch: default_pitch_for_package(&pkg_type),
-                        row_spacing: None,
-                        options: FootprintOptions::default(),
-                    };
-
-                    if let Some(result) = templates::generate_from_spec(&fp_spec) {
-                        let fp_content = fp_sexpr::generate_footprint(
-                            &result.name, &result.description, &result.tags,
-                            result.is_through_hole, &result.pads, &[], None, version,
-                        );
-                        let fp_path = fp_dir.join(format!("{}.kicad_mod", result.name));
-                        std::fs::write(&fp_path, &fp_content)?;
-                        fp_count += 1;
-                    }
-                }
-            }
-        }
-        if fp_count > 0 {
-            println!("Generated {} footprints → {}", fp_count, fp_dir.display());
-        }
     }
     Ok(())
 }
