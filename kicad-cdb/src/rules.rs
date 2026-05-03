@@ -276,12 +276,31 @@ impl ComponentDb {
             ctx.set(name, value);
         }
 
-        // Evaluate formula
+        // Evaluate condition gate (if present, rule is skipped when false)
+        if let Some(condition) = &rule.condition_expr {
+            if !condition.trim().is_empty() {
+                let should_apply = ctx.eval_check(condition)?;
+                if !should_apply {
+                    return Ok(RuleResult {
+                        pass: true,
+                        outputs: HashMap::new(),
+                        check_expression: format!("(skipped: condition '{}' not met)", condition),
+                    });
+                }
+            }
+        }
+
+        // Evaluate formula(s) — semicolon-separated multi-assignment support
         let mut outputs = HashMap::new();
         if let Some(formula) = &rule.formula_expr {
-            let results = ctx.eval_formula(formula)?;
-            for (name, value) in results {
-                outputs.insert(name, value);
+            for stmt in formula.split(';') {
+                let stmt = stmt.trim();
+                if !stmt.is_empty() {
+                    let results = ctx.eval_formula(stmt)?;
+                    for (name, value) in results {
+                        outputs.insert(name, value);
+                    }
+                }
             }
         }
 

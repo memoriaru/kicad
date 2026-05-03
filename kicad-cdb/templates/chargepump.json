@@ -1,0 +1,45 @@
+{
+  "name": "chargepump",
+  "description": "Charge pump voltage doubler circuit",
+  "inputs": ["vin", "vout", "iout_max"],
+  "components": [
+    {
+      "role": "controller",
+      "rules": []
+    },
+    {
+      "role": "c_fly",
+      "lib": "Device:C",
+      "value": "1uF",
+      "rules": ["chargepump_flying_cap"],
+      "params": { "iout": "$iout_max", "fsw": 100000, "ripple_v": 0.05 }
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10uF",
+      "rules": ["cap_voltage_derating"],
+      "params": { "voperating": "$vin", "derating_factor": 2.0 }
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "10uF",
+      "rules": ["chargepump_output_cap"],
+      "params": { "iout": "$iout_max", "fsw": 100000, "ripple_v": 0.05 }
+    }
+  ],
+  "connections": [
+    { "net": "VIN",  "pins": ["controller.VIN", "c_in.1"] },
+    { "net": "GND",  "pins": ["controller.GND", "c_in.2", "c_out.2"] },
+    { "net": "C+",   "pins": ["controller.CP", "c_fly.1"] },
+    { "net": "C-",   "pins": ["controller.CN", "c_fly.2"] },
+    { "net": "VOUT", "pins": ["controller.VOUT", "c_out.1"] }
+  ],
+  "layout": {
+    "controller": { "x": 50.8,  "y": 50.8 },
+    "c_in":       { "x": 33.02, "y": 50.8 },
+    "c_fly":      { "x": 50.8,  "y": 33.02 },
+    "c_out":      { "x": 76.2,  "y": 50.8 }
+  }
+}

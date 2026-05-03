@@ -1,0 +1,50 @@
+{
+  "name": "buck",
+  "description": "Buck (step-down) converter circuit",
+  "inputs": ["vin", "vout", "iout_max"],
+  "components": [
+    {
+      "role": "controller",
+      "rules": []
+    },
+    {
+      "role": "l_out",
+      "lib": "Device:L",
+      "value": "10uH",
+      "rules": ["buck_inductor_selection"],
+      "params": { "vin": "$vin", "vout": "$vout", "iout": "$iout_max", "fsw": 500000, "ripple_ratio": 0.3 }
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10uF",
+      "rules": ["cap_voltage_derating"],
+      "params": { "voperating": "$vin", "derating_factor": 2.0 }
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "22uF",
+      "rules": ["cap_voltage_derating"],
+      "params": { "voperating": "$vout", "derating_factor": 2.0 }
+    },
+    {
+      "role": "d_catch",
+      "lib": "Device:D",
+      "value": "SS34"
+    }
+  ],
+  "connections": [
+    { "net": "VIN",  "pins": ["controller.VIN", "c_in.1"] },
+    { "net": "GND",  "pins": ["controller.GND", "c_in.2", "c_out.2", "d_catch.A"] },
+    { "net": "SW",   "pins": ["controller.SW", "l_out.1", "d_catch.K"] },
+    { "net": "VOUT", "pins": ["l_out.2", "c_out.1"] }
+  ],
+  "layout": {
+    "controller": { "x": 50.8, "y": 50.8 },
+    "c_in":       { "x": 33.02, "y": 50.8 },
+    "l_out":      { "x": 76.2,  "y": 50.8 },
+    "c_out":      { "x": 96.52, "y": 50.8 },
+    "d_catch":    { "x": 76.2,  "y": 68.58 }
+  }
+}

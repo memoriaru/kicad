@@ -1,0 +1,65 @@
+{
+  "name": "sepic",
+  "description": "SEPIC converter (step-up/step-down, non-inverting)",
+  "inputs": ["vin", "vout", "iout_max"],
+  "components": [
+    {
+      "role": "controller",
+      "rules": []
+    },
+    {
+      "role": "l1",
+      "lib": "Device:L",
+      "value": "10uH",
+      "rules": ["sepic_inductor_selection"],
+      "params": { "vin": "$vin", "vout": "$vout", "iout": "$iout_max", "fsw": 500000, "ripple_ratio": 0.3 }
+    },
+    {
+      "role": "l2",
+      "lib": "Device:L",
+      "value": "10uH"
+    },
+    {
+      "role": "c_coupling",
+      "lib": "Device:C",
+      "value": "1uF",
+      "rules": ["sepic_coupling_cap"],
+      "params": { "iout": "$iout_max", "vin": "$vin", "vout": "$vout", "fsw": 500000, "ripple_v_coup": 0.1 }
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10uF",
+      "rules": ["cap_voltage_derating"],
+      "params": { "voperating": "$vin", "derating_factor": 2.0 }
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "22uF",
+      "rules": ["sepic_output_capacitor"],
+      "params": { "iout": "$iout_max", "vin": "$vin", "vout": "$vout", "fsw": 500000, "ripple_v": 0.05 }
+    },
+    {
+      "role": "d_out",
+      "lib": "Device:D",
+      "value": "SS34"
+    }
+  ],
+  "connections": [
+    { "net": "VIN",  "pins": ["controller.VIN", "c_in.1", "l1.1"] },
+    { "net": "GND",  "pins": ["controller.GND", "c_in.2", "l2.2", "c_out.2"] },
+    { "net": "SW",   "pins": ["controller.SW", "l1.2", "c_coupling.1"] },
+    { "net": "CS",   "pins": ["c_coupling.2", "l2.1", "d_out.A"] },
+    { "net": "VOUT", "pins": ["d_out.K", "c_out.1"] }
+  ],
+  "layout": {
+    "controller":  { "x": 50.8,  "y": 50.8 },
+    "c_in":        { "x": 33.02, "y": 50.8 },
+    "l1":          { "x": 33.02, "y": 33.02 },
+    "l2":          { "x": 50.8,  "y": 33.02 },
+    "c_coupling":  { "x": 63.5,  "y": 33.02 },
+    "d_out":       { "x": 76.2,  "y": 50.8 },
+    "c_out":       { "x": 96.52, "y": 50.8 }
+  }
+}

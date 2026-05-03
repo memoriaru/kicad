@@ -1,0 +1,45 @@
+{
+  "name": "buckboost",
+  "description": "Non-inverting Buck-Boost converter",
+  "inputs": ["vin", "vout", "iout_max"],
+  "components": [
+    {
+      "role": "controller",
+      "rules": []
+    },
+    {
+      "role": "l_main",
+      "lib": "Device:L",
+      "value": "10uH",
+      "rules": ["buckboost_inductor_selection"],
+      "params": { "vin": "$vin", "vout": "$vout", "iout": "$iout_max", "fsw": 500000, "ripple_ratio": 0.3 }
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10uF",
+      "rules": ["cap_voltage_derating"],
+      "params": { "voperating": "$vin", "derating_factor": 2.0 }
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "22uF",
+      "rules": ["buckboost_output_capacitor"],
+      "params": { "iout": "$iout_max", "vin": "$vin", "vout": "$vout", "fsw": 500000, "ripple_v": 0.05 }
+    }
+  ],
+  "connections": [
+    { "net": "VIN",  "pins": ["controller.VIN", "c_in.1"] },
+    { "net": "GND",  "pins": ["controller.GND", "c_in.2", "c_out.2"] },
+    { "net": "SW1",  "pins": ["controller.SW1", "l_main.1"] },
+    { "net": "SW2",  "pins": ["controller.SW2", "l_main.2"] },
+    { "net": "VOUT", "pins": ["c_out.1"] }
+  ],
+  "layout": {
+    "controller": { "x": 50.8,  "y": 50.8 },
+    "c_in":       { "x": 33.02, "y": 50.8 },
+    "l_main":     { "x": 76.2,  "y": 50.8 },
+    "c_out":      { "x": 96.52, "y": 50.8 }
+  }
+}
