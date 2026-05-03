@@ -65,14 +65,16 @@ kicad-render/
 │   │   ├── wire_painter.rs     # 导线/总线渲染
 │   │   ├── symbol_painter.rs   # 元件符号渲染
 │   │   ├── label_painter.rs    # 标签渲染（local/global/hierarchical）
-│   │   └── junction_painter.rs # 结点渲染
-│   ├── layer.rs                # 图层管理
+│   │   ├── junction_painter.rs # 结点渲染
+│   │   └── sheet_painter.rs    # Sheet symbol 渲染
+│   ├── layer/                  # 图层管理
 │   ├── text.rs                 # 文本渲染和标记处理
 │   ├── bridge.rs               # kicad-json5 IR → 渲染类型转换
 │   └── constants.rs            # 渲染常量和 KiCad 主题色
-├── MODULE_REVIEW.md            # JS→Rust 移植对比审计
-├── MIGRATION_AUDIT.md          # 移植变更记录
-└── tests/
+├── tests/
+│   ├── sch_render.rs           # 真实 .kicad_sch 渲染集成测试
+│   └── svg_render_test.rs      # SVG 渲染单元测试
+└── MODULE_REVIEW.md            # JS→Rust 移植对比审计
 ```
 
 ### 渲染管线
@@ -83,7 +85,8 @@ kicad-render/
                                                   ├── SymbolPainter
                                                   ├── PinPainter
                                                   ├── LabelPainter
-                                                  └── JunctionPainter
+                                                  ├── JunctionPainter
+                                                  └── SheetPainter
                                               → SVG 输出
 ```
 
@@ -113,3 +116,14 @@ cargo build --features wasm --target wasm32-unknown-unknown
 ```
 kicad-json5 (解析/编译)  →  kicad-render (渲染/可视化)
 ```
+
+## 致谢
+
+本项目基于以下开源项目的渲染逻辑开发：
+
+- [**KiCanvas**](https://github.com/theacodes/kicanvas) — KiCad 原理图/PCB 浏览器渲染器，本项目的 Painter 层架构和渲染算法均从其 TypeScript/JS 代码 1:1 移植
+- [**ecad-viewer**](https://github.com/AbijahKecadan/ecad-viewer) — 基于 KiCanvas 的 KiCad 文件在线查看器
+
+## License
+
+MIT
