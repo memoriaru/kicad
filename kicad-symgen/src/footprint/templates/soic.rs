@@ -10,8 +10,7 @@ pub fn generate_soic(spec: &FootprintSpec) -> Option<TemplateResult> {
     let pitch = if spec.pitch > 0.0 { spec.pitch } else { 1.27 };
     let row_spacing = spec.row_spacing.unwrap_or(match spec.package_type {
         PackageType::Tssop => 6.4,
-        PackageType::Sop => 8.0,
-        PackageType::MsoP => 5.4,
+        PackageType::Sop | PackageType::MsoP => 8.0,
         _ => 5.4, // SOIC default
     });
     let pad_size = spec.options.pad_size.unwrap_or(match spec.package_type {
