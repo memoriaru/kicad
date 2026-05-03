@@ -198,7 +198,8 @@ impl SymbolPainter {
     /// Paint a DNP (Do Not Populate) cross over the symbol body.
     /// KiCad draws two diagonal lines forming an X across the body bounding box (pins excluded).
     fn paint_dnp_cross(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(LayerId::SymbolForeground).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolForeground)
+            .expect("SymbolForeground layer missing from LayerSet");
         let body_bbox = self.body_bbox();
         if body_bbox.is_empty() {
             return;
@@ -286,8 +287,6 @@ impl SymbolPainter {
         pos: Option<(f64, f64)>,
         fallback_offset_y: f64,
         prop_rotation: f64,
-        _h_align: &str,
-        _v_align: &str,
         hidden: bool,
         skip_if_hash: bool,
         color: Color,
@@ -296,7 +295,8 @@ impl SymbolPainter {
             return;
         }
 
-        let layer = layers.get_layer_mut(LayerId::SymbolForeground).unwrap();
+        let layer = layers.get_layer_mut(LayerId::SymbolForeground)
+            .expect("SymbolForeground layer missing from LayerSet");
 
         let anchor_pos = if let Some((x, y)) = pos {
             self.property_world_pos(x, y)
@@ -374,8 +374,6 @@ impl Painter for SymbolPainter {
             self.symbol.reference_position,
             -2.54,
             self.symbol.reference_rotation,
-            self.symbol.reference_h_align,
-            self.symbol.reference_v_align,
             self.symbol.reference_hidden,
             true,
             self.reference_color,
@@ -386,8 +384,6 @@ impl Painter for SymbolPainter {
             self.symbol.value_position,
             2.54,
             self.symbol.value_rotation,
-            self.symbol.value_h_align,
-            self.symbol.value_v_align,
             self.symbol.value_hidden,
             false,
             self.value_color,
@@ -398,8 +394,6 @@ impl Painter for SymbolPainter {
             self.symbol.footprint_position,
             5.08,
             self.symbol.footprint_rotation,
-            "middle",
-            "central",
             self.symbol.footprint_hidden,
             false,
             self.footprint_color,

@@ -1,4 +1,4 @@
-use component_db::*;
+use kicad_cdb::*;
 use pretty_assertions::assert_eq;
 
 fn seed_rules_db() -> ComponentDb {
@@ -76,7 +76,7 @@ fn test_load_rule() {
 #[test]
 fn test_evaluate_simple_formula() {
     let db = seed_rules_db();
-    let mut ctx = component_db::rules::EvalContext::new();
+    let mut ctx = kicad_cdb::rules::EvalContext::new();
     ctx.set("vin", 12.0);
     ctx.set("vout", 5.0);
     ctx.set("fsw", 500e3);
@@ -91,7 +91,7 @@ fn test_evaluate_simple_formula() {
 
 #[test]
 fn test_evaluate_assignment() {
-    let mut ctx = component_db::rules::EvalContext::new();
+    let mut ctx = kicad_cdb::rules::EvalContext::new();
     ctx.set("vin", 12.0);
     ctx.set("vout", 5.0);
 
@@ -104,7 +104,7 @@ fn test_evaluate_assignment() {
 
 #[test]
 fn test_check_constraint_pass() {
-    let mut ctx = component_db::rules::EvalContext::new();
+    let mut ctx = kicad_cdb::rules::EvalContext::new();
     ctx.set("dropout", 7.0);
     ctx.set("vdropout_max", 0.5);
 
@@ -115,7 +115,7 @@ fn test_check_constraint_pass() {
 
 #[test]
 fn test_check_constraint_fail() {
-    let mut ctx = component_db::rules::EvalContext::new();
+    let mut ctx = kicad_cdb::rules::EvalContext::new();
     ctx.set("dropout", 0.3);
     ctx.set("vdropout_max", 0.5);
 
@@ -132,7 +132,7 @@ fn test_buck_inductor_rule_e2e() {
     ).unwrap().into_iter().next().unwrap();
 
     // Design parameters: 12V→5V, 2A, 500kHz, 30% ripple
-    let mut ctx = component_db::rules::EvalContext::new();
+    let mut ctx = kicad_cdb::rules::EvalContext::new();
     ctx.set("vin", 12.0);
     ctx.set("vout", 5.0);
     ctx.set("iout", 2.0);
@@ -165,7 +165,7 @@ fn test_ldo_dropout_rule_e2e() {
     ).unwrap().into_iter().next().unwrap();
 
     // 3.3V LDO from 5V input, max dropout 0.5V
-    let mut ctx = component_db::rules::EvalContext::new();
+    let mut ctx = kicad_cdb::rules::EvalContext::new();
     ctx.set("vin", 5.0);
     ctx.set("vout", 3.3);
     ctx.set("vdropout_max", 0.5);
@@ -187,7 +187,7 @@ fn test_cap_derating_rule_e2e() {
     ).unwrap().into_iter().next().unwrap();
 
     // 3.3V operating, 2x derating → need >= 6.6V rating
-    let mut ctx = component_db::rules::EvalContext::new();
+    let mut ctx = kicad_cdb::rules::EvalContext::new();
     ctx.set("voperating", 3.3);
     ctx.set("derating_factor", 2.0);
 

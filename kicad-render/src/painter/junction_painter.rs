@@ -58,7 +58,7 @@ impl JunctionPainter {
 
     /// Paint a single junction
     fn paint_junction(&self, layers: &mut LayerSet, junction: &Junction) {
-        let layer = layers.get_layer_mut(LayerId::Junctions).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Junctions).expect("Junctions layer missing from LayerSet");
 
         let circle = Circle::new(junction.position, junction.radius())
             .with_fill(Fill::solid(self.color));

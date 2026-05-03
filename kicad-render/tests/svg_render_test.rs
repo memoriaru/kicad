@@ -59,6 +59,7 @@ fn create_test_schematic_layers() -> LayerSet {
         text: "VIN".to_string(),
         shape: LabelShape::Passive,
         font_size: 1.27,
+        custom_color: None,
     };
     let label_painter = LabelPainter::new(label, wire_color);
     label_painter.paint(&mut layers);
@@ -354,6 +355,7 @@ fn test_label_painter() {
         text: "VCC".to_string(),
         shape: LabelShape::Input,
         font_size: 1.27,
+        custom_color: None,
     };
     let painter = LabelPainter::new(label, Color::red());
     painter.paint(&mut layers);

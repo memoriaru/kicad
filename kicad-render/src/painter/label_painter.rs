@@ -67,7 +67,7 @@ impl LabelPainter {
     /// For global/hierarchical labels, offset text past the shape so it doesn't overlap.
     /// KiCad places text to the right of the shape at the connection point.
     fn paint_label_text(&self, layers: &mut LayerSet) {
-        let layer = layers.get_layer_mut(LayerId::Labels).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Labels).expect("Labels layer missing from LayerSet");
 
         let text_width = self.label.text.len() as f64 * self.label.font_size * constants::CHAR_WIDTH_RATIO;
 
@@ -110,7 +110,7 @@ impl LabelPainter {
             return;
         }
 
-        let layer = layers.get_layer_mut(LayerId::Labels).unwrap();
+        let layer = layers.get_layer_mut(LayerId::Labels).expect("Labels layer missing from LayerSet");
         let pos = self.label.position;
         let stroke = Stroke::new(constants::LINE_WIDTH, self.color);
 

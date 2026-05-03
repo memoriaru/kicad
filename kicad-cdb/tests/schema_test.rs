@@ -1,4 +1,4 @@
-use component_db::ComponentDb;
+use kicad_cdb::ComponentDb;
 
 #[test]
 fn test_create_db_in_memory() {
@@ -34,7 +34,7 @@ fn test_categories_crud() {
     let db = ComponentDb::open_in_memory().unwrap();
 
     // Insert
-    let id = db.insert_category(&component_db::Category {
+    let id = db.insert_category(&kicad_cdb::Category {
         id: None,
         name: "Resistor".to_string(),
         parent_id: None,
@@ -60,21 +60,21 @@ fn test_categories_crud() {
 fn test_categories_tree() {
     let db = ComponentDb::open_in_memory().unwrap();
 
-    let parent_id = db.insert_category(&component_db::Category {
+    let parent_id = db.insert_category(&kicad_cdb::Category {
         id: None,
         name: "IC".to_string(),
         parent_id: None,
         description: None,
     }).unwrap();
 
-    let child1 = db.insert_category(&component_db::Category {
+    let child1 = db.insert_category(&kicad_cdb::Category {
         id: None,
         name: "MCU".to_string(),
         parent_id: Some(parent_id),
         description: None,
     }).unwrap();
 
-    let child2 = db.insert_category(&component_db::Category {
+    let child2 = db.insert_category(&kicad_cdb::Category {
         id: None,
         name: "FPGA".to_string(),
         parent_id: Some(parent_id),

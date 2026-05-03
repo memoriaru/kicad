@@ -162,7 +162,10 @@ impl ComponentDb {
     // --- Pin CRUD ---
 
     pub fn insert_pin(&self, pin: &Pin) -> Result<i64> {
-        let alt_json = pin.alt_functions.as_ref().map(|v| serde_json::to_string(v).unwrap());
+        let alt_json: Option<String> = match &pin.alt_functions {
+            Some(v) => Some(serde_json::to_string(v).context("Failed to serialize pin alt_functions")?),
+            None => None,
+        };
         self.conn.execute(
             "INSERT INTO pins (component_id, pin_number, pin_name, pin_group, electrical_type, alt_functions, description)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -237,7 +240,7 @@ impl ComponentDb {
                 value_numeric: row.get(3)?,
                 value_text: row.get(4)?,
                 unit: row.get(5)?,
-                typical: row.get::<_, i32>(6)? != 0,
+                typical: row.get::<_, bool>(6)?,
                 condition: row.get(7)?,
                 source_page: row.get(8)?,
             })
@@ -274,7 +277,7 @@ impl ComponentDb {
                 model_text: row.get(4)?,
                 format: row.get(5)?,
                 port_mapping: row.get(6)?,
-                verified: row.get::<_, i32>(7)? != 0,
+                verified: row.get::<_, bool>(7)?,
                 source: row.get(8)?,
                 notes: row.get(9)?,
             })

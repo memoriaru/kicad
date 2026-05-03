@@ -1,4 +1,4 @@
-use component_db::*;
+use kicad_cdb::*;
 use pretty_assertions::assert_eq;
 
 /// Helper: populate a database with test data for querying

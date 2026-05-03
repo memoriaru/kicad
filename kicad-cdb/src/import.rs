@@ -73,7 +73,7 @@ impl ComponentDb {
 
         // Resolve category
         let category_id = match self.get_category_by_name(&imp.category)? {
-            Some(cat) => cat.id.unwrap(),
+            Some(cat) => cat.id.expect("Category from DB should have an ID"),
             None => {
                 if imp.auto_create_category == Some(true) {
                     self.insert_category(&Category {
@@ -98,7 +98,7 @@ impl ComponentDb {
                 existing.kicad_symbol = imp.kicad_symbol.or(existing.kicad_symbol);
                 existing.kicad_footprint = imp.kicad_footprint.or(existing.kicad_footprint);
                 self.update_component(&existing)?;
-                existing.id.unwrap()
+                existing.id.expect("Existing component should have an ID")
             }
             None => {
                 self.insert_component(&Component {
@@ -152,7 +152,11 @@ impl ComponentDb {
         // Insert supply info
         if let Some(supplies) = imp.supply_info {
             for s in supplies {
-                let price_breaks = s.price_breaks.map(|v| serde_json::to_string(&v).unwrap());
+                let price_breaks: Option<String> = match &s.price_breaks {
+                    Some(v) => Some(serde_json::to_string(v)
+                        .context("Failed to serialize price_breaks")?),
+                    None => None,
+                };
                 self.insert_supply_info(&SupplyInfo {
                     id: None,
                     component_id: comp_id,
