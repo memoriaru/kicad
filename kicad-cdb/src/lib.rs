@@ -13,6 +13,8 @@ pub mod design;
 pub mod pipeline;
 pub mod mcp;
 pub mod service;
+pub mod bom;
+pub mod netlist;
 
 pub use db::ComponentDb;
 pub use models::*;

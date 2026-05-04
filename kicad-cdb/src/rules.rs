@@ -249,11 +249,20 @@ fn find_comparison_op(expr: &str) -> Option<(usize, &'static str)> {
     None
 }
 
+/// Parse a JSON array string like `["vin","vout"]` into Vec<String>
+fn parse_json_array(s: &Option<String>) -> Vec<String> {
+    s.as_ref()
+        .and_then(|p| serde_json::from_str::<Vec<String>>(p).ok())
+        .unwrap_or_default()
+}
+
 use crate::ComponentDb;
 
 impl ComponentDb {
     /// Apply a design rule with given input parameters.
     /// Optionally check a candidate component value against the rule.
+    /// Validates input completeness against declared `parameters` contract
+    /// and output completeness against declared `output_params` contract.
     pub fn apply_rule(
         &self,
         rule: &DesignRule,
@@ -261,6 +270,20 @@ impl ComponentDb {
         candidate_name: Option<&str>,
         candidate_value: Option<f64>,
     ) -> Result<RuleResult> {
+        // --- Input contract validation ---
+        let declared_params = parse_json_array(&rule.parameters);
+        if !declared_params.is_empty() {
+            let mut missing = Vec::new();
+            for name in &declared_params {
+                if inputs.get(name.as_str()).is_none() {
+                    missing.push(name.clone());
+                }
+            }
+            if !missing.is_empty() {
+                bail!("Missing required inputs for '{}': {}", rule.name, missing.join(", "));
+            }
+        }
+
         let mut ctx = EvalContext::new();
 
         // Load input parameters
@@ -302,6 +325,18 @@ impl ComponentDb {
                         outputs.insert(name, value);
                     }
                 }
+            }
+        }
+
+        // --- Output contract validation ---
+        let declared_outputs = parse_json_array(&rule.output_params);
+        if !declared_outputs.is_empty() {
+            let missing: Vec<String> = declared_outputs.iter()
+                .filter(|name| !outputs.contains_key(name.as_str()))
+                .cloned().collect();
+            if !missing.is_empty() {
+                bail!("Rule '{}' declared outputs {} but formula did not produce: {}",
+                    rule.name, rule.output_params.as_deref().unwrap_or("[]"), missing.join(", "));
             }
         }
 

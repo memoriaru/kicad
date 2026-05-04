@@ -295,6 +295,28 @@ enum Commands {
 
     /// Start MCP server for AI integration (stdio transport)
     Serve,
+
+    /// Generate BOM (Bill of Materials) from database
+    Bom {
+        /// Output format: csv (default) or json
+        #[arg(long, default_value = "csv")]
+        format: String,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: String,
+    },
+
+    /// Generate KiCad netlist from schematic file
+    Netlist {
+        /// Input schematic file (.kicad_sch or .json5)
+        #[arg(long)]
+        input: String,
+
+        /// Output netlist file
+        #[arg(short, long)]
+        output: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -352,6 +374,8 @@ fn main() -> Result<()> {
             cmd_list_params(&db, category.as_deref(), json)
         }
         Commands::Serve => kicad_cdb::mcp::serve(&db),
+        Commands::Bom { format, output } => cmd_bom(&db, &format, &output),
+        Commands::Netlist { input, output } => cmd_netlist(&input, &output),
     }
 }
 
@@ -1100,5 +1124,33 @@ fn cmd_list_params(db: &ComponentDb, category: Option<&str>, json: bool) -> Resu
         println!("Parameters ({}):", names.len());
         for n in &names { println!("  {}", n); }
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// bom
+// ---------------------------------------------------------------------------
+
+fn cmd_bom(db: &ComponentDb, format: &str, output: &str) -> Result<()> {
+    let entries = kicad_cdb::bom::generate_bom(db)?;
+
+    let content = match format {
+        "json" => kicad_cdb::bom::bom_to_json(&entries)?,
+        "csv" | _ => kicad_cdb::bom::bom_to_csv(&entries)?,
+    };
+
+    std::fs::write(output, &content)?;
+    println!("BOM generated: {} entries → {}", entries.len(), output);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// netlist
+// ---------------------------------------------------------------------------
+
+fn cmd_netlist(input: &str, output: &str) -> Result<()> {
+    let content = kicad_cdb::netlist::netlist_from_file(input)?;
+    std::fs::write(output, &content)?;
+    println!("Netlist generated → {}", output);
     Ok(())
 }

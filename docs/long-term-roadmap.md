@@ -8,9 +8,9 @@
 |------|------|--------|
 | kicad-json5 (原理图编译) | 可用 | 85% |
 | kicad-render (SVG 渲染) | 可用 | 75% |
-| kicad-cdb (元件数据库) | CLI --json + MCP Server + 代码重构 | 90% |
+| kicad-cdb (元件数据库) | CLI --json + MCP Server + 契约校验 + DB 迁移 + BOM/网表 | 95% |
 | kicad-symgen (符号/封装生成) | 独立 CLI，智能布局 + 封装模板 | 45% |
-| 设计规则 Skill 系统 | Pipeline 链式调用 + 决策追溯 | 75% |
+| 设计规则 Skill 系统 | Pipeline + 契约校验 + 决策追溯 | 85% |
 | 拓扑选型与参数推导 | 9 拓扑 + 选型引擎 | 55% |
 
 ---
@@ -41,7 +41,7 @@
 - [ ] **仿真模型管理**：simulation_models 表结构已有，但无导入/验证流程
 - [ ] **元件生命周期追踪**：lifecycle 字段存在但无自动更新机制
 - [ ] **参数标准化**：统一单位、命名规范（如 `capacitance` vs `Cap` vs `C`）
-- [ ] **数据库版本迁移**：schema 变更时自动迁移机制
+- [x] **数据库版本迁移**：schema 变更时自动迁移机制（user_version pragma + run_migrations）
 
 ---
 
@@ -69,7 +69,7 @@
 
 ### 未完成
 
-- [ ] **Skill 输入/输出契约**：每个 Skill 声明需要哪些输入参数、输出哪些计算结果（当前 parameters/output_params 字段已有但未被 CLI 严格校验）
+- [x] **Skill 输入/输出契约**：apply_rule() 严格校验输入完备性和输出匹配声明
 - [ ] **条件分支**：根据输入条件选择不同设计路径（如 `if iout > 2A then use Buck else use LDO`）
 - [ ] **多方案比较**：同一需求生成多个候选方案并排序
 - [ ] **信号完整性 Skill**：阻抗匹配、走线长度约束
@@ -108,8 +108,8 @@
 - [ ] **封装库输出**：.kicad_mod 格式生成
 - [ ] **ERC 集成**：生成后自动调用 KiCad ERC 并解析结果
 - [ ] **DRC 集成**：PCB 生成后自动调用 KiCad DRC
-- [ ] **网表生成**：Netlist 格式输出供 PCB 工具使用
-- [ ] **BOM 生成**：从 components 自动输出 BOM（CSV/TSV）
+- [x] **网表生成**：`cdb netlist --input <sch> --output <net>` 从 .kicad_sch/.json5 生成 KiCad 格式网表
+- [x] **BOM 生成**：`cdb bom --format csv/json --output <file>` 从数据库元件表输出 BOM
 - [ ] **3D 模型关联**：元器件 3D 模型路径自动匹配
 
 #### kicad-symgen 符号/封装生成
@@ -200,6 +200,8 @@
 | **P3** | ~~kicad-symgen 与 cdb 集成~~ | ✅ 已完成 | 三 crate 独立架构 + JSON5 spec 桥接 |
 | **P3** | ~~AI 查询接口（自然语言 → SQL）~~ | ✅ 已完成 | CLI --json + MCP Server (9 tools) + service.rs 重构 |
 | **P4** | ~~封装模板补全（QFP/QFN/BGA）~~ | ✅ 已完成 | kicad-symgen QFP/QFN/DFN/BGA 模板 |
+| **P4** | ~~Skill 契约校验 + DB 版本迁移~~ | ✅ 已完成 | apply_rule 输入/输出校验 + user_version 迁移机制 |
+| **P4** | ~~BOM/网表生成~~ | ✅ 已完成 | `cdb bom` CSV/JSON + `cdb netlist` KiCad 格式 |
 | **P4** | PCB 输出 (.kicad_pcb) | 未开始 | 最大的单项工程 |
 | **P4** | ERC/DRC 集成 | 未开始 | 需要 KiCad CLI 或 headless 运行 |
 | **P5** | 交互式 SVG / PDF 导出 | 未开始 | 用户体验提升，非核心功能 |

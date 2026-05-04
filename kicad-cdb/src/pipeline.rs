@@ -152,57 +152,19 @@ pub fn run_pipeline(
             .unwrap_or_default();
 
         let mut step_inputs = serde_json::Map::new();
-        let mut missing: Vec<String> = Vec::new();
-
         for pname in &param_names {
             if let Some(&val) = ctx.get(pname.as_str()) {
                 step_inputs.insert(pname.clone(), serde_json::Value::from(val));
-            } else {
-                missing.push(pname.clone());
             }
         }
 
-        if !missing.is_empty() {
-            skipped += 1;
-            steps.push(DesignStep {
-                seq: i + 1,
-                rule_name: rule.name.clone(),
-                description: rule.description.clone().unwrap_or_default(),
-                inputs: step_inputs.into_iter().map(|(k, v)| (k, v.as_f64().unwrap_or(0.0))).collect(),
-                formula: rule.formula_expr.clone().unwrap_or_default(),
-                outputs: HashMap::new(),
-                check_expr: String::new(),
-                passed: false,
-                skipped: true,
-                skip_reason: Some(format!("Missing inputs: {}", missing.join(", "))),
-            });
-            continue;
-        }
-
-        let result = match db.apply_rule(
+        // apply_rule now validates input completeness and bails on missing params
+        let result = db.apply_rule(
             &rule,
             &serde_json::Value::Object(step_inputs.clone()),
             None,
             None,
-        ) {
-            Ok(r) => r,
-            Err(e) => {
-                skipped += 1;
-                steps.push(DesignStep {
-                    seq: i + 1,
-                    rule_name: rule.name.clone(),
-                    description: rule.description.clone().unwrap_or_default(),
-                    inputs: step_inputs.into_iter().map(|(k, v)| (k, v.as_f64().unwrap_or(0.0))).collect(),
-                    formula: rule.formula_expr.clone().unwrap_or_default(),
-                    outputs: HashMap::new(),
-                    check_expr: rule.check_expr.clone().unwrap_or_default(),
-                    passed: false,
-                    skipped: true,
-                    skip_reason: Some(format!("Evaluation error: {}", e)),
-                });
-                continue;
-            }
-        };
+        )?;
 
         // Merge outputs into shared context
         for (name, val) in &result.outputs {

@@ -1,6 +1,11 @@
-/// Schema DDL for all tables in the component database.
+use anyhow::Result;
+use rusqlite::Connection;
 
-pub const SCHEMA_SQL: &str = r#"
+/// Current schema version — increment when adding migrations
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// v1: initial schema
+const SCHEMA_SQL_V1: &str = r#"
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
@@ -122,3 +127,30 @@ CREATE INDEX IF NOT EXISTS idx_sim_component ON simulation_models(component_id);
 CREATE INDEX IF NOT EXISTS idx_rules_category ON design_rules(category_id);
 CREATE INDEX IF NOT EXISTS idx_supply_component ON supply_info(component_id);
 "#;
+
+/// Migration descriptors: (name, SQL to execute)
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("v1_initial", SCHEMA_SQL_V1),
+    // Future migrations go here:
+    // ("v2_add_column_x", "ALTER TABLE ..."),
+];
+
+/// Run all pending schema migrations.
+/// Returns the final schema version after migration.
+pub fn run_migrations(conn: &Connection) -> Result<u32> {
+    let current: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+
+    for (i, (_name, sql)) in MIGRATIONS.iter().enumerate() {
+        let target = (i + 1) as u32;
+        if current < target {
+            conn.execute_batch(sql)?;
+            conn.pragma_update(None, "user_version", target)?;
+        }
+    }
+
+    let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    Ok(version)
+}
+
+/// Legacy constant kept for backward compat with tests that reference SCHEMA_SQL directly.
+pub const SCHEMA_SQL: &str = SCHEMA_SQL_V1;

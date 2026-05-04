@@ -2,7 +2,6 @@ use anyhow::{Result, Context};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::*;
-use crate::schema::SCHEMA_SQL;
 
 pub struct ComponentDb {
     pub conn: Connection,
@@ -24,7 +23,10 @@ impl ComponentDb {
     }
 
     fn initialize(&self) -> Result<()> {
-        self.conn.execute_batch(SCHEMA_SQL)?;
+        let version = crate::schema::run_migrations(&self.conn)?;
+        if version > 0 {
+            eprintln!("Schema version: {}", version);
+        }
         Ok(())
     }
 
