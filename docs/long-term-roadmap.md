@@ -8,9 +8,9 @@
 |------|------|--------|
 | kicad-json5 (原理图编译) | 可用 | 85% |
 | kicad-render (SVG 渲染) | 可用 | 75% |
-| kicad-cdb (元件数据库) | CLI --json + MCP Server + 契约校验 + DB 迁移 + BOM/网表 | 95% |
-| kicad-symgen (符号/封装生成) | 独立 CLI，智能布局 + 封装模板 | 45% |
-| 设计规则 Skill 系统 | Pipeline + 契约校验 + 决策追溯 | 85% |
+| kicad-cdb (元件数据库) | CLI --json + MCP Server + 契约校验 + DB 迁移 + BOM/网表 + 元件推荐 + 参数标准化 | 97% |
+| kicad-symgen (符号/封装生成) | 独立 CLI，智能布局 + 封装模板 + 批量生成 | 55% |
+| 设计规则 Skill 系统 | Pipeline + 条件分支 + 契约校验 + 决策追溯 | 90% |
 | 拓扑选型与参数推导 | 9 拓扑 + 选型引擎 | 55% |
 
 ---
@@ -40,7 +40,7 @@
 - [ ] **KiCad 符号关联**：components.kicad_symbol / kicad_footprint 字段关联到实际 .kicad_sym 文件
 - [ ] **仿真模型管理**：simulation_models 表结构已有，但无导入/验证流程
 - [ ] **元件生命周期追踪**：lifecycle 字段存在但无自动更新机制
-- [ ] **参数标准化**：统一单位、命名规范（如 `capacitance` vs `Cap` vs `C`）
+- [x] **参数标准化**：华秋 API 导入时 40+ 条名称映射（中英文 → 标准名），list-params 带统计
 - [x] **数据库版本迁移**：schema 变更时自动迁移机制（user_version pragma + run_migrations）
 
 ---
@@ -70,7 +70,7 @@
 ### 未完成
 
 - [x] **Skill 输入/输出契约**：apply_rule() 严格校验输入完备性和输出匹配声明
-- [ ] **条件分支**：根据输入条件选择不同设计路径（如 `if iout > 2A then use Buck else use LDO`）
+- [x] **条件分支**：PipelineStep.condition 可选条件表达式，不满足时跳过该步骤
 - [ ] **多方案比较**：同一需求生成多个候选方案并排序
 - [ ] **信号完整性 Skill**：阻抗匹配、走线长度约束
 - [ ] **EMC Skill**：去耦电容数量/位置规则、滤波器截止频率
@@ -120,7 +120,7 @@
 - [x] **封装模板**：DIP/SOIC/TSSOP/SOP/MSOP/SOT-23/SOT-223
 - [x] **更多封装模板**：QFP/QFN/BGA/DFN 等已添加
 - [ ] **符号图形丰富化**：op-amp 三角形、MCU 功能分区等特殊图形
-- [ ] **批量库生成**：从元件列表批量生成完整 .kicad_sym 库文件
+- [x] **批量库生成**：`symgen batch --input-dir <dir> --output <file>` + `cdb export --category <cat> --format spec --output <dir>/`
 
 #### kicad-render SVG 渲染
 
@@ -140,7 +140,7 @@
 - [x] **按需拉取**：`cdb fetch --mpn MCP6444T-E/ST --mfg-id 4901` → 参数+pin+符号一键入库
 - [x] **拓扑选型**：`cdb suggest --vin 12 --vout 3.3 --iout 2` → 推荐 Buck/Boost/LDO/SEPIC 等
 - [x] **AI 查询接口**：CLI `--json` 模式 + MCP Server (`cdb serve`)，9 个 tools，Claude 直接查询元件库
-- [ ] **元件推荐**：根据设计规则自动推荐满足约束的元件
+- [x] **元件推荐**：`cdb recommend --rule <name> --params <k=v>` 规则计算后搜索匹配元件（±20% 容差）
 - [ ] **参数对比**：多个候选元件的参数并排对比
 
 ### 断裂点 2：设计规则不成体系 → Skill 集
@@ -202,6 +202,10 @@
 | **P4** | ~~封装模板补全（QFP/QFN/BGA）~~ | ✅ 已完成 | kicad-symgen QFP/QFN/DFN/BGA 模板 |
 | **P4** | ~~Skill 契约校验 + DB 版本迁移~~ | ✅ 已完成 | apply_rule 输入/输出校验 + user_version 迁移机制 |
 | **P4** | ~~BOM/网表生成~~ | ✅ 已完成 | `cdb bom` CSV/JSON + `cdb netlist` KiCad 格式 |
+| **P4** | ~~条件分支 Pipeline~~ | ✅ 已完成 | PipelineStep.condition 可选条件，不满足则跳过 |
+| **P4** | ~~元件推荐~~ | ✅ 已完成 | `cdb recommend` 规则输出→参数约束→搜索匹配元件 |
+| **P4** | ~~参数标准化~~ | ✅ 已完成 | 40+ 条华秋名称映射 + list-params 统计 |
+| **P4** | ~~批量库生成~~ | ✅ 已完成 | `symgen batch` + `cdb export --format spec --output <dir>/` |
 | **P4** | PCB 输出 (.kicad_pcb) | 未开始 | 最大的单项工程 |
 | **P4** | ERC/DRC 集成 | 未开始 | 需要 KiCad CLI 或 headless 运行 |
 | **P5** | 交互式 SVG / PDF 导出 | 未开始 | 用户体验提升，非核心功能 |

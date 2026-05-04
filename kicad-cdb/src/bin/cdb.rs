@@ -296,6 +296,29 @@ enum Commands {
     /// Start MCP server for AI integration (stdio transport)
     Serve,
 
+    /// Recommend components based on design rule outputs
+    Recommend {
+        /// Rule name
+        #[arg(long)]
+        rule: String,
+
+        /// Parameters as key=value pairs (comma-separated)
+        #[arg(long)]
+        params: String,
+
+        /// Candidate component value to check (name=value)
+        #[arg(long)]
+        candidate: Option<String>,
+
+        /// Max recommendations
+        #[arg(short, long)]
+        limit: Option<usize>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Generate BOM (Bill of Materials) from database
     Bom {
         /// Output format: csv (default) or json
@@ -374,6 +397,9 @@ fn main() -> Result<()> {
             cmd_list_params(&db, category.as_deref(), json)
         }
         Commands::Serve => kicad_cdb::mcp::serve(&db),
+        Commands::Recommend { rule, params, candidate, limit, json } => {
+            cmd_recommend(&db, &rule, &params, candidate.as_deref(), limit, json)
+        }
         Commands::Bom { format, output } => cmd_bom(&db, &format, &output),
         Commands::Netlist { input, output } => cmd_netlist(&input, &output),
     }
@@ -687,41 +713,82 @@ fn cmd_export_spec(db: &ComponentDb, components: &[kicad_cdb::Component], output
         alt_functions: Option<Vec<String>>,
     }
 
-    let mut out = String::new();
-    for comp in components {
-        let id = comp.id.unwrap();
-        let db_pins = db.get_pins(id)?;
+    let output_path = std::path::Path::new(output);
+    let is_dir_output = output.ends_with('/') || output_path.is_dir();
 
-        let pins: Vec<SpecPin> = db_pins.into_iter().map(|p| SpecPin {
-            number: p.pin_number,
-            name: p.pin_name,
-            pin_type: p.electrical_type.unwrap_or_else(|| "passive".into()),
-            group: p.pin_group,
-            alt_functions: p.alt_functions,
-        }).collect();
+    if is_dir_output {
+        std::fs::create_dir_all(output_path)?;
+        for comp in components {
+            let id = comp.id.unwrap();
+            let db_pins = db.get_pins(id)?;
 
-        let spec = SpecOutput {
-            mpn: comp.mpn.clone(),
-            lib_name: comp.kicad_symbol.as_ref()
-                .and_then(|s| s.split(':').next())
-                .map(|s| s.to_string()),
-            reference_prefix: comp.kicad_symbol.as_ref()
-                .and_then(|s| s.split(':').last())
-                .map(|s| infer_ref_prefix(s).into()),
-            description: comp.description.clone(),
-            datasheet_url: comp.datasheet_url.clone(),
-            footprint: comp.kicad_footprint.clone(),
-            manufacturer: Some(comp.manufacturer.clone()),
-            package: comp.package.clone(),
-            pins,
-        };
+            let pins: Vec<SpecPin> = db_pins.into_iter().map(|p| SpecPin {
+                number: p.pin_number,
+                name: p.pin_name,
+                pin_type: p.electrical_type.unwrap_or_else(|| "passive".into()),
+                group: p.pin_group,
+                alt_functions: p.alt_functions,
+            }).collect();
 
-        out.push_str(&serde_json::to_string_pretty(&spec)?);
-        out.push('\n');
+            let spec = SpecOutput {
+                mpn: comp.mpn.clone(),
+                lib_name: comp.kicad_symbol.as_ref()
+                    .and_then(|s| s.split(':').next())
+                    .map(|s| s.to_string()),
+                reference_prefix: comp.kicad_symbol.as_ref()
+                    .and_then(|s| s.split(':').last())
+                    .map(|s| infer_ref_prefix(s).into()),
+                description: comp.description.clone(),
+                datasheet_url: comp.datasheet_url.clone(),
+                footprint: comp.kicad_footprint.clone(),
+                manufacturer: Some(comp.manufacturer.clone()),
+                package: comp.package.clone(),
+                pins,
+            };
+
+            let file_name = format!("{}.json5", comp.mpn.replace('.', "_"));
+            let file_path = output_path.join(&file_name);
+            std::fs::write(&file_path, serde_json::to_string_pretty(&spec)?)?;
+            println!("  {}", file_path.display());
+        }
+        println!("Exported {} spec(s) → {}/", components.len(), output);
+    } else {
+        let mut out = String::new();
+        for comp in components {
+            let id = comp.id.unwrap();
+            let db_pins = db.get_pins(id)?;
+
+            let pins: Vec<SpecPin> = db_pins.into_iter().map(|p| SpecPin {
+                number: p.pin_number,
+                name: p.pin_name,
+                pin_type: p.electrical_type.unwrap_or_else(|| "passive".into()),
+                group: p.pin_group,
+                alt_functions: p.alt_functions,
+            }).collect();
+
+            let spec = SpecOutput {
+                mpn: comp.mpn.clone(),
+                lib_name: comp.kicad_symbol.as_ref()
+                    .and_then(|s| s.split(':').next())
+                    .map(|s| s.to_string()),
+                reference_prefix: comp.kicad_symbol.as_ref()
+                    .and_then(|s| s.split(':').last())
+                    .map(|s| infer_ref_prefix(s).into()),
+                description: comp.description.clone(),
+                datasheet_url: comp.datasheet_url.clone(),
+                footprint: comp.kicad_footprint.clone(),
+                manufacturer: Some(comp.manufacturer.clone()),
+                package: comp.package.clone(),
+                pins,
+            };
+
+            out.push_str(&serde_json::to_string_pretty(&spec)?);
+            out.push('\n');
+        }
+
+        std::fs::write(output, &out)?;
+        println!("Exported {} spec(s) → {}", components.len(), output);
     }
-
-    std::fs::write(output, &out)?;
-    println!("Exported {} spec(s) → {}", components.len(), output);
     Ok(())
 }
 
@@ -1113,16 +1180,40 @@ fn cmd_rules(
 // ---------------------------------------------------------------------------
 
 fn cmd_list_params(db: &ComponentDb, category: Option<&str>, json: bool) -> Result<()> {
-    let names = db.list_parameter_names(category)?;
+    if category.is_some() {
+        let names = db.list_parameter_names(category)?;
+        if json {
+            #[derive(Serialize)]
+            struct Out { parameters: Vec<String> }
+            print_json(&Out { parameters: names });
+        } else if names.is_empty() {
+            println!("No parameters found");
+        } else {
+            println!("Parameters ({}):", names.len());
+            for n in &names { println!("  {}", n); }
+        }
+        return Ok(());
+    }
+
+    // No category filter: show stats (name + component count)
+    let stats = db.list_parameter_stats()?;
     if json {
         #[derive(Serialize)]
-        struct Out { parameters: Vec<String> }
-        print_json(&Out { parameters: names });
-    } else if names.is_empty() {
+        struct ParamStat { name: String, components: usize }
+        #[derive(Serialize)]
+        struct Out { parameters: Vec<ParamStat> }
+        print_json(&Out {
+            parameters: stats.into_iter().map(|(name, cnt)| ParamStat { name, components: cnt }).collect(),
+        });
+    } else if stats.is_empty() {
         println!("No parameters found");
     } else {
-        println!("Parameters ({}):", names.len());
-        for n in &names { println!("  {}", n); }
+        println!("{:<30} {:>10}", "Parameter", "Components");
+        println!("{}", "-".repeat(42));
+        for (name, cnt) in &stats {
+            println!("{:<30} {:>10}", name, cnt);
+        }
+        println!("\nTotal: {} unique parameters", stats.len());
     }
     Ok(())
 }
@@ -1152,5 +1243,54 @@ fn cmd_netlist(input: &str, output: &str) -> Result<()> {
     let content = kicad_cdb::netlist::netlist_from_file(input)?;
     std::fs::write(output, &content)?;
     println!("Netlist generated → {}", output);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// recommend
+// ---------------------------------------------------------------------------
+
+fn cmd_recommend(
+    db: &ComponentDb,
+    rule_name: &str,
+    params_str: &str,
+    candidate: Option<&str>,
+    limit: Option<usize>,
+    json: bool,
+) -> Result<()> {
+    let (rule, result, recommendations) = kicad_cdb::service::recommend_components(
+        db, rule_name, params_str, candidate, limit,
+    )?;
+
+    if json {
+        #[derive(Serialize)]
+        struct Out {
+            rule: String,
+            outputs: std::collections::HashMap<String, f64>,
+            pass: bool,
+            recommendation_count: usize,
+            recommendations: Vec<kicad_cdb::Component>,
+        }
+        print_json(&Out {
+            rule: rule.name.clone(),
+            outputs: result.outputs,
+            pass: result.pass,
+            recommendation_count: recommendations.len(),
+            recommendations,
+        });
+    } else {
+        println!("Rule: {}", rule.name);
+        for (name, val) in &result.outputs {
+            println!("  {} = {:.6e}", name, val);
+        }
+        println!("Check: {} => {}", result.check_expression, if result.pass { "PASS" } else { "FAIL" });
+        println!("\nRecommended components ({}):", recommendations.len());
+        for c in &recommendations {
+            println!("  {} | {} | {} | {}",
+                c.mpn, c.manufacturer,
+                c.package.as_deref().unwrap_or("-"),
+                c.description.as_deref().unwrap_or("-"));
+        }
+    }
     Ok(())
 }

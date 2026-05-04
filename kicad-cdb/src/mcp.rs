@@ -165,6 +165,23 @@ fn tool_list() -> Vec<Value> {
                 "required": ["mpn"]
             }
         }),
+        json!({
+            "name": "recommend_components",
+            "description": "Apply a design rule and search for components matching computed constraints",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "rule": { "type": "string", "description": "Rule name" },
+                    "params": {
+                        "type": "object",
+                        "description": "Key-value numeric parameters"
+                    },
+                    "candidate": { "type": "string", "description": "Candidate value as name=value" },
+                    "limit": { "type": "integer" }
+                },
+                "required": ["rule", "params"]
+            }
+        }),
     ]
 }
 
@@ -202,6 +219,7 @@ fn call_tool(db: &ComponentDb, name: &str, args: Value) -> Result<Value> {
         "check_rule" => tool_check(db, &args),
         "search_online" => tool_search_online(&args),
         "fetch_component" => tool_fetch(db, &args),
+        "recommend_components" => tool_recommend(db, &args),
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     }
 }
@@ -329,6 +347,33 @@ fn tool_search_online(args: &Value) -> Result<Value> {
     let client = crate::hqapi::HqClient::new()?;
     let results = client.search(keyword, limit)?;
     Ok(json!({ "count": results.len(), "results": results }))
+}
+
+fn tool_recommend(db: &ComponentDb, args: &Value) -> Result<Value> {
+    let rule_name = args["rule"].as_str()
+        .ok_or_else(|| anyhow::anyhow!("Missing rule name"))?;
+
+    let params_str = args["params"].as_object()
+        .map(|obj| obj.iter()
+            .filter_map(|(k, v)| v.as_f64().map(|n| format!("{}={}", k, n)))
+            .collect::<Vec<_>>()
+            .join(","))
+        .unwrap_or_default();
+
+    let candidate_str = args["candidate"].as_str();
+    let limit = args["limit"].as_u64().map(|n| n as usize);
+
+    let (rule, result, recommendations) = crate::service::recommend_components(
+        db, rule_name, &params_str, candidate_str, limit,
+    )?;
+
+    Ok(json!({
+        "rule": rule.name,
+        "outputs": result.outputs,
+        "pass": result.pass,
+        "recommendation_count": recommendations.len(),
+        "recommendations": recommendations,
+    }))
 }
 
 fn tool_fetch(db: &ComponentDb, args: &Value) -> Result<Value> {

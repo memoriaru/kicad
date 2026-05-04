@@ -33,6 +33,8 @@ pub struct DesignLog {
 /// A single step in a pipeline definition
 pub struct PipelineStep {
     pub rule_name: String,
+    /// Optional condition expression (e.g. "iout > 2"). Step is skipped if false.
+    pub condition: Option<String>,
 }
 
 /// A pipeline definition
@@ -54,13 +56,13 @@ pub fn builtin_pipelines() -> Vec<Pipeline> {
                 "fsw".into(), "ripple_ratio".into(), "ripple_v".into(),
             ],
             steps: vec![
-                PipelineStep { rule_name: "buck_duty_cycle".into() },
-                PipelineStep { rule_name: "buck_inductor_selection".into() },
-                PipelineStep { rule_name: "buck_inductor_ripple".into() },
-                PipelineStep { rule_name: "buck_output_capacitor".into() },
-                PipelineStep { rule_name: "buck_input_capacitor".into() },
-                PipelineStep { rule_name: "buck_catch_diode".into() },
-                PipelineStep { rule_name: "thermal_dissipation".into() },
+                PipelineStep { rule_name: "buck_duty_cycle".into(), condition: None },
+                PipelineStep { rule_name: "buck_inductor_selection".into(), condition: None },
+                PipelineStep { rule_name: "buck_inductor_ripple".into(), condition: None },
+                PipelineStep { rule_name: "buck_output_capacitor".into(), condition: None },
+                PipelineStep { rule_name: "buck_input_capacitor".into(), condition: None },
+                PipelineStep { rule_name: "buck_catch_diode".into(), condition: None },
+                PipelineStep { rule_name: "thermal_dissipation".into(), condition: None },
             ],
         },
         Pipeline {
@@ -71,13 +73,13 @@ pub fn builtin_pipelines() -> Vec<Pipeline> {
                 "fsw".into(), "ripple_ratio".into(), "ripple_v".into(),
             ],
             steps: vec![
-                PipelineStep { rule_name: "boost_duty_cycle".into() },
-                PipelineStep { rule_name: "boost_inductor_selection".into() },
-                PipelineStep { rule_name: "boost_inductor_ripple".into() },
-                PipelineStep { rule_name: "boost_output_capacitor".into() },
-                PipelineStep { rule_name: "boost_switch_voltage".into() },
-                PipelineStep { rule_name: "boost_diode_voltage".into() },
-                PipelineStep { rule_name: "thermal_dissipation".into() },
+                PipelineStep { rule_name: "boost_duty_cycle".into(), condition: None },
+                PipelineStep { rule_name: "boost_inductor_selection".into(), condition: None },
+                PipelineStep { rule_name: "boost_inductor_ripple".into(), condition: None },
+                PipelineStep { rule_name: "boost_output_capacitor".into(), condition: None },
+                PipelineStep { rule_name: "boost_switch_voltage".into(), condition: None },
+                PipelineStep { rule_name: "boost_diode_voltage".into(), condition: None },
+                PipelineStep { rule_name: "thermal_dissipation".into(), condition: None },
             ],
         },
         Pipeline {
@@ -88,10 +90,10 @@ pub fn builtin_pipelines() -> Vec<Pipeline> {
                 "vdropout_max".into(), "p_max".into(), "eff_min".into(), "ripple_v".into(),
             ],
             steps: vec![
-                PipelineStep { rule_name: "ldo_dropout_check".into() },
-                PipelineStep { rule_name: "ldo_power_dissipation".into() },
-                PipelineStep { rule_name: "ldo_efficiency".into() },
-                PipelineStep { rule_name: "ldo_output_cap".into() },
+                PipelineStep { rule_name: "ldo_dropout_check".into(), condition: None },
+                PipelineStep { rule_name: "ldo_power_dissipation".into(), condition: None },
+                PipelineStep { rule_name: "ldo_efficiency".into(), condition: None },
+                PipelineStep { rule_name: "ldo_output_cap".into(), condition: None },
             ],
         },
         Pipeline {
@@ -99,7 +101,7 @@ pub fn builtin_pipelines() -> Vec<Pipeline> {
             description: "LED Current Limiting Design".into(),
             user_inputs: vec!["vin".into(), "vf".into(), "i_led".into(), "r_power".into()],
             steps: vec![
-                PipelineStep { rule_name: "led_current_resistor".into() },
+                PipelineStep { rule_name: "led_current_resistor".into(), condition: None },
             ],
         },
     ]
@@ -125,6 +127,49 @@ pub fn run_pipeline(
     let mut skipped = 0;
 
     for (i, step_def) in pipeline.steps.iter().enumerate() {
+        // Check step-level condition gate
+        if let Some(cond) = &step_def.condition {
+            let mut eval = crate::rules::EvalContext::new();
+            for (name, &val) in &ctx {
+                eval.set(name, val);
+            }
+            match eval.eval_check(cond) {
+                Ok(true) => {},
+                Ok(false) => {
+                    skipped += 1;
+                    steps.push(DesignStep {
+                        seq: i + 1,
+                        rule_name: step_def.rule_name.clone(),
+                        description: String::new(),
+                        inputs: HashMap::new(),
+                        formula: String::new(),
+                        outputs: HashMap::new(),
+                        check_expr: String::new(),
+                        passed: false,
+                        skipped: true,
+                        skip_reason: Some(format!("Step condition '{}' not met", cond)),
+                    });
+                    continue;
+                }
+                Err(_) => {
+                    skipped += 1;
+                    steps.push(DesignStep {
+                        seq: i + 1,
+                        rule_name: step_def.rule_name.clone(),
+                        description: String::new(),
+                        inputs: HashMap::new(),
+                        formula: String::new(),
+                        outputs: HashMap::new(),
+                        check_expr: String::new(),
+                        passed: false,
+                        skipped: true,
+                        skip_reason: Some(format!("Step condition '{}' could not be evaluated", cond)),
+                    });
+                    continue;
+                }
+            }
+        }
+
         let rule = match rules.iter().find(|r| r.name == step_def.rule_name) {
             Some(r) => r.clone(),
             None => {

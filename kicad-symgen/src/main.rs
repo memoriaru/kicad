@@ -59,6 +59,22 @@ enum Commands {
         #[arg(long)]
         dir: String,
     },
+
+    /// Batch generate .kicad_sym from a directory of JSON5 spec files
+    Batch {
+        /// Directory containing .json5 spec files
+        #[arg(long)]
+        input_dir: String,
+        /// Output .kicad_sym file path
+        #[arg(short, long)]
+        output: String,
+        /// Library name (default: from first spec)
+        #[arg(long)]
+        lib_name: Option<String>,
+        /// KiCad version: 7, 8, 9, 10 (default: 8)
+        #[arg(long, default_value = "8")]
+        kicad_version: u8,
+    },
 }
 
 fn main() -> Result<()> {
@@ -72,6 +88,9 @@ fn main() -> Result<()> {
             cmd_footprint(&package, pitch, row_spacing, &output, kicad_version)
         }
         Commands::LibTable { dir } => cmd_lib_table(&dir),
+        Commands::Batch { input_dir, output, lib_name, kicad_version } => {
+            cmd_batch(&input_dir, &output, lib_name.as_deref(), kicad_version)
+        }
     }
 }
 
@@ -180,4 +199,64 @@ fn default_pitch_for_package(pkg_type: &PackageType) -> f64 {
         PackageType::Qfp | PackageType::Lqfp | PackageType::Tqfp | PackageType::Qfn | PackageType::Dfn => 0.5,
         _ => 1.27,
     }
+}
+
+fn cmd_batch(
+    input_dir: &str,
+    output: &str,
+    lib_name: Option<&str>,
+    kicad_version: u8,
+) -> Result<()> {
+    let version = KicadVersion::from_u8(kicad_version);
+    let dir = std::path::Path::new(input_dir);
+
+    if !dir.is_dir() {
+        anyhow::bail!("'{}' is not a directory", input_dir);
+    }
+
+    let mut specs: Vec<SymbolSpec> = Vec::new();
+    let mut errors = Vec::new();
+
+    // Collect all .json5 files
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path().extension().map(|ext| ext == "json5" || ext == "json").unwrap_or(false)
+        })
+        .map(|e| e.path())
+        .collect();
+    files.sort();
+
+    if files.is_empty() {
+        anyhow::bail!("No .json5 files found in '{}'", input_dir);
+    }
+
+    for path in &files {
+        match input::from_json5_file(path.to_str().unwrap_or_default()) {
+            Ok(mut spec) => {
+                if let Some(name) = lib_name {
+                    spec.lib_name = name.to_string();
+                }
+                println!("  Loaded: {} ({} pins)", spec.mpn, spec.pins.len());
+                specs.push(spec);
+            }
+            Err(e) => {
+                errors.push(format!("{}: {}", path.display(), e));
+            }
+        }
+    }
+
+    if specs.is_empty() {
+        anyhow::bail!("No valid spec files loaded");
+    }
+
+    let content = sym_sexpr::generate_symbol_lib(&specs, version);
+    std::fs::write(output, &content)?;
+
+    println!("\nGenerated library: {} symbols → {}", specs.len(), output);
+    if !errors.is_empty() {
+        eprintln!("\nSkipped {} files with errors:", errors.len());
+        for err in &errors { eprintln!("  {}", err); }
+    }
+    Ok(())
 }

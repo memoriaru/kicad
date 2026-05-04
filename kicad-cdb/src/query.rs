@@ -247,4 +247,15 @@ impl ComponentDb {
         };
         Ok(names)
     }
+
+    /// List parameter names with component count statistics
+    pub fn list_parameter_stats(&self) -> Result<Vec<(String, usize)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, COUNT(DISTINCT component_id) as cnt FROM parameters GROUP BY name ORDER BY cnt DESC",
+        )?;
+        let stats: Vec<(String, usize)> = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+        })?.filter_map(|r| r.ok()).collect();
+        Ok(stats)
+    }
 }

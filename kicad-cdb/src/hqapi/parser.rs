@@ -3,6 +3,73 @@ use anyhow::Result;
 use super::sym_parser::ExtractedPin;
 use super::ProductDetail;
 
+/// HuaQiu API short_name → standardized parameter name mapping
+const PARAM_NAME_MAP: &[(&str, &str)] = &[
+    // Capacitance
+    ("Cap", "capacitance"),
+    ("电容", "capacitance"),
+    ("电容值", "capacitance"),
+    // Resistance
+    ("Res", "resistance"),
+    ("电阻", "resistance"),
+    ("阻值", "resistance"),
+    // Inductance
+    ("Ind", "inductance"),
+    ("电感", "inductance"),
+    ("电感值", "inductance"),
+    // Voltage
+    ("Vol", "voltage_rating"),
+    ("额定电压", "voltage_rating"),
+    ("电压", "voltage"),
+    ("输入电压", "input_voltage"),
+    ("输出电压", "output_voltage"),
+    // Current
+    ("Cur", "current_rating"),
+    ("额定电流", "current_rating"),
+    ("电流", "current"),
+    ("输出电流", "output_current"),
+    // Frequency
+    ("Fre", "frequency"),
+    ("频率", "frequency"),
+    ("开关频率", "switching_frequency"),
+    // Power
+    ("Pow", "power_rating"),
+    ("功率", "power_rating"),
+    ("输出功率", "output_power"),
+    // Temperature
+    ("Temp", "temperature_range"),
+    ("温度范围", "temperature_range"),
+    ("工作温度", "operating_temperature"),
+    // Tolerance
+    ("Tol", "tolerance"),
+    ("精度", "tolerance"),
+    // ESR
+    ("ESR", "esr"),
+    ("等效电阻", "esr"),
+    // Package / physical
+    ("封装", "package_type"),
+    ("Pin", "pin_count"),
+    ("引脚数", "pin_count"),
+    // Efficiency
+    ("效率", "efficiency"),
+    ("Eff", "efficiency"),
+    // Ripple
+    ("纹波", "ripple"),
+    // Dropout
+    ("压差", "dropout_voltage"),
+];
+
+/// Normalize a parameter name from HuaQiu API to a standard name.
+fn normalize_param_name(name: &str) -> String {
+    let name_lower = name.to_lowercase();
+    for (pattern, standard) in PARAM_NAME_MAP {
+        if name_lower.contains(&pattern.to_lowercase()) {
+            return standard.to_string();
+        }
+    }
+    name.to_string()
+}
+
 /// Convert HuaQiu product detail + extracted pins into import JSON
 /// compatible with ComponentDb::import_from_json()
 pub fn detail_to_import_json(detail: &ProductDetail, pins: &[ExtractedPin]) -> Result<String> {
@@ -40,15 +107,16 @@ pub fn detail_to_import_json(detail: &ProductDetail, pins: &[ExtractedPin]) -> R
                 continue;
             }
 
-            // Skip duplicate parameter names
-            if !seen_names.insert(attr.short_name.clone()) {
+            // Normalize parameter name and skip duplicates
+            let std_name = normalize_param_name(&attr.short_name);
+            if !seen_names.insert(std_name.clone()) {
                 continue;
             }
 
             let (value_numeric, value_text, unit) = parse_param_value(&attr.value);
 
             parameters.push(serde_json::json!({
-                "name": attr.short_name,
+                "name": std_name,
                 "value": value_numeric,
                 "value_text": value_text,
                 "unit": unit,

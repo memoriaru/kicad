@@ -114,3 +114,38 @@ pub fn apply_rule_with_str_params(
     let result = db.apply_rule(&rule, &serde_json::Value::Object(inputs), cand_name.as_deref(), cand_val)?;
     Ok((rule, result))
 }
+
+/// Apply a design rule and then search for components whose parameters
+/// satisfy the computed output constraints (with ±20% tolerance).
+pub fn recommend_components(
+    db: &ComponentDb,
+    rule_name: &str,
+    params_str: &str,
+    candidate_str: Option<&str>,
+    limit: Option<usize>,
+) -> Result<(DesignRule, RuleResult, Vec<Component>)> {
+    let (rule, result) = apply_rule_with_str_params(db, rule_name, params_str, candidate_str)?;
+
+    let mut recommendations = Vec::new();
+
+    // For each output value, search for components with matching parameter
+    for (param_name, computed_value) in &result.outputs {
+        // Apply ±20% tolerance band
+        let tolerance = 0.20;
+        let min = Some(computed_value * (1.0 - tolerance));
+        let max = Some(computed_value * (1.0 + tolerance));
+
+        let matches = query_filtered(
+            db, None, None, None, None,
+            Some((param_name, min, max)),
+            false, limit,
+        )?;
+
+        if !matches.is_empty() {
+            recommendations = matches;
+            break; // Use first successful parameter match
+        }
+    }
+
+    Ok((rule, result, recommendations))
+}
