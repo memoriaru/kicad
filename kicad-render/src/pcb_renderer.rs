@@ -576,6 +576,11 @@ impl<'a> PcbRenderer<'a> {
 
     fn write_vias(&self, out: &mut String) {
         for via in &self.board.vias {
+            // 过孔跨 F.Cu/B.Cu: 任一所跨层可见才渲染(对拍抓出的泄漏——
+            // 此前任何 --layers 过滤下过孔都会画出)
+            if !via.layers.iter().any(|l| self.layer_visible(l)) {
+                continue;
+            }
             let (x, y) = via.at;
             // Hole wall (outer ring) — via_through white/silver
             out.push_str(&format!(
@@ -954,6 +959,9 @@ impl<'a> PcbRenderer<'a> {
     /// Render footprint text (always on top of all graphics).
     fn write_fp_text(&self, out: &mut String, fp: &Footprint, fr: f64) {
         for txt in &fp.fp_texts {
+            if !self.layer_visible(&txt.layer) {
+                continue;
+            }
             // ecad-viewer FpTextPainter: uses layer.color (with alpha 0.8 for non-copper).
             let color = Self::layer_color_with_alpha(&txt.layer);
             let (tx, ty, local_tr) = txt.position;
