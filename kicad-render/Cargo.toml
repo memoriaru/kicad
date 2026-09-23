@@ -1,0 +1,50 @@
+[package]
+name = "kicad-render"
+version = "0.3.0"
+edition = "2021"
+description = "KiCad schematic SVG renderer — 1:1 Rust port of the KiCanvas schematic painter"
+authors = ["memo"]
+license = "MIT"
+repository = "https://github.com/memoriaru/kicad"
+keywords = ["kicad", "schematic", "svg", "renderer", "pcb"]
+categories = ["rendering", "development-tools"]
+readme = "README.md"
+
+[dependencies]
+# KiCad IR definitions
+kicad-json5 = { path = "../kicad-json5" }
+
+# Error handling
+anyhow = "1.0"
+
+# PDF output
+printpdf = "0.7"
+
+# PNG rasterization (SVG -> PNG)
+resvg = "0.45"
+
+# WASM support (optional)
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "CanvasRenderingContext2d",
+    "HtmlCanvasElement",
+    "DomMatrix",
+    "DomMatrixReadOnly",
+] }
+js-sys = { version = "0.3", optional = true }
+
+[dev-dependencies]
+# Testing utilities
+approx = "0.5"
+
+[features]
+default = ["svg"]
+svg = []
+wasm = ["wasm-bindgen", "web-sys", "js-sys"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "kicad-render"
+path = "src/main.rs"
