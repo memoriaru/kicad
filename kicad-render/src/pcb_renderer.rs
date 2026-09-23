@@ -220,13 +220,13 @@ impl<'a> PcbRenderer<'a> {
             return;
         }
         for fp in &self.board.footprints {
-            let (fx, fy, _fr) = fp.position;
+            let (fx, fy, fr) = fp.position;
             for pad in &fp.pads {
                 if let Some(ref drill) = pad.drill {
                     let (px, py, _) = pad.position;
                     out.push_str(&format!(
-                        "<g data-layer=\"Drills\" transform=\"translate({:.3},{:.3})\">",
-                        fx, fy
+                        "<g data-layer=\"Drills\" transform=\"translate({:.3},{:.3}) rotate({:.3})\">",
+                        fx, fy, 0.0 - fr
                     ));
                     Self::write_drill_hole(out, px, py, drill, EDGE_CUTS, true);
                     out.push_str("</g>");
@@ -513,8 +513,9 @@ impl<'a> PcbRenderer<'a> {
 
         for fp in &self.board.footprints {
             let (fx, fy, fr) = fp.position;
+            // 与渲染组 rotate(-fr) 一致的旋转矩阵
             let cos_r = fr.to_radians().cos();
-            let sin_r = fr.to_radians().sin();
+            let sin_r = -fr.to_radians().sin();
             for pad in &fp.pads {
                 let (px, py, _) = pad.position;
                 let (sw, sh) = pad.size;
@@ -683,9 +684,13 @@ impl<'a> PcbRenderer<'a> {
 
             // Always use transform group: translate to position + rotate
             // Matches ecad-viewer FootprintPainter matrix transform.
+            // 官方约定: 封装角 fr=-90 的净旋转为 +90（Tag-Connect 三孔组
+            // 对 kicad-cli 实测反推）——SVG rotate 取 -fr。
             out.push_str(&format!(
                 r#"<g transform="translate({:.3},{:.3}) rotate({:.3})">"#,
-                fx, fy, fr
+                fx,
+                fy,
+                0.0 - fr
             ));
 
             // Render order: mask/paste → pads → copper graphics → silk/fab/crtyd → text
@@ -835,7 +840,7 @@ impl<'a> PcbRenderer<'a> {
             if pad_needs_rotate {
                 out.push_str(&format!(
                     r#"<g transform="translate({:.3},{:.3}) rotate({:.3})">"#,
-                    px, py, effective_rot
+                    px, py, -effective_rot
                 ));
             }
 
@@ -951,7 +956,7 @@ impl<'a> PcbRenderer<'a> {
             let end = arc.end;
             let cross =
                 (mid.0 - start.0) * (end.1 - start.1) - (mid.1 - start.1) * (end.0 - start.0);
-            let sweep = if cross > 0.0 { 0 } else { 1 };
+            let sweep = if cross > 0.0 { 1 } else { 0 };
             let (cx, cy) = arc_center(&start, &mid, &end);
             let r = ((start.0 - cx).powi(2) + (start.1 - cy).powi(2)).sqrt();
             out.push_str(&format!(
@@ -1053,10 +1058,10 @@ impl<'a> PcbRenderer<'a> {
             }
             // 文本角度官方约定: 文件角 a → rotate(-a)（kicad-cli 实证）。组内
             // 已含 +fr，此处补发 -abs-fr 使屏幕净旋转 = -abs 与官方一致。
-            let svg_rot = -abs_angle - fr;
+            let svg_rot = -abs_angle + fr;
             let fs = txt.font_size.0.max(txt.font_size.1);
-            // 多行文本: 字面 "\n" 切分, 块以 (tx,ty) 为中心分布
-            let lines: Vec<&str> = text.split("\\n").collect();
+            // 多行文本: lexer 已把字面 \n 解成真换行, 按真换行切, 块以 (tx,ty) 为中心分布
+            let lines: Vec<&str> = text.split('\n').collect();
             let line_h = fs * crate::constants::INTERLINE_PITCH_RATIO;
             let n = lines.len() as f64;
             for (i, line) in lines.iter().enumerate() {
@@ -1276,7 +1281,7 @@ impl<'a> PcbRenderer<'a> {
             BoardGraphicKind::Arc { start, mid, end } => {
                 let cross =
                     (mid.0 - start.0) * (end.1 - start.1) - (mid.1 - start.1) * (end.0 - start.0);
-                let sweep = if cross > 0.0 { 0 } else { 1 };
+                let sweep = if cross > 0.0 { 1 } else { 0 };
                 let (cx, cy) = arc_center(start, mid, end);
                 let r = ((start.0 - cx).powi(2) + (start.1 - cy).powi(2)).sqrt();
                 out.push_str(&format!(
@@ -1301,7 +1306,8 @@ impl<'a> PcbRenderer<'a> {
                 };
                 // 多行文本: 字面 "\n" 切分, 行距 INTERLINE_PITCH_RATIO, 块以
                 // position 为中心上下分布(与 KiCad 多行文本居中语义一致)。
-                let lines: Vec<&str> = text.split("\\n").collect();
+                // lexer 已把字面 \n 解转义为真换行; 兼容两种形态
+                let lines: Vec<&str> = text.split("\\n").flat_map(|l| l.split('\n')).collect();
                 let line_h = font_size * crate::constants::INTERLINE_PITCH_RATIO;
                 let n = lines.len() as f64;
                 for (i, line) in lines.iter().enumerate() {
@@ -1500,7 +1506,7 @@ mod tests {
         });
         board.footprints.push(fp);
         let svg = PcbRenderer::new(&board).render_to_string();
-        assert!(svg.contains("transform=\"translate(25.000,25.000) rotate(90.000)\""));
+        assert!(svg.contains("transform=\"translate(25.000,25.000) rotate(-90.000)\""));
     }
 
     #[test]
