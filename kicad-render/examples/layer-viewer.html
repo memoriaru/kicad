@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>kicad-render layer viewer</title>
+<style>
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; display: flex; height: 100vh; }
+  #panel { width: 220px; padding: 10px 14px; border-right: 1px solid #ccc; overflow-y: auto; background: #fafafa; }
+  #panel h1 { font-size: 14px; margin: 4px 0 12px; }
+  #panel label { display: block; padding: 2px 0; cursor: pointer; user-select: none; }
+  #panel label.all { border-top: 1px solid #ddd; margin-top: 8px; padding-top: 8px; }
+  #stage { flex: 1; overflow: auto; background: #404040; }
+  #stage svg { width: 100%; height: auto; display: block; }
+  #drop { padding: 40px; color: #ddd; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>Layers</h1>
+  <div id="layers">Render a PCB with <code>kicad-render --layers</code>-compatible SVG
+  (any SVG whose elements carry <code>data-layer</code>), then open it here
+  or drop the file onto this page.</div>
+  <label class="all"><input type="checkbox" id="all" checked> Show all</label>
+</div>
+<div id="stage"><div id="drop">Drop a kicad-render PCB SVG here (no --layers flag — full render carries per-element data-layer attributes).</div></div>
+<script>
+  const stage = document.getElementById('stage');
+  const panel = document.getElementById('layers');
+  const allBox = document.getElementById('all');
+
+  function buildUI(svg) {
+    stage.innerHTML = '';
+    stage.appendChild(svg);
+
+    // Group elements by data-layer and wire checkboxes.
+    const names = new Map(); // layer -> count
+    svg.querySelectorAll('[data-layer]').forEach(el => {
+      const l = el.getAttribute('data-layer');
+      names.set(l, (names.get(l) || 0) + 1);
+    });
+    const order = [...names.keys()].sort((a, b) => {
+      // copper first, then silk/fab/mask, then the rest — mirrors KiCad order
+      const rank = n => /^\*?F\.Cu$/.test(n) ? 0 : /^\*?B\.Cu$/.test(n) ? 1 :
+        n.endsWith('.SilkS') ? 2 : n.endsWith('.Fab') ? 3 : n.endsWith('.Mask') ? 4 :
+        n === 'Vias' ? 5 : n === 'Edge.Cuts' ? 7 : 6;
+      return rank(a) - rank(b) || a.localeCompare(b);
+    });
+
+    panel.innerHTML = '';
+    const boxes = [];
+    for (const name of order) {
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox'; box.checked = true;
+      box.addEventListener('change', apply);
+      label.appendChild(box);
+      label.appendChild(document.createTextNode(` ${name} (${names.get(name)})`));
+      panel.appendChild(label);
+      boxes.push([name, box]);
+    }
+    function apply() {
+      const visible = new Set(boxes.filter(([, b]) => b.checked).map(([n]) => n));
+      svg.querySelectorAll('[data-layer]').forEach(el => {
+        el.style.display = visible.has(el.getAttribute('data-layer')) ? '' : 'none';
+      });
+      allBox.checked = visible.size === order.length;
+    }
+    allBox.onchange = () => {
+      boxes.forEach(([, b]) => (b.checked = allBox.checked));
+      apply();
+    };
+    apply();
+  }
+
+  function loadText(text) {
+    const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+    const svg = doc.documentElement;
+    if (svg.tagName.toLowerCase() !== 'svg') { alert('Not an SVG file'); return; }
+    if (!svg.querySelector('[data-layer]')) {
+      alert('No data-layer attributes found — render with kicad-render (no --layers filter).');
+    }
+    buildUI(svg);
+  }
+
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) file.text().then(loadText);
+  });
+
+  // Optional: ?src=relative-path-to.svg on the same server
+  const src = new URLSearchParams(location.search).get('src');
+  if (src) fetch(src).then(r => r.text()).then(loadText).catch(() => {});
+</script>
+</body>
+</html>

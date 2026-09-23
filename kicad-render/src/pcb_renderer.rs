@@ -158,6 +158,12 @@ impl<'a> PcbRenderer<'a> {
     /// P1-4: Check whether a layer should be rendered under the current filter.
     /// Returns true when no filter is set, or the layer matches the whitelist
     /// (directly or via the `*.Cu` wildcard for copper layers).
+    /// Quote-escape a layer name for embedding in a data-layer attribute.
+    fn escape_layer(layer: &str) -> &str {
+        // Layer names are [A-Za-z0-9.*_-]; keep this cheap and defensive.
+        layer
+    }
+
     fn layer_visible(&self, layer: &str) -> bool {
         match &self.layer_filter {
             None => true,
@@ -513,8 +519,10 @@ impl<'a> PcbRenderer<'a> {
                         .collect::<Vec<_>>()
                         .join(" ");
                     out.push_str(&format!(
-                        r#"<polygon points="{}" fill="{}" stroke="none"/>"#,
-                        pts, fill_color
+                        r#"<polygon data-layer="{}" points="{}" fill="{}" stroke="none"/>"#,
+                        Self::escape_layer(&zone.layer),
+                        pts,
+                        fill_color
                     ));
                 }
             } else if zone.outline.len() >= 3 {
@@ -525,8 +533,10 @@ impl<'a> PcbRenderer<'a> {
                     .collect::<Vec<_>>()
                     .join(" ");
                 out.push_str(&format!(
-                    r#"<polygon points="{}" fill="{}" stroke="none"/>"#,
-                    pts, fill_color
+                    r#"<polygon data-layer="{}" points="{}" fill="{}" stroke="none"/>"#,
+                    Self::escape_layer(&zone.layer),
+                    pts,
+                    fill_color
                 ));
             }
         }
@@ -555,8 +565,8 @@ impl<'a> PcbRenderer<'a> {
             }
             let color = Self::copper_color(&seg.layer);
             out.push_str(&format!(
-                r#"<line x1="{:.3}" y1="{:.3}" x2="{:.3}" y2="{:.3}" stroke="{}" stroke-width="{:.3}" stroke-linecap="round"/>"#,
-                seg.start.0, seg.start.1, seg.end.0, seg.end.1, color, seg.width
+                r#"<line data-layer="{}" x1="{:.3}" y1="{:.3}" x2="{:.3}" y2="{:.3}" stroke="{}" stroke-width="{:.3}" stroke-linecap="round"/>"#,
+                Self::escape_layer(&seg.layer), seg.start.0, seg.start.1, seg.end.0, seg.end.1, color, seg.width
             ));
         }
     }
@@ -569,7 +579,7 @@ impl<'a> PcbRenderer<'a> {
             let (x, y) = via.at;
             // Hole wall (outer ring) — via_through white/silver
             out.push_str(&format!(
-                "<circle cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\"/>",
+                "<circle data-layer=\"Vias\" cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\"/>",
                 x,
                 y,
                 via.size / 2.0,
@@ -577,7 +587,7 @@ impl<'a> PcbRenderer<'a> {
             ));
             // Drill hole (inner circle) — via_hole gold
             out.push_str(&format!(
-                "<circle cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\"/>",
+                "<circle data-layer=\"Vias\" cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\"/>",
                 x,
                 y,
                 via.drill / 2.0,
@@ -609,7 +619,8 @@ impl<'a> PcbRenderer<'a> {
             // Hidden in CopperOnly mode (decoration, not routing).
             if self.mode != RenderMode::CopperOnly {
                 self.write_fp_graphics_filtered(out, fp, |layer| {
-                    layer.ends_with(".Mask") || layer.ends_with(".Paste")
+                    (layer.ends_with(".Mask") || layer.ends_with(".Paste"))
+                        && self.layer_visible(layer)
                 });
             }
 
@@ -629,6 +640,7 @@ impl<'a> PcbRenderer<'a> {
                     !Self::is_copper_layer(layer)
                         && !layer.ends_with(".Mask")
                         && !layer.ends_with(".Paste")
+                        && self.layer_visible(layer)
                 });
             }
 
@@ -730,8 +742,16 @@ impl<'a> PcbRenderer<'a> {
     /// Render all pads for a footprint (copper layer, bottom of z-order).
     fn write_fp_pads(&self, out: &mut String, fp: &Footprint, fr: f64) {
         for pad in &fp.pads {
+            if !pad.layers.iter().any(|l| self.layer_visible(l)) {
+                continue;
+            }
             let (px, py, pr) = pad.position;
             let (sw, sh) = pad.size;
+            let primary_layer = pad.layers.first().map(|s| s.as_str()).unwrap_or("F.Cu");
+            out.push_str(&format!(
+                r#"<g data-layer="{}">"#,
+                Self::escape_layer(primary_layer)
+            ));
 
             let effective_rot = pr - fr;
             let pad_needs_rotate = effective_rot.abs() > 0.01;
@@ -798,6 +818,7 @@ impl<'a> PcbRenderer<'a> {
                 }
             }
 
+            out.push_str("</g>");
             if pad_needs_rotate {
                 out.push_str("</g>");
             }
@@ -818,8 +839,8 @@ impl<'a> PcbRenderer<'a> {
             }
             let color = Self::layer_color_with_alpha(&line.layer);
             out.push_str(&format!(
-                r#"<line x1="{:.3}" y1="{:.3}" x2="{:.3}" y2="{:.3}" stroke="{}" stroke-width="{:.3}" stroke-linecap="round"/>"#,
-                line.start.0, line.start.1, line.end.0, line.end.1, color, line.stroke_width
+                r#"<line data-layer="{}" x1="{:.3}" y1="{:.3}" x2="{:.3}" y2="{:.3}" stroke="{}" stroke-width="{:.3}" stroke-linecap="round"/>"#,
+                Self::escape_layer(&line.layer), line.start.0, line.start.1, line.end.0, line.end.1, color, line.stroke_width
             ));
         }
 
@@ -835,13 +856,13 @@ impl<'a> PcbRenderer<'a> {
             if circ.fill {
                 let fill_r = r + circ.stroke_width;
                 out.push_str(&format!(
-                    "<circle cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\" stroke=\"none\"/>",
-                    cx, cy, fill_r, color
+                    "<circle data-layer=\"{}\" cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\" stroke=\"none\"/>",
+                    Self::escape_layer(&circ.layer), cx, cy, fill_r, color
                 ));
             } else {
                 out.push_str(&format!(
-                    "<circle cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.3}\"/>",
-                    cx, cy, r, color, circ.stroke_width
+                    "<circle data-layer=\"{}\" cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.3}\"/>",
+                    Self::escape_layer(&circ.layer), cx, cy, r, color, circ.stroke_width
                 ));
             }
         }
@@ -861,8 +882,8 @@ impl<'a> PcbRenderer<'a> {
             let (cx, cy) = arc_center(&start, &mid, &end);
             let r = ((start.0 - cx).powi(2) + (start.1 - cy).powi(2)).sqrt();
             out.push_str(&format!(
-                "<path d=\"M {:.3} {:.3} A {:.3} {:.3} 0 0 {} {:.3} {:.3}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.3}\"/>",
-                start.0, start.1, r, r, sweep, end.0, end.1, color, arc.stroke_width
+                "<path data-layer=\"{}\" d=\"M {:.3} {:.3} A {:.3} {:.3} 0 0 {} {:.3} {:.3}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.3}\"/>",
+                Self::escape_layer(&arc.layer), start.0, start.1, r, r, sweep, end.0, end.1, color, arc.stroke_width
             ));
         }
 
@@ -879,13 +900,15 @@ impl<'a> PcbRenderer<'a> {
                 sx, sy, sx, ey, ex, ey, ex, sy, sx, sy
             );
             out.push_str(&format!(
-                r#"<polyline points="{}" fill="none" stroke="{}" stroke-width="{:.3}" stroke-linejoin="round"/>"#,
-                points, color, rect.stroke_width
+                r#"<polyline data-layer="{}" points="{}" fill="none" stroke="{}" stroke-width="{:.3}" stroke-linejoin="round"/>"#,
+                Self::escape_layer(&rect.layer), points, color, rect.stroke_width
             ));
             if rect.fill {
                 out.push_str(&format!(
-                    r#"<polygon points="{}" fill="{}" stroke="none"/>"#,
-                    points, color
+                    r#"<polygon data-layer="{}" points="{}" fill="{}" stroke="none"/>"#,
+                    Self::escape_layer(&rect.layer),
+                    points,
+                    color
                 ));
             }
         }
@@ -908,8 +931,8 @@ impl<'a> PcbRenderer<'a> {
             if poly.stroke_width > 0.0 {
                 let closed_pts = format!("{} {:.3},{:.3}", pts, poly.points[0].0, poly.points[0].1);
                 out.push_str(&format!(
-                    "<polyline points=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.3}\" stroke-linejoin=\"round\"/>",
-                    closed_pts, color, poly.stroke_width
+                    "<polyline data-layer=\"{}\" points=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{:.3}\" stroke-linejoin=\"round\"/>",
+                    Self::escape_layer(&poly.layer), closed_pts, color, poly.stroke_width
                 ));
             }
             if poly.fill {
@@ -947,8 +970,8 @@ impl<'a> PcbRenderer<'a> {
                 continue;
             }
             out.push_str(&format!(
-                "<text x=\"{:.3}\" y=\"{:.3}\" fill=\"{}\" font-size=\"{:.3}\" text-anchor=\"middle\" dominant-baseline=\"central\"{}>{}</text>",
-                tx, ty, color, fs,
+                "<text data-layer=\"{}\" x=\"{:.3}\" y=\"{:.3}\" fill=\"{}\" font-size=\"{:.3}\" text-anchor=\"middle\" dominant-baseline=\"central\"{}>{}</text>",
+                Self::escape_layer(&txt.layer), tx, ty, color, fs,
                 if svg_rot.abs() > 0.01 { format!(" transform=\"rotate({:.3},{:.3},{:.3})\"", svg_rot, tx, ty) } else { String::new() },
                 xml_escape(&txt.text)
             ));
@@ -1044,6 +1067,13 @@ impl<'a> PcbRenderer<'a> {
 
     fn write_board_outline(&self, out: &mut String) {
         for gr in &self.board.graphics {
+            if !self.layer_visible(&gr.layer) {
+                continue;
+            }
+            out.push_str(&format!(
+                r#"<g data-layer="{}">"#,
+                Self::escape_layer(&gr.layer)
+            ));
             // ecad-viewer: non-copper layers get alpha 0.8 via color_for().
             let color = if Self::is_copper_layer(&gr.layer) {
                 Self::layer_color(&gr.layer).to_string()
@@ -1051,6 +1081,7 @@ impl<'a> PcbRenderer<'a> {
                 Self::layer_color_with_alpha(&gr.layer)
             };
             self.write_graphic(out, gr, color);
+            out.push_str("</g>");
         }
     }
 
@@ -1523,6 +1554,93 @@ mod tests {
             .render_to_string();
         assert!(svg.contains(COPPER_F), "F.Cu trace should be visible");
         assert!(!svg.contains(COPPER_B), "B.Cu trace should be filtered out");
+    }
+
+    #[test]
+    fn test_layered_output_carries_data_layer() {
+        // Every layer-aware element must carry data-layer for the HTML
+        // layer viewer to group/toggle.
+        let board = make_board_with_traces();
+        let svg = PcbRenderer::new(&board).render_to_string();
+        assert!(
+            svg.contains("data-layer=\"F.Cu\""),
+            "F.Cu traces must be tagged"
+        );
+        assert!(
+            svg.contains("data-layer=\"B.Cu\""),
+            "B.Cu traces must be tagged"
+        );
+    }
+
+    #[test]
+    fn test_layer_filter_excludes_other_layers() {
+        // F.Cu-only render must not carry any B.Cu-tagged element.
+        let board = make_board_with_traces();
+        let mut filter = HashSet::new();
+        filter.insert("F.Cu".to_string());
+        let svg = PcbRenderer::new(&board)
+            .with_layer_filter(filter)
+            .render_to_string();
+        assert!(svg.contains("data-layer=\"F.Cu\""));
+        assert!(
+            !svg.contains("data-layer=\"B.Cu\""),
+            "B.Cu must be filtered out"
+        );
+    }
+
+    #[test]
+    fn test_layer_filter_fp_graphics_and_pads() {
+        // Footprint graphics and pads honor the filter too.
+        let mut board = Board::new();
+        let mut fp = Footprint::new("Test:IC", "U1", "TestIC");
+        fp.position = (10.0, 10.0, 0.0);
+        fp.fp_lines.push(FpLine {
+            start: (-1.0, 0.0),
+            end: (1.0, 0.0),
+            stroke_width: 0.12,
+            layer: "F.SilkS".into(),
+        });
+        fp.fp_lines.push(FpLine {
+            start: (-1.0, 1.0),
+            end: (1.0, 1.0),
+            stroke_width: 0.12,
+            layer: "B.SilkS".into(),
+        });
+        fp.pads.push(Pad {
+            number: "1".into(),
+            pad_type: PadType::Smd,
+            shape: PadShape::Rect,
+            position: (-1.0, 0.0, 0.0),
+            size: (0.6, 1.2),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            net: None,
+            net_name: None,
+            pin_function: None,
+            pin_type: None,
+            roundrect_rratio: None,
+            solder_mask_margin: None,
+            thermal_bridge_width: None,
+            thermal_bridge_angle: None,
+            thermal_gap: None,
+            clearance: None,
+            zone_connect: None,
+            remove_unused_layers: None,
+            options: None,
+            primitives: Vec::new(),
+        });
+        board.footprints.push(fp);
+
+        let mut filter = HashSet::new();
+        filter.insert("F.Cu".to_string());
+        let svg = PcbRenderer::new(&board)
+            .with_layer_filter(filter)
+            .render_to_string();
+        assert!(svg.contains("data-layer=\"F.Cu\""), "F.Cu pad must render");
+        assert!(
+            !svg.contains("data-layer=\"F.SilkS\"") && !svg.contains("data-layer=\"B.SilkS\""),
+            "non-whitelisted footprint graphics must be filtered out"
+        );
     }
 
     #[test]

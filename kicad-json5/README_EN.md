@@ -43,6 +43,7 @@ kicad-json5 schematic.kicad_sch
 | `--validate` | Validate only, no output |
 | `--debug-ast` | Print AST for debugging |
 | `--power-flags` | Auto-insert PWR_FLAG when generating S-expressions |
+| `--dialect <D>` | `.kicad_pcb` output dialect: `official` (default, loads directly in stock kicad-cli) / `huaqiu` (HQ fork compatible) / `auto` (content-detected, round-trip preserving) |
 | `-v, --verbose` | Verbose output |
 
 ### Examples

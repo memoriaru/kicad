@@ -201,11 +201,13 @@ fn test_board_sexpr_roundtrip() {
         refs(&board2),
         "referenced net id set (electrical connectivity)"
     );
-    let named = |b: &ir::Board| b.nets.iter().filter(|n| !n.name.is_empty()).count();
+    // Official dialect (default) emits the top-level net table, so every net
+    // — including the unnamed net-0 placeholder and dangling ones like
+    // GATE_Q3 — survives. (The HQ inline-name dialect drops them.)
     assert_eq!(
-        named(&board),
-        named(&board2) + 1,
-        "exactly the one dangling net (GATE_Q3) may vanish"
+        board.nets.len(),
+        board2.nets.len(),
+        "net table must preserve all nets incl. dangling"
     );
 }
 

@@ -12,7 +12,8 @@ use kicad_render::renderer::{PdfRenderer, Renderer, SvgRenderer};
 use kicad_render::schematic_renderer::SchematicRenderer;
 
 const USAGE: &str = "Usage: kicad-render <input.kicad_sch|.kicad_pcb> [-o out.svg|pdf|png] \
-[--interactive] [--format pdf|svg|png] [--mode assembly|fab|copper] [--scale N]";
+[--interactive] [--format pdf|svg|png] [--mode assembly|fab|copper] [--scale N] \
+[--layers F.Cu,B.Cu] (PCB only: render only the listed layers; *.Cu wildcard supported)";
 
 fn arg_value(args: &[String], flag: &str) -> Option<String> {
     // Matches both "--flag value" and "--flag=value"
@@ -121,10 +122,17 @@ fn render_pcb(
         board.zones.len(),
     );
 
-    let svg = PcbRenderer::new(&board)
-        .with_scale(scale)
-        .with_mode(mode)
-        .render_to_string();
+    let mut renderer = PcbRenderer::new(&board).with_scale(scale).with_mode(mode);
+    if let Some(spec) = arg_value(args, "--layers") {
+        let filter: std::collections::HashSet<String> = spec
+            .split(',')
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect();
+        eprintln!("Layer filter: {:?}", filter);
+        renderer = renderer.with_layer_filter(filter);
+    }
+    let svg = renderer.render_to_string();
 
     match format {
         "svg" => {
