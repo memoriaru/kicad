@@ -354,6 +354,54 @@ fn test_model_offset_xyz_not_swallowed() {
     assert_eq!(m.path, "${KIPRJMOD}/3d/REF.wrl");
 }
 
+// 椭圆槽 drill 往返: (drill oval W H) 解析为 width=H 载荷 Y + width=Some(W) X,
+// sexpr/json5 双向均保真; 圆 drill 保持 width=None, (offset) 在两种形态下都读回。
+#[test]
+fn test_drill_oval_and_offset_roundtrip() {
+    let src = r#"(kicad_pcb (version "20240108") (generator "test")
+	(footprint "Test:Slot" (layer "F.Cu") (at 0 0)
+		(pad "" np_thru_hole oval
+			(at 5 0)
+			(size 2.2 1.7)
+			(drill oval 1.7 1.2)
+			(layers "*.Cu" "*.Mask")
+		)
+		(pad "1" thru_hole circle
+			(at 10 0)
+			(size 1.6 1.6)
+			(drill 0.8 (offset 0.1 -0.2))
+			(layers "*.Cu" "*.Mask")
+		)
+	)
+)"#;
+    let board = parse_board(src).unwrap();
+    let pads = &board.footprints[0].pads;
+
+    let slot = &pads[0].drill.as_ref().unwrap();
+    assert_eq!(slot.width, Some(1.7), "oval width (X)");
+    assert_eq!(slot.diameter, 1.2, "oval height (Y)");
+    let tht = &pads[1].drill.as_ref().unwrap();
+    assert_eq!(tht.width, None);
+    assert_eq!(tht.offset, Some((0.1, -0.2)), "drill offset was silently dropped");
+
+    // sexpr 往返
+    let mut gen = codegen::BoardSexprGenerator::new();
+    let sexpr = gen.generate(&board).unwrap();
+    assert!(sexpr.contains("(drill oval 1.7 1.2)"), "oval drill re-emitted");
+    assert!(sexpr.contains("(drill 0.8)"), "round drill re-emitted");
+    assert!(sexpr.contains("(offset 0.1 -0.2)"));
+    let re = parse_board(&sexpr).unwrap();
+    assert_eq!(re.footprints[0].pads[0].drill.as_ref().unwrap().width, Some(1.7));
+
+    // json5 往返
+    let json5 = generate_board_json5(&board).unwrap();
+    assert!(json5.contains("width: 1.7"), "json5 carries oval width");
+    let re5 = parse_board_json5(&json5).unwrap();
+    let slot5 = &re5.footprints[0].pads[0].drill.as_ref().unwrap();
+    assert_eq!(slot5.width, Some(1.7));
+    assert_eq!(slot5.diameter, 1.2);
+}
+
 // model 字段解析三形态: 全字段 / 仅 path / ${KIPRJMOD} 变量路径 (+ 多 model 共存)。
 // 缺省子字段按 KiCad 默认: offset (0,0,0) / scale (1,1,1) / rotate (0,0,0)。
 #[test]

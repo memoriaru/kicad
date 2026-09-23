@@ -322,15 +322,15 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
                             .join(", ")
                     ));
                     match &pad.drill {
-                        Some(d) if d.offset.is_some() => {
-                            let (ox, oy) = d.offset.unwrap();
-                            s.push_str(&format!(
-                                "          drill: {{ diameter: {}, offset: [{}, {}] }},\n",
-                                d.diameter, ox, oy
-                            ));
-                        }
                         Some(d) => {
-                            s.push_str(&format!("          drill: {},\n", d.diameter));
+                            let mut fields = format!("diameter: {}", d.diameter);
+                            if let Some(w) = d.width {
+                                fields.push_str(&format!(", width: {}", w));
+                            }
+                            if let Some((ox, oy)) = d.offset {
+                                fields.push_str(&format!(", offset: [{}, {}]", ox, oy));
+                            }
+                            s.push_str(&format!("          drill: {{ {} }},\n", fields));
                         }
                         None => {}
                     }

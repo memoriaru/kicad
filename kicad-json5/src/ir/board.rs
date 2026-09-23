@@ -890,10 +890,25 @@ impl Board {
             })
             .unwrap_or_default();
         let drill = find_child(rest, "drill").map(|d| {
-            let diameter = d.get(1).unwrap().as_number().unwrap_or(0.0);
+            // (drill <dia>) | (drill oval <w> <h>) — oval 载荷是裸 ident
+            let is_oval = d
+                .get(1)
+                .and_then(|v| v.as_ident())
+                .map(|s| s == "oval")
+                .unwrap_or(false);
+            let (diameter, width) = if is_oval {
+                let w = d.get(2).and_then(|v| v.as_number()).unwrap_or(0.0);
+                let h = d.get(3).and_then(|v| v.as_number()).unwrap_or(w);
+                (h, Some(w))
+            } else {
+                (d.get(1).and_then(|v| v.as_number()).unwrap_or(0.0), None)
+            };
+            let offset =
+                find_child(&d[1..], "offset").and_then(|o| Some((o.get(1)?.as_number()?, o.get(2)?.as_number()?)));
             DrillDef {
                 diameter,
-                offset: None,
+                width,
+                offset,
             }
         });
         let net = find_child(rest, "net").and_then(|n| Some(n.get(1)?.as_number()? as u32));
@@ -1667,6 +1682,8 @@ pub enum PadPrimitive {
 #[derive(Debug, Clone)]
 pub struct DrillDef {
     pub diameter: f64,
+    /// Slot drill: `(drill oval <width> <height>)` — X size; `diameter` is Y.
+    pub width: Option<f64>,
     pub offset: Option<(f64, f64)>,
 }
 

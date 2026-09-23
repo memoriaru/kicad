@@ -164,6 +164,77 @@ impl<'a> PcbRenderer<'a> {
         layer
     }
 
+    /// One drill feature: filled hole (pad view) or outline (drill mark).
+    /// Oval `(drill oval W H)` renders as a capsule; `diameter` is the Y size.
+    fn write_drill_hole(
+        out: &mut String,
+        cx: f64,
+        cy: f64,
+        drill: &DrillDef,
+        fill: &str,
+        outline: bool,
+    ) {
+        let style = if outline {
+            format!("fill=\"none\" stroke=\"{}\" stroke-width=\"0.15\"", fill)
+        } else {
+            format!("fill=\"{}\" stroke=\"none\"", fill)
+        };
+        match drill.width {
+            Some(w) => {
+                let (w, h) = (w, drill.diameter);
+                let r = w.min(h) / 2.0;
+                out.push_str(&format!(
+                    "<rect x=\"{:.3}\" y=\"{:.3}\" width=\"{:.3}\" height=\"{:.3}\" rx=\"{:.3}\" ry=\"{:.3}\" {}/>",
+                    cx - w / 2.0,
+                    cy - h / 2.0,
+                    w,
+                    h,
+                    r,
+                    r,
+                    style
+                ));
+            }
+            None => {
+                out.push_str(&format!(
+                    "<circle cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" {}/>",
+                    cx,
+                    cy,
+                    drill.diameter / 2.0,
+                    style
+                ));
+            }
+        }
+    }
+
+    /// Drill marks for technical-layer plots: kicad-cli plots pad drill
+    /// outlines on non-copper exports (silkscreen shows dots, Edge.Cuts the
+    /// mechanical holes/slots). Emitted only when a --layers filter is active
+    /// and contains no copper layer — in copper/full views the pads already
+    /// carry their holes.
+    fn write_drill_marks(&self, out: &mut String) {
+        let technical_only = match &self.layer_filter {
+            None => false,
+            Some(set) => !set.iter().any(|l| Self::is_copper_layer(l) || l == "*.Cu"),
+        };
+        if !technical_only {
+            return;
+        }
+        for fp in &self.board.footprints {
+            let (fx, fy, _fr) = fp.position;
+            for pad in &fp.pads {
+                if let Some(ref drill) = pad.drill {
+                    let (px, py, _) = pad.position;
+                    out.push_str(&format!(
+                        "<g data-layer=\"Drills\" transform=\"translate({:.3},{:.3})\">",
+                        fx, fy
+                    ));
+                    Self::write_drill_hole(out, px, py, drill, EDGE_CUTS, true);
+                    out.push_str("</g>");
+                }
+            }
+        }
+    }
+
     fn layer_visible(&self, layer: &str) -> bool {
         match &self.layer_filter {
             None => true,
@@ -424,6 +495,7 @@ impl<'a> PcbRenderer<'a> {
         }
         self.write_footprints(&mut out);
         self.write_board_outline(&mut out);
+        self.write_drill_marks(&mut out);
 
         out.push_str("</g>");
         out.push_str("</svg>");
@@ -813,13 +885,9 @@ impl<'a> PcbRenderer<'a> {
                     pad.roundrect_rratio,
                     PAD_THR_HOLE,
                 );
-                // Drill hole (background color center)
+                // Drill hole (background color center) — capsule for oval slots
                 if let Some(ref drill) = pad.drill {
-                    let drill_r = drill.diameter / 2.0;
-                    out.push_str(&format!(
-                        "<circle cx=\"{:.3}\" cy=\"{:.3}\" r=\"{:.3}\" fill=\"{}\"/>",
-                        cx, cy, drill_r, BG_COLOR
-                    ));
+                    Self::write_drill_hole(out, cx, cy, drill, BG_COLOR, false);
                 }
             }
 
@@ -962,6 +1030,17 @@ impl<'a> PcbRenderer<'a> {
             if !self.layer_visible(&txt.layer) {
                 continue;
             }
+            // KiCad 属性占位符: ${REFERENCE}/${VALUE} 解析为实际值后再渲染
+            // (kicad-cli 丝印上输出 J6 等真实位号; 此前 ${ 开头直接跳过导致
+            // 位号丝印整批消失——对拍抓出)。
+            let text: String = match txt.text.as_str() {
+                "${REFERENCE}" => fp.reference.clone(),
+                "${VALUE}" => fp.value.clone(),
+                other => other.to_string(),
+            };
+            if text.is_empty() || text.starts_with("${") {
+                continue;
+            }
             // ecad-viewer FpTextPainter: uses layer.color (with alpha 0.8 for non-copper).
             let color = Self::layer_color_with_alpha(&txt.layer);
             let (tx, ty, local_tr) = txt.position;
@@ -972,16 +1051,44 @@ impl<'a> PcbRenderer<'a> {
             while abs_angle <= -90.0 {
                 abs_angle += 180.0;
             }
-            let svg_rot = abs_angle - fr;
+            // 文本角度官方约定: 文件角 a → rotate(-a)（kicad-cli 实证）。组内
+            // 已含 +fr，此处补发 -abs-fr 使屏幕净旋转 = -abs 与官方一致。
+            let svg_rot = -abs_angle - fr;
             let fs = txt.font_size.0.max(txt.font_size.1);
-            if txt.text.is_empty() || txt.text.starts_with("${") {
+            // 多行文本: 字面 "\n" 切分, 块以 (tx,ty) 为中心分布
+            let lines: Vec<&str> = text.split("\\n").collect();
+            let line_h = fs * crate::constants::INTERLINE_PITCH_RATIO;
+            let n = lines.len() as f64;
+            for (i, line) in lines.iter().enumerate() {
+                let y = ty + (i as f64 - (n - 1.0) / 2.0) * line_h;
+                out.push_str(&format!(
+                    "<text data-layer=\"{}\" x=\"{:.3}\" y=\"{:.3}\" fill=\"{}\" font-size=\"{:.3}\" text-anchor=\"middle\" dominant-baseline=\"central\"{}>{}</text>",
+                    Self::escape_layer(&txt.layer), tx, y, color, fs,
+                    if svg_rot.abs() > 0.01 { format!(" transform=\"rotate({:.3},{:.3},{:.3})\"", svg_rot, tx, ty) } else { String::new() },
+                    xml_escape(line)
+                ));
+            }
+        }
+
+        // KiCad 8+ 把位号/值存为 (property ...) 块而非 fp_text（v7 旧格式才是
+        // fp_text reference/value）——不渲染 properties_ext 会让 KiCad 8 板的
+        // 丝印位号整批消失（对拍抓出）。
+        for prop in &fp.properties_ext {
+            if prop.hide || !matches!(prop.name.as_str(), "Reference" | "Value" | "User") {
                 continue;
             }
+            if !self.layer_visible(&prop.layer) || prop.value.is_empty() {
+                continue;
+            }
+            let color = Self::layer_color_with_alpha(&prop.layer);
+            let (px, py, prot) = prop.position;
+            let svg_rot = -prot;
+            let fs = prop.effects.font_size.0.max(prop.effects.font_size.1);
             out.push_str(&format!(
                 "<text data-layer=\"{}\" x=\"{:.3}\" y=\"{:.3}\" fill=\"{}\" font-size=\"{:.3}\" text-anchor=\"middle\" dominant-baseline=\"central\"{}>{}</text>",
-                Self::escape_layer(&txt.layer), tx, ty, color, fs,
-                if svg_rot.abs() > 0.01 { format!(" transform=\"rotate({:.3},{:.3},{:.3})\"", svg_rot, tx, ty) } else { String::new() },
-                xml_escape(&txt.text)
+                Self::escape_layer(&prop.layer), px, py, color, fs,
+                if svg_rot.abs() > 0.01 { format!(" transform=\"rotate({:.3},{:.3},{:.3})\"", svg_rot, px, py) } else { String::new() },
+                xml_escape(&prop.value)
             ));
         }
     }
@@ -1182,10 +1289,28 @@ impl<'a> PcbRenderer<'a> {
                 position,
                 font_size,
             } => {
-                out.push_str(&format!(
-                    "<text x=\"{:.3}\" y=\"{:.3}\" fill=\"{}\" font-size=\"{:.1}\" text-anchor=\"middle\" dominant-baseline=\"central\">{}</text>",
-                    position.0, position.1, color, font_size, xml_escape(text)
-                ));
+                // KiCad 文件角 90° 在官方 SVG 输出为 rotate(-90)（kicad-cli
+                // 实证）——KiCad 角为 y-down 系下的"逆时针"。
+                let transform = if position.2.abs() > 0.01 {
+                    format!(
+                        " transform=\"rotate({:.3},{:.3},{:.3})\"",
+                        -position.2, position.0, position.1
+                    )
+                } else {
+                    String::new()
+                };
+                // 多行文本: 字面 "\n" 切分, 行距 INTERLINE_PITCH_RATIO, 块以
+                // position 为中心上下分布(与 KiCad 多行文本居中语义一致)。
+                let lines: Vec<&str> = text.split("\\n").collect();
+                let line_h = font_size * crate::constants::INTERLINE_PITCH_RATIO;
+                let n = lines.len() as f64;
+                for (i, line) in lines.iter().enumerate() {
+                    let y = position.1 + (i as f64 - (n - 1.0) / 2.0) * line_h;
+                    out.push_str(&format!(
+                        "<text x=\"{:.3}\" y=\"{:.3}\" fill=\"{}\" font-size=\"{:.1}\" text-anchor=\"middle\" dominant-baseline=\"central\"{}>{}</text>",
+                        position.0, y, color, font_size, transform, xml_escape(line)
+                    ));
+                }
             }
         }
     }
@@ -1434,6 +1559,7 @@ mod tests {
             layers: vec!["*.Cu".into()],
             drill: Some(DrillDef {
                 diameter: 3.0,
+                width: None,
                 offset: None,
             }),
             net: None,
@@ -1648,6 +1774,150 @@ mod tests {
         assert!(
             !svg.contains("data-layer=\"F.SilkS\"") && !svg.contains("data-layer=\"B.SilkS\""),
             "non-whitelisted footprint graphics must be filtered out"
+        );
+    }
+
+    #[test]
+    fn test_gr_text_rotation_and_multiline() {
+        // 文件角 90 → rotate(-90)（kicad-cli 官方 SVG 实证）; "\n" 切多行
+        let mut board = Board::new();
+        board.graphics.push(BoardGraphic {
+            kind: BoardGraphicKind::Text {
+                text: "RESET\\nTARGET".into(),
+                position: (80.8, 26.0, 90.0),
+                font_size: 0.7,
+            },
+            layer: "F.SilkS".into(),
+            stroke_width: 0.0,
+            fill: false,
+        });
+        let svg = PcbRenderer::new(&board).render_to_string();
+        assert!(
+            svg.contains("rotate(-90.000,80.800,26.000)"),
+            "kicad 90 must emit rotate(-90)"
+        );
+        assert_eq!(svg.matches(">RESET<").count(), 1, "line 1 split out");
+        assert_eq!(svg.matches(">TARGET<").count(), 1, "line 2 split out");
+        assert!(
+            !svg.contains("RESET\\n"),
+            "literal backslash-n must be split"
+        );
+    }
+
+    #[test]
+    fn test_fp_text_placeholder_resolution() {
+        // ${REFERENCE}/${VALUE} 解析为真实值（位号丝印）
+        let mut board = Board::new();
+        let mut fp = Footprint::new("Test:R", "R7", "4k7");
+        fp.position = (10.0, 10.0, 0.0);
+        fp.fp_texts.push(FpText {
+            text: "${REFERENCE}".into(),
+            text_type: FpTextType::Reference,
+            position: (0.0, -1.5, 0.0),
+            layer: "F.SilkS".into(),
+            font_size: (1.0, 1.0),
+        });
+        fp.fp_texts.push(FpText {
+            text: "${VALUE}".into(),
+            text_type: FpTextType::Value,
+            position: (0.0, 1.5, 0.0),
+            layer: "F.SilkS".into(),
+            font_size: (1.0, 1.0),
+        });
+        board.footprints.push(fp);
+        let svg = PcbRenderer::new(&board).render_to_string();
+        assert!(
+            svg.contains(">R7<"),
+            "reference placeholder resolved, got no R7"
+        );
+        assert!(svg.contains(">4k7<"), "value placeholder resolved");
+    }
+
+    #[test]
+    fn test_oval_drill_capsule() {
+        // (drill oval W H) → 胶囊孔（rect rx），圆 drill 保持 circle
+        let mut board = Board::new();
+        let mut fp = Footprint::new("Test:Slot", "S1", "slot");
+        fp.position = (10.0, 10.0, 0.0);
+        fp.pads.push(Pad {
+            number: "1".into(),
+            pad_type: PadType::ThruHole,
+            shape: PadShape::Oval,
+            position: (0.0, 0.0, 0.0),
+            size: (2.2, 1.7),
+            layers: vec!["*.Cu".into()],
+            drill: Some(DrillDef {
+                diameter: 1.2,
+                width: Some(1.7),
+                offset: None,
+            }),
+            net: None,
+            net_name: None,
+            pin_function: None,
+            pin_type: None,
+            roundrect_rratio: None,
+            solder_mask_margin: None,
+            thermal_bridge_width: None,
+            thermal_bridge_angle: None,
+            thermal_gap: None,
+            clearance: None,
+            zone_connect: None,
+            remove_unused_layers: None,
+            options: None,
+            primitives: Vec::new(),
+        });
+        board.footprints.push(fp);
+        let svg = PcbRenderer::new(&board).render_to_string();
+        assert!(svg.contains("<rect"), "oval drill renders as capsule rect");
+    }
+
+    #[test]
+    fn test_drill_marks_on_technical_filter() {
+        // 非铜层过滤出孔轮廓标记（kicad-cli silk/edge 导出行为）；无过滤不画
+        let mut board = make_board_with_traces();
+        let mut fp = Footprint::new("Test:Hole", "H1", "3mm");
+        fp.position = (30.0, 30.0, 0.0);
+        fp.pads.push(Pad {
+            number: "1".into(),
+            pad_type: PadType::NpThruHole,
+            shape: PadShape::Circle,
+            position: (0.0, 0.0, 0.0),
+            size: (3.2, 3.2),
+            layers: vec!["*.Cu".into()],
+            drill: Some(DrillDef {
+                diameter: 3.0,
+                width: None,
+                offset: None,
+            }),
+            net: None,
+            net_name: None,
+            pin_function: None,
+            pin_type: None,
+            roundrect_rratio: None,
+            solder_mask_margin: None,
+            thermal_bridge_width: None,
+            thermal_bridge_angle: None,
+            thermal_gap: None,
+            clearance: None,
+            zone_connect: None,
+            remove_unused_layers: None,
+            options: None,
+            primitives: Vec::new(),
+        });
+        board.footprints.push(fp);
+        let mut f = HashSet::new();
+        f.insert("F.SilkS".to_string());
+        let filtered = PcbRenderer::new(&board)
+            .with_layer_filter(f)
+            .render_to_string();
+        assert!(
+            filtered.contains("data-layer=\"Drills\""),
+            "silk filter shows drill marks"
+        );
+        let full = PcbRenderer::new(&board).render_to_string();
+        assert!(
+            !full.contains("data-layer=\"Drills\""),
+            "full render keeps holes in pads"
         );
     }
 

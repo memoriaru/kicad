@@ -860,7 +860,17 @@ impl BoardSexprGenerator {
         );
 
         if let Some(ref drill) = pad.drill {
-            self.line(out, &format!("(drill {})", Self::fmt_num(drill.diameter)));
+            match drill.width {
+                Some(w) => self.line(
+                    out,
+                    &format!(
+                        "(drill oval {} {})",
+                        Self::fmt_num(w),
+                        Self::fmt_num(drill.diameter)
+                    ),
+                ),
+                None => self.line(out, &format!("(drill {})", Self::fmt_num(drill.diameter))),
+            }
             if let Some((ox, oy)) = drill.offset {
                 self.line(
                     out,

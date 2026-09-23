@@ -504,12 +504,14 @@ fn value_to_pad(v: &Value) -> Pad {
     let drill = match v.get("drill") {
         Some(Value::Number(n)) => Some(DrillDef {
             diameter: n.as_f64().unwrap_or(0.0),
+            width: None,
             offset: None,
         }),
         Some(dv) => {
             let dobj = dv.as_object();
             Some(DrillDef {
                 diameter: dobj.and_then(|o| get_f64(o, "diameter")).unwrap_or(0.0),
+                width: dobj.and_then(|o| get_f64(o, "width")),
                 offset: dobj.and_then(|o| o.get("offset")).and_then(parse_point),
             })
         }
