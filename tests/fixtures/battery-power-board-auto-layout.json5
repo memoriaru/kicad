@@ -1,0 +1,876 @@
+// Battery Power Board — auto-layout test (no positions)
+{
+  "metadata": {
+    "paper": "A4",
+    "title": "NP-F550 Battery Power Board"
+  },
+  "nets": [
+    {
+      "id": 0,
+      "name": "GND",
+      "render": "power"
+    },
+    {
+      "id": 1,
+      "name": "VBAT_IN",
+      "render": "wire"
+    },
+    {
+      "id": 2,
+      "name": "VBAT_FUSED",
+      "render": "wire"
+    },
+    {
+      "id": 3,
+      "name": "VBAT_PROT",
+      "render": "power"
+    },
+    {
+      "id": 4,
+      "name": "VBAT_7V4",
+      "render": "power"
+    },
+    {
+      "id": 5,
+      "name": "5V_BUCK",
+      "render": "power"
+    },
+    {
+      "id": 6,
+      "name": "3V3_STBY",
+      "render": "power"
+    },
+    {
+      "id": 7,
+      "name": "CCD_PWR_EN",
+      "render": "label"
+    },
+    {
+      "id": 8,
+      "name": "SW_NODE",
+      "render": "wire"
+    },
+    {
+      "id": 9,
+      "name": "BST_NODE",
+      "render": "wire"
+    },
+    {
+      "id": 10,
+      "name": "FB_NODE",
+      "render": "wire"
+    },
+    {
+      "id": 11,
+      "name": "GATE_Q2",
+      "render": "wire"
+    },
+    {
+      "id": 12,
+      "name": "GATE_Q1",
+      "render": "wire"
+    },
+    {
+      "id": 13,
+      "name": "GATE_Q3",
+      "render": "wire"
+    }
+  ],
+  "lib_symbols": [
+    {
+      "id": "Conn_01x02",
+      "reference": "J",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "type": "passive"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "Conn_02x05",
+      "reference": "J",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "Pin_1",
+          "type": "passive"
+        },
+        {
+          "number": "2",
+          "name": "Pin_2",
+          "type": "passive"
+        },
+        {
+          "number": "3",
+          "name": "Pin_3",
+          "type": "passive"
+        },
+        {
+          "number": "4",
+          "name": "Pin_4",
+          "type": "passive"
+        },
+        {
+          "number": "5",
+          "name": "Pin_5",
+          "type": "passive"
+        },
+        {
+          "number": "6",
+          "name": "Pin_6",
+          "type": "passive"
+        },
+        {
+          "number": "7",
+          "name": "Pin_7",
+          "type": "passive"
+        },
+        {
+          "number": "8",
+          "name": "Pin_8",
+          "type": "passive"
+        },
+        {
+          "number": "9",
+          "name": "Pin_9",
+          "type": "passive"
+        },
+        {
+          "number": "10",
+          "name": "Pin_10",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "PPTC",
+      "reference": "F",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "~",
+          "type": "passive"
+        },
+        {
+          "number": "2",
+          "name": "~",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "AO3401",
+      "reference": "Q",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "G",
+          "type": "input"
+        },
+        {
+          "number": "2",
+          "name": "S",
+          "type": "passive"
+        },
+        {
+          "number": "3",
+          "name": "D",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "2N7002W",
+      "reference": "Q",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "G",
+          "type": "input"
+        },
+        {
+          "number": "2",
+          "name": "S",
+          "type": "passive"
+        },
+        {
+          "number": "3",
+          "name": "D",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "SY8120",
+      "reference": "U",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "EN",
+          "type": "input"
+        },
+        {
+          "number": "2",
+          "name": "GND",
+          "type": "power_in"
+        },
+        {
+          "number": "3",
+          "name": "SW",
+          "type": "passive"
+        },
+        {
+          "number": "4",
+          "name": "BST",
+          "type": "passive"
+        },
+        {
+          "number": "5",
+          "name": "VIN",
+          "type": "power_in"
+        },
+        {
+          "number": "6",
+          "name": "FB",
+          "type": "input"
+        }
+      ]
+    },
+    {
+      "id": "RT9193",
+      "reference": "U",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "VIN",
+          "type": "power_in"
+        },
+        {
+          "number": "2",
+          "name": "GND",
+          "type": "power_in"
+        },
+        {
+          "number": "3",
+          "name": "EN",
+          "type": "input"
+        },
+        {
+          "number": "4",
+          "name": "NC",
+          "type": "no_connect"
+        },
+        {
+          "number": "5",
+          "name": "VOUT",
+          "type": "power_out"
+        }
+      ]
+    },
+    {
+      "id": "Device:C",
+      "reference": "C",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "~",
+          "type": "passive"
+        },
+        {
+          "number": "2",
+          "name": "~",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "Device:CP",
+      "reference": "C",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "+",
+          "type": "passive"
+        },
+        {
+          "number": "2",
+          "name": "-",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "Device:R",
+      "reference": "R",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "~",
+          "type": "passive"
+        },
+        {
+          "number": "2",
+          "name": "~",
+          "type": "passive"
+        }
+      ]
+    },
+    {
+      "id": "Device:L",
+      "reference": "L",
+      "in_bom": true,
+      "on_board": true,
+      "pins": [
+        {
+          "number": "1",
+          "name": "~",
+          "type": "passive"
+        },
+        {
+          "number": "2",
+          "name": "~",
+          "type": "passive"
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "ref": "J1",
+      "lib_id": "Conn_01x02",
+      "value": "NP-F550_BAT",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical",
+      "properties": {
+        "Reference": "J1",
+        "Value": "NP-F550_BAT"
+      },
+      "pins": {
+        "1": {
+          "net": 1,
+          "net_name": "VBAT_IN"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "F1",
+      "lib_id": "PPTC",
+      "value": "PPTC_1.5A",
+      "footprint": "Fuse:Fuse_1206_3216Metric",
+      "properties": {
+        "Reference": "F1",
+        "Value": "PPTC_1.5A"
+      },
+      "pins": {
+        "1": {
+          "net": 1,
+          "net_name": "VBAT_IN"
+        },
+        "2": {
+          "net": 2,
+          "net_name": "VBAT_FUSED"
+        }
+      }
+    },
+    {
+      "ref": "Q1",
+      "lib_id": "AO3401",
+      "value": "AO3401",
+      "footprint": "Package_TO_SOT_SMD:SOT-23",
+      "properties": {
+        "Reference": "Q1",
+        "Value": "AO3401"
+      },
+      "pins": {
+        "1": {
+          "net": 12,
+          "net_name": "GATE_Q1"
+        },
+        "2": {
+          "net": 2,
+          "net_name": "VBAT_FUSED"
+        },
+        "3": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        }
+      }
+    },
+    {
+      "ref": "R1",
+      "lib_id": "Device:R",
+      "value": "100kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "properties": {
+        "Reference": "R1",
+        "Value": "100kΩ"
+      },
+      "pins": {
+        "1": {
+          "net": 12,
+          "net_name": "GATE_Q1"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "C1",
+      "lib_id": "Device:CP",
+      "value": "100μF/16V",
+      "footprint": "Capacitor_SMD:CP_Elec_6.3x7.7",
+      "properties": {
+        "Reference": "C1",
+        "Value": "100μF/16V"
+      },
+      "pins": {
+        "1": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "C2",
+      "lib_id": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "properties": {
+        "Reference": "C2",
+        "Value": "100nF"
+      },
+      "pins": {
+        "1": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "R2",
+      "lib_id": "Device:R",
+      "value": "100kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "properties": {
+        "Reference": "R2",
+        "Value": "100kΩ"
+      },
+      "pins": {
+        "1": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        },
+        "2": {
+          "net": 11,
+          "net_name": "GATE_Q2"
+        }
+      }
+    },
+    {
+      "ref": "Q2",
+      "lib_id": "AO3401",
+      "value": "AO3401",
+      "footprint": "Package_TO_SOT_SMD:SOT-23",
+      "properties": {
+        "Reference": "Q2",
+        "Value": "AO3401"
+      },
+      "pins": {
+        "1": {
+          "net": 11,
+          "net_name": "GATE_Q2"
+        },
+        "2": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        },
+        "3": {
+          "net": 4,
+          "net_name": "VBAT_7V4"
+        }
+      }
+    },
+    {
+      "ref": "R3",
+      "lib_id": "Device:R",
+      "value": "10kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "properties": {
+        "Reference": "R3",
+        "Value": "10kΩ"
+      },
+      "pins": {
+        "1": {
+          "net": 7,
+          "net_name": "CCD_PWR_EN"
+        },
+        "2": {
+          "net": 13,
+          "net_name": "GATE_Q3"
+        }
+      }
+    },
+    {
+      "ref": "Q3",
+      "lib_id": "2N7002W",
+      "value": "2N7002W",
+      "footprint": "Package_TO_SOT_SMD:SOT-323",
+      "properties": {
+        "Reference": "Q3",
+        "Value": "2N7002W"
+      },
+      "pins": {
+        "1": {
+          "net": 13,
+          "net_name": "GATE_Q3"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        },
+        "3": {
+          "net": 11,
+          "net_name": "GATE_Q2"
+        }
+      }
+    },
+    {
+      "ref": "R4",
+      "lib_id": "Device:R",
+      "value": "100kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "properties": {
+        "Reference": "R4",
+        "Value": "100kΩ"
+      },
+      "pins": {
+        "1": {
+          "net": 13,
+          "net_name": "GATE_Q3"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "U1",
+      "lib_id": "SY8120",
+      "value": "SY8120",
+      "footprint": "Package_TO_SOT_SMD:SOT-23-6",
+      "properties": {
+        "Reference": "U1",
+        "Value": "SY8120"
+      },
+      "pins": {
+        "1": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        },
+        "3": {
+          "net": 8,
+          "net_name": "SW_NODE"
+        },
+        "4": {
+          "net": 9,
+          "net_name": "BST_NODE"
+        },
+        "5": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        },
+        "6": {
+          "net": 10,
+          "net_name": "FB_NODE"
+        }
+      }
+    },
+    {
+      "ref": "C3",
+      "lib_id": "Device:C",
+      "value": "10μF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "properties": {
+        "Reference": "C3",
+        "Value": "10μF"
+      },
+      "pins": {
+        "1": {
+          "net": 3,
+          "net_name": "VBAT_PROT"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "C5",
+      "lib_id": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0402_1005Metric",
+      "properties": {
+        "Reference": "C5",
+        "Value": "100nF"
+      },
+      "pins": {
+        "1": {
+          "net": 8,
+          "net_name": "SW_NODE"
+        },
+        "2": {
+          "net": 9,
+          "net_name": "BST_NODE"
+        }
+      }
+    },
+    {
+      "ref": "L1",
+      "lib_id": "Device:L",
+      "value": "4.7μH",
+      "footprint": "Inductor_SMD:L_4020_1005Metric",
+      "properties": {
+        "Reference": "L1",
+        "Value": "4.7μH"
+      },
+      "pins": {
+        "1": {
+          "net": 8,
+          "net_name": "SW_NODE"
+        },
+        "2": {
+          "net": 5,
+          "net_name": "5V_BUCK"
+        }
+      }
+    },
+    {
+      "ref": "C4",
+      "lib_id": "Device:C",
+      "value": "22μF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "properties": {
+        "Reference": "C4",
+        "Value": "22μF"
+      },
+      "pins": {
+        "1": {
+          "net": 5,
+          "net_name": "5V_BUCK"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "R5",
+      "lib_id": "Device:R",
+      "value": "220kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "properties": {
+        "Reference": "R5",
+        "Value": "220kΩ"
+      },
+      "pins": {
+        "1": {
+          "net": 5,
+          "net_name": "5V_BUCK"
+        },
+        "2": {
+          "net": 10,
+          "net_name": "FB_NODE"
+        }
+      }
+    },
+    {
+      "ref": "R6",
+      "lib_id": "Device:R",
+      "value": "30kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "properties": {
+        "Reference": "R6",
+        "Value": "30kΩ"
+      },
+      "pins": {
+        "1": {
+          "net": 10,
+          "net_name": "FB_NODE"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "U2",
+      "lib_id": "RT9193",
+      "value": "RT9193-3.3",
+      "footprint": "Package_TO_SOT_SMD:SOT-23-5",
+      "properties": {
+        "Reference": "U2",
+        "Value": "RT9193-3.3"
+      },
+      "pins": {
+        "1": {
+          "net": 5,
+          "net_name": "5V_BUCK"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        },
+        "3": {
+          "net": 5,
+          "net_name": "5V_BUCK"
+        },
+        "4": {
+          "nc": true
+        },
+        "5": {
+          "net": 6,
+          "net_name": "3V3_STBY"
+        }
+      }
+    },
+    {
+      "ref": "C6",
+      "lib_id": "Device:C",
+      "value": "1μF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "properties": {
+        "Reference": "C6",
+        "Value": "1μF"
+      },
+      "pins": {
+        "1": {
+          "net": 5,
+          "net_name": "5V_BUCK"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "C7",
+      "lib_id": "Device:C",
+      "value": "10μF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "properties": {
+        "Reference": "C7",
+        "Value": "10μF"
+      },
+      "pins": {
+        "1": {
+          "net": 6,
+          "net_name": "3V3_STBY"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    },
+    {
+      "ref": "J2",
+      "lib_id": "Conn_02x05",
+      "value": "Conn_02x05",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x05_P2.54mm_Vertical",
+      "properties": {
+        "Reference": "J2",
+        "Value": "Conn_02x05"
+      },
+      "pins": {
+        "1": {
+          "net": 4,
+          "net_name": "VBAT_7V4"
+        },
+        "2": {
+          "net": 0,
+          "net_name": "GND"
+        },
+        "3": {
+          "net": 6,
+          "net_name": "3V3_STBY"
+        },
+        "4": {
+          "net": 0,
+          "net_name": "GND"
+        },
+        "5": {
+          "net": 5,
+          "net_name": "5V_BUCK"
+        },
+        "6": {
+          "net": 0,
+          "net_name": "GND"
+        },
+        "7": {
+          "net": 7,
+          "net_name": "CCD_PWR_EN"
+        },
+        "8": {
+          "nc": true
+        },
+        "9": {
+          "nc": true
+        },
+        "10": {
+          "net": 0,
+          "net_name": "GND"
+        }
+      }
+    }
+  ],
+  "labels": []
+}
