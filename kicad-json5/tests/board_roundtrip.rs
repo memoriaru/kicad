@@ -382,16 +382,26 @@ fn test_drill_oval_and_offset_roundtrip() {
     assert_eq!(slot.diameter, 1.2, "oval height (Y)");
     let tht = &pads[1].drill.as_ref().unwrap();
     assert_eq!(tht.width, None);
-    assert_eq!(tht.offset, Some((0.1, -0.2)), "drill offset was silently dropped");
+    assert_eq!(
+        tht.offset,
+        Some((0.1, -0.2)),
+        "drill offset was silently dropped"
+    );
 
     // sexpr 往返
     let mut gen = codegen::BoardSexprGenerator::new();
     let sexpr = gen.generate(&board).unwrap();
-    assert!(sexpr.contains("(drill oval 1.7 1.2)"), "oval drill re-emitted");
+    assert!(
+        sexpr.contains("(drill oval 1.7 1.2)"),
+        "oval drill re-emitted"
+    );
     assert!(sexpr.contains("(drill 0.8)"), "round drill re-emitted");
     assert!(sexpr.contains("(offset 0.1 -0.2)"));
     let re = parse_board(&sexpr).unwrap();
-    assert_eq!(re.footprints[0].pads[0].drill.as_ref().unwrap().width, Some(1.7));
+    assert_eq!(
+        re.footprints[0].pads[0].drill.as_ref().unwrap().width,
+        Some(1.7)
+    );
 
     // json5 往返
     let json5 = generate_board_json5(&board).unwrap();

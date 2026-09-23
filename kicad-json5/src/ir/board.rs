@@ -903,8 +903,8 @@ impl Board {
             } else {
                 (d.get(1).and_then(|v| v.as_number()).unwrap_or(0.0), None)
             };
-            let offset =
-                find_child(&d[1..], "offset").and_then(|o| Some((o.get(1)?.as_number()?, o.get(2)?.as_number()?)));
+            let offset = find_child(&d[1..], "offset")
+                .and_then(|o| Some((o.get(1)?.as_number()?, o.get(2)?.as_number()?)));
             DrillDef {
                 diameter,
                 width,
