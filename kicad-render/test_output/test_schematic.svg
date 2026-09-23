@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-9.19 -10.46 131.52 60.46" width="800" height="600">
+<style>
+  polyline { fill: none; }
+  text { font-family: monospace; dominant-baseline: middle; }
+</style>
+<polygon points="60.00,20.00 90.00,20.00 90.00,40.00 60.00,40.00" fill="#ffffdc" stroke="#000000" stroke-width="0.15"/><polyline points="0.00,0.00 50.00,0.00" fill="none" stroke="#008484" stroke-width="0.15"/><polyline points="50.00,0.00 50.00,30.00" fill="none" stroke="#008484" stroke-width="0.15"/><polyline points="50.00,30.00 100.00,30.00" fill="none" stroke="#008484" stroke-width="0.15"/><polyline points="110.00,30.00 100.00,30.00" fill="none" stroke="#008484" stroke-width="0.15"/><text x="110.43" y="30.00" fill="#000000" font-size="1.71px" dominant-baseline="central">OUT</text><circle cx="75.00" cy="30.00" r="5.00" fill="#ff0000"/><circle cx="50.00" cy="0.00" r="0.46" fill="#008484"/><circle cx="50.00" cy="30.00" r="0.46" fill="#008484"/><text x="0.81" y="0.00" fill="#008484" font-size="1.71px" dominant-baseline="central">VIN</text>
+</svg>
