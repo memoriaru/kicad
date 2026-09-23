@@ -321,18 +321,15 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
                             .collect::<Vec<_>>()
                             .join(", ")
                     ));
-                    match &pad.drill {
-                        Some(d) => {
-                            let mut fields = format!("diameter: {}", d.diameter);
-                            if let Some(w) = d.width {
-                                fields.push_str(&format!(", width: {}", w));
-                            }
-                            if let Some((ox, oy)) = d.offset {
-                                fields.push_str(&format!(", offset: [{}, {}]", ox, oy));
-                            }
-                            s.push_str(&format!("          drill: {{ {} }},\n", fields));
+                    if let Some(d) = &pad.drill {
+                        let mut fields = format!("diameter: {}", d.diameter);
+                        if let Some(w) = d.width {
+                            fields.push_str(&format!(", width: {}", w));
                         }
-                        None => {}
+                        if let Some((ox, oy)) = d.offset {
+                            fields.push_str(&format!(", offset: [{}, {}]", ox, oy));
+                        }
+                        s.push_str(&format!("          drill: {{ {} }},\n", fields));
                     }
                     if let Some(net) = pad.net {
                         s.push_str(&format!("          net: {},\n", net));
