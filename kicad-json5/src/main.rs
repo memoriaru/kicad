@@ -2,8 +2,8 @@
 
 use clap::Parser;
 use kicad_json5::{
-    BoardSexprGenerator, InputFormat, Json5Generator, KicadVersion, Lexer, Parser as SExprParser,
-    SexprGenerator,
+    BoardSexprConfig, BoardSexprGenerator, InputFormat, Json5Generator, KicadVersion, Lexer,
+    Parser as SExprParser, SexprGenerator,
 };
 use std::path::PathBuf;
 
@@ -80,10 +80,12 @@ struct Args {
     #[arg(short, long)]
     verbose: bool,
 
-    /// Vendor dialect adapter for PCB s-expr output: auto (content-detect),
-    /// huaqiu (fork: paper 兜底 A4 + 丝印旧层名 + connect_pads 省略形态) or
-    /// official (identity). Applies to board → .kicad_pcb emission only.
-    #[arg(long, default_value = "auto")]
+    /// Vendor dialect for PCB s-expr output net references & emit prep:
+    /// official (default: top-level net table + canonical references,
+    /// loadable by stock kicad-cli), huaqiu (fork: inline net names, no net
+    /// table, plus paper/silk-name fallbacks) or auto (content-detect,
+    /// round-trip preserving). Board → .kicad_pcb emission only.
+    #[arg(long, default_value = "official")]
     dialect: String,
 
     /// Insert PWR_FLAG symbols for power nets (JSON5→S-expression only).
@@ -198,10 +200,13 @@ fn run_pcb(args: &Args, source: &str) -> Result<(), Box<dyn std::error::Error>> 
         .as_ref()
         .and_then(|p| p.extension().and_then(|e| e.to_str()));
 
-    // Vendor dialect emit 整备（仅 .kicad_pcb 输出；json5 真源保持 IR 原样）
+    // Vendor dialect emit 整备（仅 .kicad_pcb 输出；json5 真源保持 IR 原样）。
+    // 方言同时驱动 net 引用形态: Official 写顶层 net 表 + 规范引用
+    // (stock kicad-cli 可加载); Huaqiu 内联 net 名省表 (HQ fork 要求)。
     let mut board = board;
+    let mut dialect = kicad_json5::dialect::VendorDialect::Official;
     if matches!(output_ext, Some("kicad_pcb") | None | Some("sexpr")) {
-        let vd = match args.dialect.as_str() {
+        dialect = match args.dialect.as_str() {
             "huaqiu" => kicad_json5::dialect::VendorDialect::Huaqiu,
             "official" => kicad_json5::dialect::VendorDialect::Official,
             "auto" => kicad_json5::dialect::VendorDialect::detect_board(source),
@@ -210,19 +215,27 @@ fn run_pcb(args: &Args, source: &str) -> Result<(), Box<dyn std::error::Error>> 
             }
         };
         if args.verbose {
-            eprintln!("Vendor dialect: {vd:?}");
+            eprintln!("Vendor dialect: {dialect:?}");
         }
-        vd.prepare_board(&mut board);
+        dialect.prepare_board(&mut board);
     }
 
     let output_content = match output_ext {
         Some("json5" | "json") => kicad_json5::generate_board_json5(&board)?,
         Some("kicad_pcb") | None => {
-            let mut gen = BoardSexprGenerator::new();
+            let config = BoardSexprConfig {
+                dialect,
+                ..Default::default()
+            };
+            let mut gen = BoardSexprGenerator::with_config(config);
             gen.generate(&board)?
         }
         _ => {
-            let mut gen = BoardSexprGenerator::new();
+            let config = BoardSexprConfig {
+                dialect,
+                ..Default::default()
+            };
+            let mut gen = BoardSexprGenerator::with_config(config);
             gen.generate(&board)?
         }
     };

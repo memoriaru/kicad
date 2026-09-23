@@ -15,6 +15,11 @@ pub struct BoardSexprConfig {
     pub generate_uuids: bool,
     /// Target KiCad version (None = auto-detect from input)
     pub kicad_version: Option<KicadVersion>,
+    /// Net-reference emission dialect. `Official` (default) writes a top-level
+    /// net table plus KiCad-canonical references — loadable by stock kicad-cli.
+    /// `Huaqiu` inlines net names on elements and omits the table, which the
+    /// HQ fork requires (its netcode allocator treats the two forms differently).
+    pub dialect: crate::dialect::VendorDialect,
 }
 
 impl Default for BoardSexprConfig {
@@ -24,6 +29,7 @@ impl Default for BoardSexprConfig {
             include_uuids: true,
             generate_uuids: true,
             kicad_version: None,
+            dialect: crate::dialect::VendorDialect::Official,
         }
     }
 }
@@ -159,6 +165,17 @@ impl BoardSexprGenerator {
         // Nets: 华秋 fork 下不写声明块——声明块的数字 id 与元素字符串名
         // 各走一条 netcode 分配路径，会让 zone 把同网 via/pad 判异网挖空。
         // net 名内联在各元素 (net "NAME") 上，同名即同网。
+
+        // Official 方言必须写声明表, 元素按官方规范引用 (pad 双元带名,
+        // segment/via 纯数字)——stock kicad-cli 拒载缺表/内联名的文件。
+        if self.config.dialect == crate::dialect::VendorDialect::Official {
+            for net in &board.nets {
+                self.line(
+                    &mut out,
+                    &format!("(net {} \"{}\")", net.id, Self::esc(&net.name)),
+                );
+            }
+        }
 
         // Build net id→name lookup for pad/segment/via references
         let net_names: std::collections::HashMap<u32, String> =
@@ -877,17 +894,26 @@ impl BoardSexprGenerator {
         }
         if let Some(net_id) = pad.net {
             if net_id > 0 {
-                // 华秋 fork 方言：pad 的 net 也是纯字符串——双元格式与
-                // segment/via/zone 的字符串 netcode 走不同分配路径，会把
-                // 同网 pad/zone 判成异网（refill 时 pad 周围填充被挖空）。
-                if let Some(name) = net_names.get(&net_id) {
-                    if !name.is_empty() {
-                        self.line(out, &format!("(net \"{}\")", Self::esc(name)));
-                    } else {
-                        self.line(out, &format!("(net {} \"\")", net_id));
+                match self.config.dialect {
+                    crate::dialect::VendorDialect::Official => {
+                        // 官方: 双元 (net id "name")——名字内联, 无名回退空串
+                        let name = net_names.get(&net_id).map(String::as_str).unwrap_or("");
+                        self.line(out, &format!("(net {} \"{}\")", net_id, Self::esc(name)));
                     }
-                } else {
-                    self.line(out, &format!("(net {})", net_id));
+                    crate::dialect::VendorDialect::Huaqiu => {
+                        // 华秋 fork 方言：pad 的 net 也是纯字符串——双元格式与
+                        // segment/via/zone 的字符串 netcode 走不同分配路径，会把
+                        // 同网 pad/zone 判成异网（refill 时 pad 周围填充被挖空）。
+                        if let Some(name) = net_names.get(&net_id) {
+                            if !name.is_empty() {
+                                self.line(out, &format!("(net \"{}\")", Self::esc(name)));
+                            } else {
+                                self.line(out, &format!("(net {} \"\")", net_id));
+                            }
+                        } else {
+                            self.line(out, &format!("(net {})", net_id));
+                        }
+                    }
                 }
             } else {
                 self.line(out, &format!("(net {} \"\")", net_id));
@@ -1114,11 +1140,17 @@ impl BoardSexprGenerator {
         self.line(out, &format!("(layer \"{}\")", seg.layer));
         // 华秋 fork 方言：segment/via 的 net 是纯字符串 (net "name")——
         // 双元 (net id "name") 会被该 fork 拒载（"应为 ')'"）。无名字时退回数字。
-        match net_names.get(&seg.net) {
-            Some(name) if !name.is_empty() => {
-                self.line(out, &format!("(net \"{}\")", Self::esc(name)))
+        // Official: 纯数字引用顶层 net 表。
+        match self.config.dialect {
+            crate::dialect::VendorDialect::Official => {
+                self.line(out, &format!("(net {})", seg.net));
             }
-            _ => self.line(out, &format!("(net {})", seg.net)),
+            crate::dialect::VendorDialect::Huaqiu => match net_names.get(&seg.net) {
+                Some(name) if !name.is_empty() => {
+                    self.line(out, &format!("(net \"{}\")", Self::esc(name)))
+                }
+                _ => self.line(out, &format!("(net {})", seg.net)),
+            },
         }
         self.maybe_uuid(out);
         self.indent_level -= 1;
@@ -1146,11 +1178,17 @@ impl BoardSexprGenerator {
             .collect::<Vec<_>>()
             .join(" ");
         self.line(out, &format!("(layers {})", layers_str));
-        match net_names.get(&via.net) {
-            Some(name) if !name.is_empty() => {
-                self.line(out, &format!("(net \"{}\")", Self::esc(name)))
+        // Official: 纯数字; 华秋 fork: 内联字符串名 (同 segment)。
+        match self.config.dialect {
+            crate::dialect::VendorDialect::Official => {
+                self.line(out, &format!("(net {})", via.net));
             }
-            _ => self.line(out, &format!("(net {})", via.net)),
+            crate::dialect::VendorDialect::Huaqiu => match net_names.get(&via.net) {
+                Some(name) if !name.is_empty() => {
+                    self.line(out, &format!("(net \"{}\")", Self::esc(name)))
+                }
+                _ => self.line(out, &format!("(net {})", via.net)),
+            },
         }
         self.maybe_uuid(out);
         self.indent_level -= 1;
@@ -1164,10 +1202,24 @@ impl BoardSexprGenerator {
         self.indent_level += 1;
         // 华秋 fork 方言：zone 头用纯字符串 (net "name")——双元 (net id)+(net_name)
         // 会被该 fork 当作无网 zone，refill 只出碎片填充。
-        if !zone.net_name.is_empty() {
-            self.line(out, &format!("(net \"{}\")", Self::esc(&zone.net_name)));
-        } else {
-            self.line(out, &format!("(net {})", zone.net));
+        // Official: (net id) + (net_name "...") 分立两字段 (KiCad 规范)。
+        match self.config.dialect {
+            crate::dialect::VendorDialect::Official => {
+                self.line(out, &format!("(net {})", zone.net));
+                if !zone.net_name.is_empty() {
+                    self.line(
+                        out,
+                        &format!("(net_name \"{}\")", Self::esc(&zone.net_name)),
+                    );
+                }
+            }
+            crate::dialect::VendorDialect::Huaqiu => {
+                if !zone.net_name.is_empty() {
+                    self.line(out, &format!("(net \"{}\")", Self::esc(&zone.net_name)));
+                } else {
+                    self.line(out, &format!("(net {})", zone.net));
+                }
+            }
         }
         self.line(out, &format!("(layer \"{}\")", zone.layer));
         self.maybe_uuid(out);
@@ -1484,7 +1536,12 @@ mod tests {
     #[test]
     fn test_empty_board() {
         let board = Board::new();
-        let mut gen = BoardSexprGenerator::new();
+        // 华秋方言: 不写 nets 声明块
+        let hq = BoardSexprConfig {
+            dialect: crate::dialect::VendorDialect::Huaqiu,
+            ..Default::default()
+        };
+        let mut gen = BoardSexprGenerator::with_config(hq);
         let output = gen.generate(&board).unwrap();
 
         assert!(output.starts_with("(kicad_pcb"));
@@ -1493,7 +1550,6 @@ mod tests {
         assert!(output.contains("(layers"));
         assert!(output.contains("\"F.Cu\""));
         assert!(output.contains("\"B.Cu\""));
-        // 华秋方言: 不写 nets 声明块
         assert!(!output.contains("(net 0"));
         assert!(output.ends_with(")\n"));
     }
@@ -1504,10 +1560,22 @@ mod tests {
         let net_id = board.add_net("+5V");
         assert_eq!(net_id, 1);
 
+        // 华秋方言: net 名内联在元素上, 无元素的 net 不产出声明行
+        let hq = BoardSexprConfig {
+            dialect: crate::dialect::VendorDialect::Huaqiu,
+            ..Default::default()
+        };
+        let mut gen = BoardSexprGenerator::with_config(hq);
+        let output = gen.generate(&board).unwrap();
+        assert!(!output.contains("(net "));
+
+        // Official 方言(默认): 无元素也写声明表
         let mut gen = BoardSexprGenerator::new();
         let output = gen.generate(&board).unwrap();
-        // 华秋方言: net 名内联在元素上, 无元素的 net 不产出声明行
-        assert!(!output.contains("(net "));
+        assert!(
+            output.contains("(net 1 \"+5V\")"),
+            "official must emit the net table"
+        );
     }
 
     #[test]
@@ -1541,7 +1609,11 @@ mod tests {
         });
         board.footprints.push(fp);
 
-        let mut gen = BoardSexprGenerator::new();
+        let hq = BoardSexprConfig {
+            dialect: crate::dialect::VendorDialect::Huaqiu,
+            ..Default::default()
+        };
+        let mut gen = BoardSexprGenerator::with_config(hq);
         let output = gen.generate(&board).unwrap();
 
         assert!(output.contains("(footprint \"Package_SO:SOP-8_3.9x4.9mm_P1.27mm\""));
@@ -1595,7 +1667,11 @@ mod tests {
             keepout: None,
         });
 
-        let mut gen = BoardSexprGenerator::new();
+        let hq = BoardSexprConfig {
+            dialect: crate::dialect::VendorDialect::Huaqiu,
+            ..Default::default()
+        };
+        let mut gen = BoardSexprGenerator::with_config(hq);
         let output = gen.generate(&board).unwrap();
 
         assert!(output.contains("(zone"));

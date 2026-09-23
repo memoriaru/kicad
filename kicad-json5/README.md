@@ -43,6 +43,7 @@ kicad-json5 schematic.kicad_sch
 | `--validate` | 仅验证，不输出 |
 | `--debug-ast` | 打印 AST 用于调试 |
 | `--power-flags` | JSON5→Sexpr 时自动插入 PWR_FLAG |
+| `--dialect <D>` | `.kicad_pcb` 输出方言：`official`（默认, stock kicad-cli 可直接加载）/ `huaqiu`（华秋 fork 兼容）/ `auto`（按输入内容探测, 往返保真） |
 | `-v, --verbose` | 详细输出 |
 
 ### 示例

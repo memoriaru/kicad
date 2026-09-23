@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Board S-expression emission now defaults to the Official KiCad dialect**
+  and is loadable by stock `kicad-cli` (verified against 10.0.6): a top-level
+  net table, pad references as `(net id "name")`, segment/via as `(net id)`,
+  zones as `(net id)` + `(net_name "...")`. The legacy HQ-fork dialect
+  (inline net names, no net table — required by that fork's netcode
+  allocator) is available via `BoardSexprConfig { dialect: Huaqiu }` or
+  `--dialect huaqiu`; `--dialect auto` preserves the input dialect.
+  Consequence of the official table: unnamed net-0 placeholders and dangling
+  nets now survive board round-trips.
+
 ### Fixed
 - Board → JSON5 export dropped `zone.filled_polygons` — zones came back from
   the JSON5 hop with their copper fill silently emptied. The zone serializer

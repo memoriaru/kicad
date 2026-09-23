@@ -124,6 +124,20 @@ This project is based on rendering logic from the following open-source projects
 - [**KiCanvas**](https://github.com/theacodes/kicanvas) — KiCad schematic/PCB browser renderer. This project's Painter layer architecture and rendering algorithms are ported 1:1 from its TypeScript/JS code
 - [**ecad-viewer**](https://github.com/Huaqiu-Electronics/ecad-viewer) — Online KiCad file viewer based on KiCanvas
 
+## Layered rendering
+
+Every element in PCB output carries a `data-layer` attribute, and the CLI can
+filter by layer:
+
+```bash
+kicad-render board.kicad_pcb --layers F.Cu,B.Cu -o copper.svg
+kicad-render board.kicad_pcb --layers F.SilkS -o silk.png
+```
+
+`examples/layer-viewer.html` is a dependency-free single-file browser viewer:
+drop in a full render (no `--layers`) and toggle layers with checkboxes.
+Wildcards `*.Cu` / `*.SilkS` / `*.Mask` are supported.
+
 ## License
 
 MIT — with attribution notices for derived work from

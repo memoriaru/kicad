@@ -124,6 +124,18 @@ kicad-json5 (解析/编译)  →  kicad-render (渲染/可视化)
 - [**KiCanvas**](https://github.com/theacodes/kicanvas) — KiCad 原理图/PCB 浏览器渲染器，本项目的 Painter 层架构和渲染算法均从其 TypeScript/JS 代码 1:1 移植
 - [**ecad-viewer**](https://github.com/Huaqiu-Electronics/ecad-viewer) — 基于 KiCanvas 的 KiCad 文件在线查看器
 
+## 分层渲染
+
+PCB 渲染输出的每个元素都带 `data-layer` 属性；CLI 可按层过滤输出：
+
+```bash
+kicad-render board.kicad_pcb --layers F.Cu,B.Cu -o copper.svg   # 仅铜层
+kicad-render board.kicad_pcb --layers F.SilkS -o silk.png        # 丝印层 PNG
+```
+
+`examples/layer-viewer.html` 是零依赖的单文件浏览器查看器：拖入完整渲染的
+SVG（不带 `--layers`），即可按层勾选显隐。通配符 `*.Cu` / `*.SilkS` / `*.Mask` 可用。
+
 ## License
 
 MIT — with attribution notices for derived work from
