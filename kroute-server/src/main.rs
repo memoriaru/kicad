@@ -415,8 +415,9 @@ async fn run_client(cmd: Cmd) -> Result<()> {
             let grid: Vec<u32> = if let Some(f) = &grid_file {
                 let bytes = std::fs::read(f)?;
                 bytes
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .as_chunks::<4>()
+                    .0
+                    .map(|c| u32::from_le_bytes(*c))
                     .collect()
             } else {
                 let total = (cols * rows) as usize;
@@ -647,8 +648,9 @@ async fn run_route_batch(addr: &str, batch_file: &str, out: Option<&str>) -> Res
     let bytes = std::fs::read(grid_file).with_context(|| format!("读 {grid_file}"))?;
     let expected = (cols as usize) * (rows as usize) * (layers as usize);
     let grid: Vec<u32> = bytes
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .map(|c| u32::from_le_bytes(*c))
         .collect();
     anyhow::ensure!(
         grid.len() == expected,
