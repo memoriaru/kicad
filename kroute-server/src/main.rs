@@ -417,6 +417,7 @@ async fn run_client(cmd: Cmd) -> Result<()> {
                 bytes
                     .as_chunks::<4>()
                     .0
+                    .iter()
                     .map(|c| u32::from_le_bytes(*c))
                     .collect()
             } else {
@@ -650,6 +651,7 @@ async fn run_route_batch(addr: &str, batch_file: &str, out: Option<&str>) -> Res
     let grid: Vec<u32> = bytes
         .as_chunks::<4>()
         .0
+        .iter()
         .map(|c| u32::from_le_bytes(*c))
         .collect();
     anyhow::ensure!(
