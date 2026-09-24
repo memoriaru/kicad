@@ -1,0 +1,88 @@
+{
+  "name": "RT9193-ADJ",
+  "type": "ic-core",
+  "description": "RT9193 低噪声 LDO 稳压器，可调输出版本 (SOT-23-5)",
+  "ic": {
+    "mpn": "RT9193-ADJ",
+    "manufacturer": "Richtek",
+    "package": "SOT-23-5",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-5",
+    "pins": [
+      { "number": "1", "name": "VIN",  "type": "power_in" },
+      { "number": "2", "name": "GND",  "type": "power_in" },
+      { "number": "3", "name": "VOUT", "type": "power_out" },
+      { "number": "4", "name": "EN",   "type": "input" },
+      { "number": "5", "name": "FB",   "type": "input" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10uF/16V",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VIN", "2": "GND" },
+      "description": "输入旁路电容"
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "10uF/16V",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VOUT", "2": "GND" },
+      "description": "输出电容"
+    },
+    {
+      "role": "r_fb1",
+      "lib": "Device:R",
+      "value": "computed",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VOUT", "2": "FB" },
+      "description": "反馈上电阻 (VOUT → FB)"
+    },
+    {
+      "role": "r_fb2",
+      "lib": "Device:R",
+      "value": "computed",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "FB", "2": "GND" },
+      "description": "反馈下电阻 (FB → GND)"
+    }
+  ],
+  "params": {
+    "vref": { "value": 0.8, "unit": "V", "description": "内部参考电压" },
+    "vout": { "description": "目标输出电压", "unit": "V" },
+    "r_fb2": { "value": 10000, "unit": "ohm", "description": "下电阻固定值 (默认 10kΩ)" },
+    "r_fb1": {
+      "formula": "r_fb1 = r_fb2 * (vout / vref - 1)",
+      "depends": ["vout", "r_fb2", "vref"],
+      "unit": "ohm"
+    }
+  },
+  "interface": {
+    "VIN":  { "direction": "input",  "type": "power" },
+    "GND":  { "direction": "input",  "type": "power" },
+    "VOUT": { "direction": "output", "type": "power" },
+    "EN":   { "direction": "input",  "type": "signal" }
+  },
+  "constraints": {
+    "dropout": "vin - vout >= 0.35",
+    "vin_max": "vin <= 5.5",
+    "iout_max": "iout <= 0.3"
+  },
+  "layout": {
+    "ic":     { "x": 40,   "y": 0 },
+    "c_in":   { "x": 20,   "y": 0 },
+    "c_out":  { "x": 60,   "y": 0 },
+    "r_fb1":  { "x": 60,   "y": 10 },
+    "r_fb2":  { "x": 60,   "y": 20 }
+  },
+  "verified_instances": [
+    { "ref": "U5",  "vout": 13.0, "r_fb1": "10k",   "r_fb2": "649",   "source": "ccd-power.json5" },
+    { "ref": "U6",  "vout": 9.0,  "r_fb1": "10k",   "r_fb2": "976",   "source": "ccd-power.json5" },
+    { "ref": "U7",  "vout": 4.0,  "r_fb1": "10k",   "r_fb2": "2.49k", "source": "ccd-power.json5" },
+    { "ref": "U8",  "vout": 3.0,  "r_fb1": "10k",   "r_fb2": "3.65k", "source": "ccd-power.json5" },
+    { "ref": "U9",  "vout": 2.0,  "r_fb1": "10k",   "r_fb2": "6.65k", "source": "ccd-power.json5" },
+    { "ref": "U21", "vout": 6.0,  "r_fb1": "64.9k", "r_fb2": "10k",   "source": "ccd-power.json5", "note": "反相配置" }
+  ]
+}

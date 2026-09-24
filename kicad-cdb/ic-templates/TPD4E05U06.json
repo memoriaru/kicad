@@ -1,0 +1,44 @@
+{
+  "name": "TPD4E05U06",
+  "type": "ic-core",
+  "description": "TPD4E05U06 4 通道 ESD 保护，USB 3.x/Type-C 超低电容 (USON-10)",
+  "ic": {
+    "mpn": "TPD4E05U06",
+    "manufacturer": "TI",
+    "package": "USON-10",
+    "footprint": "Package_SON:Texas_USON-10_2.5x1.0mm_P0.5mm",
+    "pins": [
+      { "number": "1",  "name": "CH1", "type": "bidirectional" },
+      { "number": "2",  "name": "GND", "type": "power_in" },
+      { "number": "3",  "name": "CH2", "type": "bidirectional" },
+      { "number": "4",  "name": "CH3", "type": "bidirectional" },
+      { "number": "5",  "name": "GND2","type": "power_in" },
+      { "number": "6",  "name": "CH4", "type": "bidirectional" },
+      { "number": "7",  "name": "NC1", "type": "no_connect" },
+      { "number": "8",  "name": "NC2", "type": "no_connect" },
+      { "number": "9",  "name": "VCC", "type": "power_in" },
+      { "number": "10", "name": "NC3", "type": "no_connect" }
+    ]
+  },
+  "peripherals": [],
+  "params": {
+    "vbr": { "value": 5.5,     "unit": "V", "description": "Breakdown voltage" },
+    "vc":  { "value": 9.2,     "unit": "V", "description": "Clamping voltage" },
+    "cj":  { "value": 0.2e-12, "unit": "F", "description": "Junction capacitance (per channel)" },
+    "vrm": { "value": 5.0,     "unit": "V", "description": "Working voltage" }
+  },
+  "interface": {
+    "VCC": { "direction": "input",  "type": "power" },
+    "GND": { "direction": "input",  "type": "power" },
+    "CH1": { "direction": "bidirectional", "type": "signal" },
+    "CH2": { "direction": "bidirectional", "type": "signal" },
+    "CH3": { "direction": "bidirectional", "type": "signal" },
+    "CH4": { "direction": "bidirectional", "type": "signal" }
+  },
+  "constraints": {
+    "vcc_range": "vrm >= 3.3; vrm <= 5.5"
+  },
+  "layout": {
+    "ic": { "x": 30, "y": 0 }
+  }
+}

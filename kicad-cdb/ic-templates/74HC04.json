@@ -1,0 +1,67 @@
+{
+  "name": "74HC04",
+  "type": "ic-core",
+  "description": "74HC04 六反相器 (TSSOP-14)，6 路独立反相通道",
+  "ic": {
+    "mpn": "74HC04",
+    "manufacturer": "NXP/TI/Multiple",
+    "package": "TSSOP-14",
+    "footprint": "Package_SO:TSSOP-14_4.4x5mm_P0.65mm",
+    "pins": [
+      { "number": "1",  "name": "1A",  "type": "input" },
+      { "number": "2",  "name": "1Y",  "type": "output" },
+      { "number": "3",  "name": "2A",  "type": "input" },
+      { "number": "4",  "name": "2Y",  "type": "output" },
+      { "number": "5",  "name": "3A",  "type": "input" },
+      { "number": "6",  "name": "3Y",  "type": "output" },
+      { "number": "7",  "name": "GND", "type": "power_in" },
+      { "number": "8",  "name": "4Y",  "type": "output" },
+      { "number": "9",  "name": "4A",  "type": "input" },
+      { "number": "10", "name": "5Y",  "type": "output" },
+      { "number": "11", "name": "5A",  "type": "input" },
+      { "number": "12", "name": "6Y",  "type": "output" },
+      { "number": "13", "name": "6A",  "type": "input" },
+      { "number": "14", "name": "VCC", "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_bypass",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCC", "2": "GND" },
+      "description": "VCC 旁路电容"
+    }
+  ],
+  "params": {
+    "vcc": { "value": 3.3, "unit": "V", "description": "供电电压 (2.0~6.0V)" }
+  },
+  "interface": {
+    "VCC":  { "direction": "input",  "type": "power" },
+    "GND":  { "direction": "input",  "type": "power" },
+    "1A":   { "direction": "input",  "type": "signal" },
+    "1Y":   { "direction": "output", "type": "signal" },
+    "2A":   { "direction": "input",  "type": "signal" },
+    "2Y":   { "direction": "output", "type": "signal" },
+    "3A":   { "direction": "input",  "type": "signal" },
+    "3Y":   { "direction": "output", "type": "signal" },
+    "4A":   { "direction": "input",  "type": "signal" },
+    "4Y":   { "direction": "output", "type": "signal" },
+    "5A":   { "direction": "input",  "type": "signal" },
+    "5Y":   { "direction": "output", "type": "signal" },
+    "6A":   { "direction": "input",  "type": "signal" },
+    "6Y":   { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "vcc_min": "vcc >= 2.0",
+    "vcc_max": "vcc <= 6.0"
+  },
+  "layout": {
+    "ic":       { "x": 30,  "y": 0 },
+    "c_bypass": { "x": 50,  "y": 0 }
+  },
+  "verified_instances": [
+    { "ref": "U18", "vcc": "3.3V", "dnp": true, "source": "ccd-control.json5" }
+  ]
+}

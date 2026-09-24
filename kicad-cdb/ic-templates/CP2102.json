@@ -1,0 +1,97 @@
+{
+  "name": "CP2102",
+  "type": "ic-core",
+  "description": "CP2102 USB 转 UART 转换器 (QFN-28)，全功能 modem 信号，内置稳压器",
+  "ic": {
+    "mpn": "CP2102",
+    "manufacturer": "Silicon Labs",
+    "package": "QFN-28",
+    "footprint": "Package_DFN_QFN:QFN-28-1EP_5x5mm_P0.5mm_EP3.35x3.35mm",
+    "pins": [
+      { "number": "1",  "name": "VBUS",    "type": "input" },
+      { "number": "2",  "name": "NC1",     "type": "no_connect" },
+      { "number": "3",  "name": "D+",      "type": "bidirectional" },
+      { "number": "4",  "name": "D-",      "type": "bidirectional" },
+      { "number": "5",  "name": "VREGIN",  "type": "power_in" },
+      { "number": "6",  "name": "REGIN",   "type": "power_in" },
+      { "number": "7",  "name": "GND1",    "type": "power_in" },
+      { "number": "8",  "name": "NC2",     "type": "no_connect" },
+      { "number": "9",  "name": "NC3",     "type": "no_connect" },
+      { "number": "10", "name": "RST#",    "type": "input" },
+      { "number": "11", "name": "SUSPEND", "type": "output" },
+      { "number": "12", "name": "SUSP#",   "type": "output" },
+      { "number": "13", "name": "NC4",     "type": "no_connect" },
+      { "number": "14", "name": "NC5",     "type": "no_connect" },
+      { "number": "15", "name": "GND2",    "type": "power_in" },
+      { "number": "16", "name": "NC6",     "type": "no_connect" },
+      { "number": "17", "name": "NC7",     "type": "no_connect" },
+      { "number": "18", "name": "NC8",     "type": "no_connect" },
+      { "number": "19", "name": "NC9",     "type": "no_connect" },
+      { "number": "20", "name": "GND3",    "type": "power_in" },
+      { "number": "21", "name": "VDD",     "type": "power_out" },
+      { "number": "22", "name": "TXD",     "type": "output" },
+      { "number": "23", "name": "RXD",     "type": "input" },
+      { "number": "24", "name": "CTS#",    "type": "input" },
+      { "number": "25", "name": "RTS#",    "type": "output" },
+      { "number": "26", "name": "DTR#",    "type": "output" },
+      { "number": "27", "name": "DSR#",    "type": "input" },
+      { "number": "28", "name": "DCD#",    "type": "input" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_regin",
+      "lib": "Device:C",
+      "value": "1uF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "REGIN", "2": "GND1" },
+      "description": "REGIN bypass capacitor"
+    },
+    {
+      "role": "c_vregin",
+      "lib": "Device:C",
+      "value": "1uF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VREGIN", "2": "GND1" },
+      "description": "VREGIN bypass capacitor"
+    },
+    {
+      "role": "c_vbus",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VBUS", "2": "GND1" },
+      "description": "VBUS bypass capacitor"
+    },
+    {
+      "role": "r_rst_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VDD", "2": "RST#" },
+      "description": "RST# pull-up resistor"
+    }
+  ],
+  "params": {
+    "vbus":      { "value": 5.0, "unit": "V", "description": "USB VBUS voltage" },
+    "baud_rate": { "value": 115200, "unit": "bps", "description": "Target baud rate" }
+  },
+  "interface": {
+    "VBUS":  { "direction": "input",  "type": "power" },
+    "GND":   { "direction": "input",  "type": "power" },
+    "D+":    { "direction": "bidirectional", "type": "signal" },
+    "D-":    { "direction": "bidirectional", "type": "signal" },
+    "TXD":   { "direction": "output", "type": "signal" },
+    "RXD":   { "direction": "input",  "type": "signal" }
+  },
+  "constraints": {
+    "vbus_range": "vbus >= 4.0; vbus <= 5.25"
+  },
+  "layout": {
+    "ic":        { "x": 40, "y": 0 },
+    "c_regin":   { "x": 25, "y": -10 },
+    "c_vregin":  { "x": 25, "y": 10 },
+    "c_vbus":    { "x": 55, "y": -10 },
+    "r_rst_pu":  { "x": 55, "y": 10 }
+  }
+}

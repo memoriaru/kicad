@@ -1,0 +1,88 @@
+{
+  "name": "TXS0108E",
+  "type": "ic-core",
+  "description": "TXS0108E 8 通道双向电平转换器 (TSSOP-20)，自动方向检测",
+  "ic": {
+    "mpn": "TXS0108E",
+    "manufacturer": "TI",
+    "package": "TSSOP-20",
+    "footprint": "Package_SO:TSSOP-20_4.4x6.5mm_P0.65mm",
+    "pins": [
+      { "number": "1",  "name": "VCCA", "type": "power_in" },
+      { "number": "2",  "name": "A1",   "type": "bidirectional" },
+      { "number": "3",  "name": "A2",   "type": "bidirectional" },
+      { "number": "4",  "name": "A3",   "type": "bidirectional" },
+      { "number": "5",  "name": "A4",   "type": "bidirectional" },
+      { "number": "6",  "name": "A5",   "type": "bidirectional" },
+      { "number": "7",  "name": "A6",   "type": "bidirectional" },
+      { "number": "8",  "name": "A7",   "type": "bidirectional" },
+      { "number": "9",  "name": "A8",   "type": "bidirectional" },
+      { "number": "10", "name": "OE",   "type": "input" },
+      { "number": "11", "name": "GND",  "type": "power_in" },
+      { "number": "12", "name": "B8",   "type": "bidirectional" },
+      { "number": "13", "name": "B7",   "type": "bidirectional" },
+      { "number": "14", "name": "B6",   "type": "bidirectional" },
+      { "number": "15", "name": "B5",   "type": "bidirectional" },
+      { "number": "16", "name": "B4",   "type": "bidirectional" },
+      { "number": "17", "name": "B3",   "type": "bidirectional" },
+      { "number": "18", "name": "B2",   "type": "bidirectional" },
+      { "number": "19", "name": "B1",   "type": "bidirectional" },
+      { "number": "20", "name": "VCCB", "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vcca",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCCA", "2": "GND" },
+      "description": "VCCA decoupling capacitor"
+    },
+    {
+      "role": "c_vccb",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCCB", "2": "GND" },
+      "description": "VCCB decoupling capacitor"
+    },
+    {
+      "role": "r_oe_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VCCA", "2": "OE" },
+      "description": "OE pull-up to VCCA (enable)"
+    }
+  ],
+  "params": {
+    "vcca":      { "description": "A-side voltage (1.2~3.6V)", "unit": "V" },
+    "vccb":      { "description": "B-side voltage (1.65~5.5V)", "unit": "V" },
+    "data_rate": { "description": "Maximum data rate", "unit": "bps" }
+  },
+  "interface": {
+    "VCCA": { "direction": "input",  "type": "power" },
+    "VCCB": { "direction": "input",  "type": "power" },
+    "GND":  { "direction": "input",  "type": "power" },
+    "OE":   { "direction": "input",  "type": "signal" },
+    "A1":   { "direction": "bidirectional", "type": "signal" },
+    "A2":   { "direction": "bidirectional", "type": "signal" },
+    "A3":   { "direction": "bidirectional", "type": "signal" },
+    "A4":   { "direction": "bidirectional", "type": "signal" },
+    "B1":   { "direction": "bidirectional", "type": "signal" },
+    "B2":   { "direction": "bidirectional", "type": "signal" },
+    "B3":   { "direction": "bidirectional", "type": "signal" },
+    "B4":   { "direction": "bidirectional", "type": "signal" }
+  },
+  "constraints": {
+    "vcca_range": "vcca >= 1.2; vcca <= 3.6",
+    "vccb_range": "vccb >= 1.65; vccb <= 5.5"
+  },
+  "layout": {
+    "ic":      { "x": 40, "y": 0 },
+    "c_vcca":  { "x": 25, "y": -10 },
+    "c_vccb":  { "x": 55, "y": -10 },
+    "r_oe_pu": { "x": 25, "y": 10 }
+  }
+}

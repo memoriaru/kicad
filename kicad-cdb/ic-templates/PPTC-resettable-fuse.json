@@ -1,0 +1,39 @@
+{
+  "name": "PPTC-resettable-fuse",
+  "type": "ic-core",
+  "description": "PPTC 自恢复保险丝模板 (2 引脚贴片/通孔)",
+  "ic": {
+    "mpn": "PPTC-generic",
+    "manufacturer": "Multiple",
+    "package": "SMD",
+    "footprint": "Fuse:Fuse_0805_2012Metric",
+    "pins": [
+      { "number": "1", "name": "P1", "type": "passive" },
+      { "number": "2", "name": "P2", "type": "passive" }
+    ]
+  },
+  "peripherals": [],
+  "params": {
+    "v_max":     { "description": "Maximum voltage rating", "unit": "V" },
+    "i_hold":    { "description": "Hold current", "unit": "A" },
+    "i_trip":    { "description": "Trip current", "unit": "A" },
+    "r_initial": { "description": "Initial resistance", "unit": "ohm" },
+    "p_dissipated": {
+      "description": "Power dissipated at hold current",
+      "unit": "W",
+      "formula": "p_dissipated = i_hold * i_hold * r_initial",
+      "depends": ["i_hold", "r_initial"]
+    }
+  },
+  "interface": {
+    "P1": { "direction": "bidirectional", "type": "signal" },
+    "P2": { "direction": "bidirectional", "type": "signal" }
+  },
+  "constraints": {
+    "v_check": "v_operating <= v_max",
+    "i_check": "i_operating <= i_hold"
+  },
+  "layout": {
+    "ic": { "x": 30, "y": 0 }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "AO3408-low-side-switch",
+  "type": "ic-core",
+  "description": "N-MOSFET 低边开关 (AO3408)，适用于负载开关、PWM 控制",
+  "ic": {
+    "mpn": "AO3408",
+    "manufacturer": "Alpha & Omega",
+    "package": "SOT-23",
+    "footprint": "Package_TO_SOT_SMD:SOT-23",
+    "pins": [
+      { "number": "1", "name": "G", "type": "input" },
+      { "number": "2", "name": "S", "type": "passive" },
+      { "number": "3", "name": "D", "type": "passive" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "r_pulldown",
+      "lib": "Device:R",
+      "value": "100k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "G", "2": "S" },
+      "description": "Gate 下拉电阻，确保关断"
+    }
+  ],
+  "params": {
+    "r_pulldown": { "value": 100000, "unit": "ohm", "description": "Gate 下拉电阻" }
+  },
+  "interface": {
+    "G":   { "direction": "input",  "type": "signal" },
+    "S":   { "direction": "input",  "type": "power" },
+    "D":   { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "vgs_max": "vgs <= 20",
+    "vds_max": "vds <= 30",
+    "id_max": "id <= 5.8"
+  },
+  "layout": {
+    "ic":     { "x": 30, "y": 0 },
+    "r_pulldown": { "x": 30, "y": 15 }
+  },
+  "verified_instances": [
+    { "ref": "Q12", "signal": "TEC_EN", "source": "ccd-control.json5", "note": "TEC 开关" },
+    { "ref": "Q13", "signal": "FAN_PWM", "source": "ccd-control.json5", "note": "风扇开关" }
+  ]
+}

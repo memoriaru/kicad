@@ -1,0 +1,59 @@
+{
+  "name": "CH340N",
+  "type": "ic-core",
+  "description": "CH340N USB 转 UART 转换器 (SOP-8)，精简版，内置晶振",
+  "ic": {
+    "mpn": "CH340N",
+    "manufacturer": "WCH",
+    "package": "SOP-8",
+    "footprint": "Package_SO:SOP-8_3.9x4.9mm_P1.27mm",
+    "pins": [
+      { "number": "1", "name": "GND", "type": "power_in" },
+      { "number": "2", "name": "TXD", "type": "output" },
+      { "number": "3", "name": "RXD", "type": "input" },
+      { "number": "4", "name": "V3",  "type": "power_out" },
+      { "number": "5", "name": "UD+", "type": "bidirectional" },
+      { "number": "6", "name": "UD-", "type": "bidirectional" },
+      { "number": "7", "name": "RI#", "type": "input" },
+      { "number": "8", "name": "VCC", "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vcc",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCC", "2": "GND" },
+      "description": "VCC decoupling capacitor"
+    },
+    {
+      "role": "c_v3",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "V3", "2": "GND" },
+      "description": "Internal 3.3V regulator decoupling"
+    }
+  ],
+  "params": {
+    "vcc":       { "value": 5.0, "unit": "V", "description": "Supply voltage" },
+    "baud_rate": { "value": 115200, "unit": "bps", "description": "Target baud rate" }
+  },
+  "interface": {
+    "VCC": { "direction": "input",  "type": "power" },
+    "GND": { "direction": "input",  "type": "power" },
+    "UD+": { "direction": "bidirectional", "type": "signal" },
+    "UD-": { "direction": "bidirectional", "type": "signal" },
+    "TXD": { "direction": "output", "type": "signal" },
+    "RXD": { "direction": "input",  "type": "signal" }
+  },
+  "constraints": {
+    "vcc_range": "vcc >= 3.3; vcc <= 5.25"
+  },
+  "layout": {
+    "ic":    { "x": 40, "y": 0 },
+    "c_vcc": { "x": 25, "y": -10 },
+    "c_v3":  { "x": 25, "y": 10 }
+  }
+}

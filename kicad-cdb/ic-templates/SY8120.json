@@ -1,0 +1,88 @@
+{
+  "name": "SY8120",
+  "description": "SY8120 同步降压 DC-DC (SOT-23-6)，BST 引脚",
+  "ic": {
+    "mpn": "SY8120",
+    "manufacturer": "Silergy",
+    "package": "SOT-23-6",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-6",
+    "pins": [
+      { "number": "1", "name": "EN",   "type": "input" },
+      { "number": "2", "name": "GND",  "type": "power_in" },
+      { "number": "3", "name": "SW",   "type": "output" },
+      { "number": "4", "name": "BST",  "type": "passive" },
+      { "number": "5", "name": "VIN",  "type": "power_in" },
+      { "number": "6", "name": "FB",   "type": "input" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "l_out",
+      "lib": "Device:L",
+      "value": "4.7μH",
+      "footprint": "Inductor_SMD:L_4020_1005Metric",
+      "pins": { "1": "SW", "2": "VOUT" },
+      "description": "输出电感 (SW → VOUT)"
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10μF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VIN", "2": "GND" },
+      "description": "输入旁路电容"
+    },
+    {
+      "role": "c_bst",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0402_1005Metric",
+      "pins": { "1": "SW", "2": "BST" },
+      "description": "BST 自举电容"
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "22μF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VOUT", "2": "GND" },
+      "description": "输出电容"
+    },
+    {
+      "role": "r_fb1",
+      "lib": "Device:R",
+      "value": "220kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VOUT", "2": "FB" },
+      "description": "反馈上电阻"
+    },
+    {
+      "role": "r_fb2",
+      "lib": "Device:R",
+      "value": "30kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "FB", "2": "GND" },
+      "description": "反馈下电阻"
+    }
+  ],
+  "params": {
+    "l_value": { "value": 4.7e-6, "unit": "H", "description": "电感量" },
+    "vout": { "description": "目标输出电压", "unit": "V" }
+  },
+  "interface": {
+    "EN":   { "direction": "input",  "type": "signal" },
+    "VIN":  { "direction": "input",  "type": "power" },
+    "GND":  { "direction": "input",  "type": "power" },
+    "VOUT": { "direction": "output", "type": "power" },
+    "FB":   { "direction": "output", "type": "signal" }
+  },
+  "layout": {
+    "ic":    { "x": 40, "y": 0 },
+    "l_out": { "x": 60, "y": 0 },
+    "c_in":  { "x": 20, "y": 10 },
+    "c_bst": { "x": 50, "y": -8 },
+    "c_out": { "x": 70, "y": 10 },
+    "r_fb1": { "x": 70, "y": 18 },
+    "r_fb2": { "x": 70, "y": 28 }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "name": "NTC-divider",
+  "type": "ic-core",
+  "description": "NTC 热敏电阻分压器温度采样电路",
+  "ic": {
+    "mpn": "NTC",
+    "manufacturer": "",
+    "package": "0805",
+    "footprint": "Resistor_SMD:R_0805_2012Metric",
+    "pins": [
+      { "number": "1", "name": "VCC", "type": "passive" },
+      { "number": "2", "name": "OUT", "type": "passive" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "r_bias",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "OUT", "2": "GND" },
+      "description": "偏置电阻，与 NTC 构成分压器"
+    }
+  ],
+  "params": {
+    "ntc_r25": { "value": 10000, "unit": "ohm", "description": "25°C 时 NTC 标称阻值" },
+    "r_bias": { "value": 10000, "unit": "ohm", "description": "偏置电阻值（通常等于 NTC 标称值）" },
+    "v_mid_25": {
+      "formula": "v_mid_25 = vcc * r_bias / (ntc_r25 + r_bias)",
+      "depends": ["vcc", "ntc_r25", "r_bias"],
+      "unit": "V",
+      "description": "25°C 时中点电压"
+    }
+  },
+  "interface": {
+    "VCC": { "direction": "input",  "type": "power" },
+    "GND": { "direction": "input",  "type": "power" },
+    "OUT": { "direction": "output", "type": "signal" }
+  },
+  "constraints": {},
+  "layout": {
+    "ic":     { "x": 30, "y": 0 },
+    "r_bias": { "x": 45, "y": 0 }
+  },
+  "verified_instances": [
+    {
+      "ref": "TH1",
+      "ntc_r25": "10K@25°C",
+      "r_bias": "10k (R26)",
+      "source": "ccd-control.json5",
+      "note": "CCD 温度采样，VCC=+4V"
+    }
+  ]
+}

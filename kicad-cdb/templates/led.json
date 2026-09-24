@@ -1,0 +1,26 @@
+{
+  "name": "led",
+  "description": "LED with current-limiting resistor",
+  "inputs": ["vin", "vf", "i_led"],
+  "components": [
+    {
+      "role": "r_limit",
+      "lib": "Device:R",
+      "rules": ["led_current_resistor"],
+      "params": { "vin": "$vin", "vf": "$vf", "i_led": "$i_led" }
+    },
+    {
+      "role": "led",
+      "lib": "Device:LED"
+    }
+  ],
+  "connections": [
+    { "net": "VIN", "pins": ["r_limit.1"] },
+    { "net": "GND", "pins": ["led.K"] },
+    { "net": "N_LED", "pins": ["r_limit.2", "led.A"] }
+  ],
+  "layout": {
+    "r_limit": { "x": 38.1, "y": 50.8 },
+    "led":     { "x": 63.5, "y": 50.8 }
+  }
+}

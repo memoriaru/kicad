@@ -1,0 +1,41 @@
+{
+  "name": "CM-choke",
+  "type": "ic-core",
+  "description": "共模电感模板 (4 引脚)，用于 EMI 滤波",
+  "ic": {
+    "mpn": "CM-choke-generic",
+    "manufacturer": "Multiple",
+    "package": "SMD",
+    "footprint": "Inductor_SMD:L_CommonMode_Wuerth_WE-CMB",
+    "pins": [
+      { "number": "1", "name": "IN1",  "type": "passive" },
+      { "number": "2", "name": "IN2",  "type": "passive" },
+      { "number": "3", "name": "OUT1", "type": "passive" },
+      { "number": "4", "name": "OUT2", "type": "passive" }
+    ]
+  },
+  "peripherals": [],
+  "params": {
+    "l_cm":     { "description": "Common mode inductance", "unit": "H" },
+    "f_noise":  { "description": "Target noise frequency", "unit": "Hz" },
+    "z_choke":  {
+      "description": "Impedance at noise frequency",
+      "unit": "ohm",
+      "formula": "z_choke = 2 * 3.14159265 * f_noise * l_cm",
+      "depends": ["f_noise", "l_cm"]
+    },
+    "i_rating": { "description": "Current rating per line", "unit": "A" }
+  },
+  "interface": {
+    "IN1":  { "direction": "input",  "type": "signal" },
+    "IN2":  { "direction": "input",  "type": "signal" },
+    "OUT1": { "direction": "output", "type": "signal" },
+    "OUT2": { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "z_check": "z_choke >= 100"
+  },
+  "layout": {
+    "ic": { "x": 30, "y": 0 }
+  }
+}

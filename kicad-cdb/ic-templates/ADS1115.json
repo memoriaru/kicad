@@ -1,0 +1,82 @@
+{
+  "name": "ADS1115",
+  "type": "ic-core",
+  "description": "ADS1115 4 通道 16 位 ADC (VSSOP-10)，I2C 接口，内置 PGA",
+  "ic": {
+    "mpn": "ADS1115",
+    "manufacturer": "TI",
+    "package": "VSSOP-10",
+    "footprint": "Package_SO:VSSOP-10_3x3mm_P0.5mm",
+    "pins": [
+      { "number": "1",  "name": "GND",    "type": "power_in" },
+      { "number": "2",  "name": "A0",     "type": "input" },
+      { "number": "3",  "name": "A1",     "type": "input" },
+      { "number": "4",  "name": "A2",     "type": "input" },
+      { "number": "5",  "name": "A3",     "type": "input" },
+      { "number": "6",  "name": "ALERT",  "type": "output" },
+      { "number": "7",  "name": "SDA",    "type": "bidirectional" },
+      { "number": "8",  "name": "SCL",    "type": "input" },
+      { "number": "9",  "name": "VDD",    "type": "power_in" },
+      { "number": "10", "name": "ADDR",   "type": "input" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vdd",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VDD", "2": "GND" },
+      "description": "VDD decoupling capacitor"
+    },
+    {
+      "role": "r_scl_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VDD", "2": "SCL" },
+      "description": "I2C SCL pull-up resistor"
+    },
+    {
+      "role": "r_sda_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VDD", "2": "SDA" },
+      "description": "I2C SDA pull-up resistor"
+    }
+  ],
+  "params": {
+    "vdd":          { "value": 3.3,     "unit": "V", "description": "Supply voltage (2.0~5.5V)" },
+    "i2c_freq":     { "value": 400000,  "unit": "Hz", "description": "I2C clock frequency" },
+    "sample_rate":  { "value": 128,     "unit": "SPS", "description": "ADC sample rate (8/16/32/64/128/250/475/860)" },
+    "f_input_max":  { "description": "Maximum input signal frequency", "unit": "Hz" },
+    "r_aa":         { "value": 1000,    "unit": "ohm", "description": "Anti-aliasing filter resistance" },
+    "c_aa":         {
+      "description": "Anti-aliasing filter capacitance",
+      "unit": "F",
+      "formula": "c_aa = 1 / (2 * 3.14159265 * r_aa * f_input_max * 2)",
+      "depends": ["r_aa", "f_input_max"]
+    }
+  },
+  "interface": {
+    "VDD":   { "direction": "input",  "type": "power" },
+    "GND":   { "direction": "input",  "type": "power" },
+    "SCL":   { "direction": "input",  "type": "signal" },
+    "SDA":   { "direction": "bidirectional", "type": "signal" },
+    "A0":    { "direction": "input",  "type": "signal" },
+    "A1":    { "direction": "input",  "type": "signal" },
+    "A2":    { "direction": "input",  "type": "signal" },
+    "A3":    { "direction": "input",  "type": "signal" },
+    "ALERT": { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "vdd_range": "vdd >= 2.0; vdd <= 5.5"
+  },
+  "layout": {
+    "ic":         { "x": 40, "y": 0 },
+    "c_vdd":      { "x": 55, "y": -10 },
+    "r_scl_pu":   { "x": 55, "y": 10 },
+    "r_sda_pu":   { "x": 55, "y": 20 }
+  }
+}

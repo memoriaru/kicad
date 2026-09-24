@@ -1,0 +1,81 @@
+{
+  "name": "EL7156",
+  "type": "ic-core",
+  "description": "EL7156 高速时钟驱动器 (SOIC-8)，用于 CCD 时钟信号驱动",
+  "ic": {
+    "mpn": "EL7156",
+    "manufacturer": "Renesas/Intersil",
+    "package": "SOIC-8",
+    "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+    "pins": [
+      { "number": "1", "name": "IN",  "type": "input" },
+      { "number": "2", "name": "V-",  "type": "power_in" },
+      { "number": "3", "name": "OUT", "type": "output" },
+      { "number": "4", "name": "NC",  "type": "passive" },
+      { "number": "5", "name": "NC",  "type": "passive" },
+      { "number": "6", "name": "GND", "type": "power_in" },
+      { "number": "7", "name": "NC",  "type": "passive" },
+      { "number": "8", "name": "V+",  "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vplus",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "V+", "2": "GND" },
+      "description": "V+ 旁路电容"
+    },
+    {
+      "role": "c_vminus",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "V-", "2": "GND" },
+      "description": "V- 旁路电容"
+    },
+    {
+      "role": "r_out",
+      "lib": "Device:R",
+      "value": "100",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "OUT", "2": "out_signal" },
+      "description": "输出串联电阻 (阻抗匹配/限流)"
+    }
+  ],
+  "params": {
+    "v_plus":  { "description": "正电源电压", "unit": "V" },
+    "v_minus": { "description": "负电源电压", "unit": "V" }
+  },
+  "interface": {
+    "V+":   { "direction": "input", "type": "power" },
+    "V-":   { "direction": "input", "type": "power" },
+    "GND":  { "direction": "input", "type": "power" },
+    "IN":   { "direction": "input", "type": "signal" },
+    "out_signal": { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "v_plus_max": "v_plus <= 18",
+    "v_minus_max": "v_minus >= -18",
+    "output_swing": "output within V- + 1.5 to V+ - 1.5"
+  },
+  "layout": {
+    "ic":      { "x": 30,  "y": 0 },
+    "c_vplus": { "x": 50,  "y": -5 },
+    "c_vminus":{ "x": 50,  "y": 5 },
+    "r_out":   { "x": 15,  "y": 0 }
+  },
+  "verified_instances": [
+    { "ref": "U10", "signal": "V1_top",  "v_plus": "+3V",  "v_minus": "-9V",  "source": "ccd-clock.json5" },
+    { "ref": "U11", "signal": "V1_bot",  "v_plus": "+3V",  "v_minus": "-9V",  "source": "ccd-clock.json5" },
+    { "ref": "U12", "signal": "V2",      "v_plus": "+3V",  "v_minus": "-9V",  "source": "ccd-clock.json5" },
+    { "ref": "U13", "signal": "H1_top",  "v_plus": "+4V",  "v_minus": "-4V",  "source": "ccd-clock.json5" },
+    { "ref": "U14", "signal": "H2_top",  "v_plus": "+4V",  "v_minus": "-4V",  "source": "ccd-clock.json5" },
+    { "ref": "U15", "signal": "RG_top",  "v_plus": "+12V", "v_minus": "+4V",  "source": "ccd-clock.json5" },
+    { "ref": "U16", "signal": "RG_bot",  "v_plus": "+12V", "v_minus": "+4V",  "source": "ccd-clock.json5" },
+    { "ref": "U17", "signal": "H1L",     "v_plus": "+4V",  "v_minus": "-6V",  "source": "ccd-clock.json5" },
+    { "ref": "U19", "signal": "H1_bot",  "v_plus": "+4V",  "v_minus": "-4V",  "source": "ccd-clock.json5" },
+    { "ref": "U20", "signal": "H2_bot",  "v_plus": "+4V",  "v_minus": "-4V",  "source": "ccd-clock.json5" }
+  ]
+}

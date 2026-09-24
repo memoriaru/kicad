@@ -1,0 +1,91 @@
+{
+  "name": "INA219",
+  "type": "ic-core",
+  "description": "INA219 电流/电压传感器 (SOT-23-8)，I2C 接口，双向电流检测",
+  "ic": {
+    "mpn": "INA219",
+    "manufacturer": "TI",
+    "package": "SOT-23-8",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-8",
+    "pins": [
+      { "number": "1", "name": "IN+", "type": "input" },
+      { "number": "2", "name": "IN-", "type": "input" },
+      { "number": "3", "name": "GND", "type": "power_in" },
+      { "number": "4", "name": "SCL", "type": "input" },
+      { "number": "5", "name": "SDA", "type": "bidirectional" },
+      { "number": "6", "name": "A0",  "type": "input" },
+      { "number": "7", "name": "A1",  "type": "input" },
+      { "number": "8", "name": "VS",  "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vs",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VS", "2": "GND" },
+      "description": "VS decoupling capacitor"
+    },
+    {
+      "role": "r_shunt",
+      "lib": "Device:R",
+      "value": "computed",
+      "footprint": "Resistor_SMD:R_1206_3216Metric",
+      "pins": { "1": "shunt_hi", "2": "IN+" },
+      "description": "Current sense shunt resistor"
+    },
+    {
+      "role": "r_scl_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VS", "2": "SCL" },
+      "description": "I2C SCL pull-up resistor"
+    },
+    {
+      "role": "r_sda_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VS", "2": "SDA" },
+      "description": "I2C SDA pull-up resistor"
+    }
+  ],
+  "params": {
+    "vs":         { "value": 3.3,  "unit": "V", "description": "Supply voltage (3.0~5.5V)" },
+    "i_max":      { "description": "Maximum current to measure", "unit": "A" },
+    "v_shunt_max": { "value": 0.32, "unit": "V", "description": "Max shunt voltage (PGA ±320mV)" },
+    "r_shunt":    {
+      "description": "Shunt resistor value",
+      "unit": "ohm",
+      "formula": "r_shunt = v_shunt_max / i_max",
+      "depends": ["v_shunt_max", "i_max"]
+    },
+    "p_shunt":    {
+      "description": "Power dissipation in shunt resistor",
+      "unit": "W",
+      "formula": "p_shunt = i_max * i_max * r_shunt",
+      "depends": ["i_max", "r_shunt"]
+    }
+  },
+  "interface": {
+    "VS":       { "direction": "input",  "type": "power" },
+    "GND":      { "direction": "input",  "type": "power" },
+    "SCL":      { "direction": "input",  "type": "signal" },
+    "SDA":      { "direction": "bidirectional", "type": "signal" },
+    "shunt_hi": { "direction": "input",  "type": "signal" },
+    "IN-":      { "direction": "input",  "type": "signal" }
+  },
+  "constraints": {
+    "vs_range": "vs >= 3.0; vs <= 5.5",
+    "p_shunt_limit": "p_shunt <= 0.25"
+  },
+  "layout": {
+    "ic":         { "x": 40, "y": 0 },
+    "c_vs":       { "x": 55, "y": -10 },
+    "r_shunt":    { "x": 25, "y": 0 },
+    "r_scl_pu":   { "x": 55, "y": 10 },
+    "r_sda_pu":   { "x": 55, "y": 20 }
+  }
+}
