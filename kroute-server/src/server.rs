@@ -474,8 +474,10 @@ impl KRoute for KRouteImpl {
         let run = tokio::task::spawn_blocking(move || {
             let mut grid: Vec<u32> = r
                 .grid
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c))
                 .collect();
             let net = crate::wavefront::BatchNetQuery {
                 net_id: req_net_id,
@@ -636,8 +638,10 @@ impl KRoute for KRouteImpl {
         let run = tokio::task::spawn_blocking(move || {
             let mut grid_host: Vec<u32> = r
                 .grid
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c))
                 .collect();
             if grid_host.len() != total {
                 anyhow::bail!("grid 解码后长度异常: {} vs {total}", grid_host.len());
