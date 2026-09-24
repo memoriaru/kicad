@@ -348,9 +348,9 @@ pub fn resolve_ladder() -> &'static [EngineKind] {
     use std::sync::OnceLock;
     static LADDER: OnceLock<Vec<EngineKind>> = OnceLock::new();
     LADDER.get_or_init(|| {
-        let mut ladder = Vec::new();
+        // 特性分级构造: CUDA(生产) → wgpu(本机) → CPU(兜底), 迭代器链避免 init-then-push
         #[cfg(feature = "cuda")]
-        {
+        let cuda: Option<EngineKind> = {
             let ok = std::panic::catch_unwind(|| {
                 cudarc::driver::result::init().is_ok()
                     && cudarc::driver::result::device::get_count()
@@ -359,16 +359,26 @@ pub fn resolve_ladder() -> &'static [EngineKind] {
             })
             .unwrap_or(false);
             if ok {
-                ladder.push(EngineKind::Cuda);
+                Some(EngineKind::Cuda)
+            } else {
+                None
             }
-        }
+        };
+        #[cfg(not(feature = "cuda"))]
+        let cuda: Option<EngineKind> = None;
         #[cfg(feature = "gpu")]
-        {
-            if crate::wavefront_wgpu::available() {
-                ladder.push(EngineKind::Wgpu);
-            }
-        }
-        ladder.push(EngineKind::Cpu);
+        let wgpu: Option<EngineKind> = if crate::wavefront_wgpu::available() {
+            Some(EngineKind::Wgpu)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "gpu"))]
+        let wgpu: Option<EngineKind> = None;
+        let ladder: Vec<EngineKind> = cuda
+            .into_iter()
+            .chain(wgpu)
+            .chain(std::iter::once(EngineKind::Cpu))
+            .collect();
         eprintln!(
             "[wavefront] 引擎阶梯: {}",
             ladder
