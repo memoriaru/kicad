@@ -1,0 +1,32 @@
+[package]
+name = "kicad-designer"
+version = "0.1.0"
+edition = "2021"
+description = "AI-driven circuit design orchestrator: unified kdesign CLI + MCP Server over the kicad toolchain"
+license = "MIT"
+repository = "https://github.com/memoriaru/kicad"
+keywords = ["kicad", "pcb", "mcp", "eda", "cli"]
+categories = ["development-tools"]
+readme = "README.md"
+
+[[bin]]
+name = "kdesign"
+path = "src/main.rs"
+
+[dependencies]
+kicad-cdb = { path = "../kicad-cdb" }
+kicad-json5 = { path = "../kicad-json5" }
+kicad-symgen = { path = "../kicad-symgen" }
+kicad-render = { path = "../kicad-render" }
+# v35-flow：复用 kroute-server 的 tonic proto 客户端（LayoutOptimize / RouteGridBatch）。
+# default-features=false 关掉其 gpu 引擎档（wgpu）——客户端不做波前求解，别拖编译。
+kroute-server = { path = "../kroute-server", default-features = false }
+tonic = "0.13"
+rusqlite = { version = "0.34", features = ["bundled"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tikv-jemallocator = "0.6"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
