@@ -63,6 +63,17 @@ pub fn query_filtered(
         }
     }
 
+    // 修复: manufacturer/package 作为唯一选择器时, 空起步集会恒返回 0——
+    // 此时以全库为起点再做交集保留。
+    if results.is_empty()
+        && search.is_none()
+        && category.is_none()
+        && !in_stock
+        && (manufacturer.is_some() || package.is_some())
+    {
+        results = db.search("")?;
+    }
+
     if let Some(mfg) = manufacturer {
         let mfg_lower = mfg.to_lowercase();
         results.retain(|c| c.manufacturer.to_lowercase().contains(&mfg_lower));

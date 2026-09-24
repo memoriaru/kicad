@@ -159,7 +159,8 @@ pub fn fetch_and_import(db: &ComponentDb, mpn: &str, mfg_id: Option<&str>) -> Re
             anyhow::bail!("No results found for '{}'", mpn);
         }
         let first = &results[0];
-        println!(
+        // 库代码禁 stdout: MCP serve 场景 println 会腐蚀 JSON-RPC 协议通道
+        eprintln!(
             "Found: {} by {} (mfg_id={})",
             first.mpn, first.manufacturer, first.manufacturer_id
         );
