@@ -1,0 +1,27 @@
+# 基础编排（任何 docker 可跑，含 Mac 开发机）。
+# 生产（Windows 4090 / WSL2）启用底部注释段：GPU + Vulkan ICD 注入。
+services:
+  kroute-server:
+    build:
+      context: ..
+      dockerfile: kroute-server/Dockerfile
+    image: kroute-server:0.1.1
+    container_name: kroute-server
+    ports:
+      - "50051:50051"
+    volumes:
+      - kroute-jobs:/data
+    restart: unless-stopped
+    # --- Windows 4090 生产（WSL2 + nvidia-container-toolkit）时取消注释 ---
+    # environment:
+    #   NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics  # graphics = Vulkan ICD，缺它 wgpu 看不到 4090
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  kroute-jobs:

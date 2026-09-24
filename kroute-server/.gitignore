@@ -1,0 +1,5 @@
+/target
+/bin
+/jobs
+vendor/*.tar.xz
+.DS_Store

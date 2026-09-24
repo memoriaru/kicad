@@ -23,3 +23,5 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      # kroute-server 纯 CPU 档（无 GPU 的 CI 环境官方支持形态）
+      - run: cargo test -p kroute-server --no-default-features

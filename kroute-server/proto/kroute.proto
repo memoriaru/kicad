@@ -1,0 +1,309 @@
+syntax = "proto3";
+
+package kroute.v1;
+
+// kroute 分布式布线服务 v1
+//
+// 任务模型（对齐业界 farm+burst 的微缩版）：
+//   - 幂等：job_id = sha256(backend + board + strategy + note)，重复提交返回已有 job
+//   - 隔离：每个 job 独立目录（jobs/<id>/），绝不共享工作文件
+//   - 信任链：服务端产物一律是"候选"，客户端必须过本地权威 DRC（union-N）才能落板
+service KRoute {
+  // 依赖自检：java / freerouting.jar / pcbnew / GPU adapter 枚举
+  rpc Health(HealthReq) returns (HealthReply);
+
+  // 提交布线任务。同内容重复提交返回已有 job（reused=true）
+  rpc SubmitJob(SubmitReq) returns (JobHandle);
+
+  // 订阅任务进度（状态变化或日志增长时推送，终态后结束）
+  rpc Watch(JobRef) returns (stream Progress);
+
+  // 拉取结果：DONE 时含布线后 board，FAILED 时含错误与日志
+  rpc FetchResult(JobRef) returns (FetchReply);
+
+  // 取消任务：QUEUED 直接标记取消；RUNNING 杀掉子进程
+  rpc Cancel(JobRef) returns (CancelReply);
+
+  // 列出最近任务（按创建时间倒序）
+  rpc ListJobs(ListReq) returns (ListReply);
+
+  // 裸网格路由：客户端编码 grid（u32 LE，encode_cell 语义），服务端 CUDA 波前求解。
+  // 领域数据（board→grid 编码）留在客户端库侧，服务端是纯算力。
+  rpc RouteGrid(RouteGridReq) returns (RouteGridReply);
+
+  // 批量裸网格路由：同一 grid 上逐 net 波前求解，单次往返（v35-flow S2/S4 消费）。
+  // net_aware=true 时已布 net 的 Trace/Via 写回 grid，后续 net 视为障碍（增量布线）。
+  rpc RouteGridBatch(RouteGridBatchReq) returns (RouteGridBatchReply);
+
+  // 远程多 seed SA 布局优化：客户端传 schematic json5 文本，服务端跑 seed 池，
+  // 返回按 cost 升序的 top 解。权重与主线 solve 一致取 default。
+  rpc LayoutOptimize(LayoutOptimizeReq) returns (LayoutOptimizeReply);
+}
+
+enum Backend {
+  BACKEND_UNSPECIFIED = 0;
+  // freerouting 全管线：清线 → pcbnew 导 DSN → 净化 → FR 布线 → SES 回导 → 布局指纹校验
+  BACKEND_FR = 1;
+  // 冒烟后端：原样返回输入板（CI / 全链路联通测试用）
+  BACKEND_NOOP = 2;
+}
+
+enum JobState {
+  JOB_STATE_QUEUED = 0;
+  JOB_STATE_RUNNING = 1;
+  JOB_STATE_DONE = 2;
+  JOB_STATE_FAILED = 3;
+  JOB_STATE_CANCELLED = 4;
+}
+
+message Strategy {
+  // 透传给 freerouting 的参数，默认 "-mp 99 -us Hybrid"
+  string router_args = 1;
+  // 单任务超时秒数，默认 3600
+  uint32 timeout_secs = 2;
+  // M3 混合分流：保留板内已有走线（不清线），FR 只布剩余开连接
+  bool keep_traces = 3;
+}
+
+message SubmitReq {
+  Backend backend = 1;
+  // .kicad_pcb 文件内容
+  bytes board = 2;
+  // 板文件名（如 fpga-adapter-board.kicad_pcb），用于服务端留档
+  string board_name = 3;
+  Strategy strategy = 4;
+  // 参与幂等哈希的备注：同一块板不同尝试（seed/顺序/参数）用它区分
+  string note = 5;
+}
+
+message JobHandle {
+  string job_id = 1;
+  // true = 命中已有任务（幂等）
+  bool reused = 2;
+  JobState state = 3;
+}
+
+message JobRef {
+  string job_id = 1;
+}
+
+message Progress {
+  JobState state = 1;
+  // 最近一行日志
+  string message = 2;
+  uint64 log_size = 3;
+}
+
+message FetchReply {
+  JobState state = 1;
+  // 布线后的 .kicad_pcb（仅 DONE）
+  bytes result_board = 2;
+  // 全量日志
+  bytes log = 3;
+  // FAILED 时的错误摘要
+  string error = 4;
+}
+
+message CancelReply {
+  bool cancelled = 1;
+  JobState state = 2;
+}
+
+message ListReq {
+  // 最多返回多少条，默认 50
+  uint32 limit = 1;
+}
+
+message JobSummary {
+  string job_id = 1;
+  Backend backend = 2;
+  JobState state = 3;
+  string board_name = 4;
+  // unix 秒
+  uint64 created_at = 5;
+  string note = 6;
+}
+
+message ListReply {
+  repeated JobSummary jobs = 1;
+}
+
+message RouteGridReq {
+  uint32 cols = 1;
+  uint32 rows = 2;
+  // layers*rows*cols 个 u32 LE（encode_cell 语义：0=Free 1=Blocked 2+n=Pad(n) ...）
+  bytes grid = 3;
+  uint32 start_col = 4;
+  uint32 start_row = 5;
+  uint32 goal_col = 6;
+  uint32 goal_row = 7;
+  // 0 = 默认 (cols+rows)*2
+  uint32 max_rounds = 8;
+  // 信号层数（默认 1；grid 扁平序 = layer*rows*cols + row*cols + col）
+  uint32 layers = 9;
+  // 换层（过孔）代价，默认 3.0
+  float via_cost = 10;
+  uint32 start_layer = 11;
+  uint32 goal_layer = 12;
+  // 修复模式（Task1 修订版）：net-aware 单网求解——目标网铜皮 passable，
+  // 异网铜皮/孔墙 blocked。0 = 旧语义（配合 net_aware=false 行为不变）。
+  uint32 net_id = 13;
+  // net-aware 求解开关（与 RouteGridBatchReq.net_aware 同语义；默认 false = 旧行为）
+  bool net_aware = 14;
+  // NO-PATH 封锁归因：无路径时在服务端做 CPU 全空间扩展输出封锁环簇。
+  // 仅 CPU 引擎路径实现（GPU 内核不动）；GPU 档求解 + 请求归因时 attribution 为空。
+  bool attribute_no_path = 15;
+  // 引擎覆盖："cpu" / "wgpu" / "cuda"，空 = 默认阶梯（cuda→wgpu→cpu 逐级降级）。
+  // 归因必须配合 "cpu"（归因只在 CPU 路径实现）。指定引擎不可用时显式报错不降级。
+  string engine = 16;
+}
+
+message BlockadeCluster {
+  // 簇 bbox（grid 坐标；世界坐标 = origin + idx*res 由客户端换算）
+  uint32 min_layer = 1;
+  uint32 min_row = 2;
+  uint32 min_col = 3;
+  uint32 max_layer = 4;
+  uint32 max_row = 5;
+  uint32 max_col = 6;
+  // 簇内边界障碍格数（量级≈封锁规模）
+  uint64 cells = 7;
+  // 簇内带网身份格（Pad/Trace/Via 编码）的 net id 集合（升序去重）；
+  // 纯 Blocked 格（板框/器件体/孔墙）无身份——孔墙的孔主人从簇内铜皮格反查
+  repeated uint32 net_ids = 8;
+}
+
+message RouteGridReply {
+  bool routed = 1;
+  float cost = 2;
+  // 3D 扁平 idx 序列（idx = layer*rows*cols + row*cols + col），起点到终点；
+  // 相邻两项 layer 变化即过孔
+  repeated uint32 path = 3;
+  uint64 elapsed_ms = 4;
+  // 求解引擎："cuda" / "cpu"（构建期决定，审计用）
+  string engine = 5;
+  // NO-PATH 封锁归因簇（cells 降序 top5）。仅 CPU 引擎 + attribute_no_path=true
+  // + 无路径时非空；GPU 引擎求解不做归因（字段留空）。
+  repeated BlockadeCluster attribution = 6;
+}
+
+message NetRoute {
+  uint32 net_id = 1;
+  uint32 sl = 2;
+  uint32 sr = 3;
+  uint32 sc = 4;
+  uint32 gl = 5;
+  uint32 gr = 6;
+  uint32 gc = 7;
+  // 差分对组 id（0=无配对；同组 net 由调用方保证相邻提交，服务端只透传回结果）
+  uint32 pair = 8;
+}
+
+message NetRouteResult {
+  uint32 net_id = 1;
+  bool routed = 2;
+  float cost = 3;
+  // 3D 扁平 idx 序列（idx = layer*rows*cols + row*cols + col），routed=false 时为空
+  repeated uint32 path = 4;
+  uint32 pair = 5;
+}
+
+message RouteGridBatchReq {
+  uint32 cols = 1;
+  uint32 rows = 2;
+  uint32 layers = 3;
+  // layers*rows*cols 个 u32 LE（encode_cell 语义，同 RouteGridReq.grid）
+  bytes grid = 4;
+  float via_cost = 5;
+  // 0 = 默认 (cols+rows)*2
+  uint32 max_rounds = 6;
+  repeated NetRoute nets = 7;
+  // net-aware 增量模式：net k 布通后其路径写回 grid（Trace/Via），
+  // net k+1 的波前视其为障碍；false = 各 net 独立求解（旧行为）
+  bool net_aware = 8;
+}
+
+message RouteGridBatchReply {
+  repeated NetRouteResult results = 1;
+  uint64 elapsed_ms = 2;
+  // 求解引擎："cuda" / "cpu"（构建期决定，审计用）
+  string engine = 3;
+}
+
+message LayoutOptimizeReq {
+  // schematic 的 json5 源文本（kicad_json5::parse_json5 可解析）
+  string schematic = 1;
+  // seed 池（如 base + i*7919 生成 64 个）
+  repeated uint64 seeds = 2;
+  // 板宽/高 mm（0 = 自动推算）
+  double fixed_w = 3;
+  double fixed_h = 4;
+  // v35（M2）连接器锚边覆盖：ref → "top"/"bottom"/"left"/"right"/"center"
+  //（大小写不敏感，可带 Edge 后缀）。命中时替代网络名推断的自动锚边。
+  map<string, string> anchor_overrides = 5;
+  // M3 第二片：盒尺寸覆盖 ref → (w,h)——客户端从板量测真实 pad 包围盒，
+  // 服务端以实测值替代启发式估计，消除回填后 footprint 物理重叠
+  map<string, DimOverride> dim_overrides = 6;
+  // M3 第三片：SA 重叠罚权重覆盖（0 = 默认 50）。实测盒尺寸后重叠罚需放大才压得住布线收益
+  double overlap_weight = 7;
+}
+
+message DimOverride {
+  double w = 1;
+  double h = 2;
+}
+
+message LayoutSolution {
+  uint64 seed = 1;
+  double cost = 2;
+  // JSON: {"refs":["R1",...], "positions":[[x,y,rot],...]} 与下标一一对应
+  string solution_json = 3;
+}
+
+message LayoutOptimizeReply {
+  // 按 cost 升序
+  repeated LayoutSolution solutions = 1;
+  uint64 elapsed_ms = 2;
+}
+
+message HealthReq {}
+
+message GpuAdapter {
+  string name = 1;
+  // Metal / Vulkan / DX12 / lavapipe 等
+  string backend = 2;
+}
+
+message CudaDevice {
+  // 如 "NVIDIA GeForce RTX 4090"
+  string name = 1;
+  // CUDA compute capability，如 "8.9"
+  string cc = 2;
+  // vectorAdd kernel 真实执行并校验通过
+  bool selftest_ok = 3;
+  // 自检耗时（毫秒）
+  uint64 selftest_ms = 4;
+}
+
+message HealthReply {
+  string version = 1;
+  // 服务整体可接单（所选默认后端依赖就绪）
+  bool ready = 2;
+  // wgpu 枚举（未编译 gpu feature 时为空）
+  repeated GpuAdapter gpu_adapters = 3;
+  // 以下为各依赖探测结果，空串 = 探测到但拿不到版本，"ERR: ..." = 不可用
+  string java = 4;
+  string freerouting_jar = 5;
+  string kicad_python = 6;
+  uint64 active_jobs = 7;
+  uint64 max_concurrent = 8;
+  // CUDA 设备（未编译 cuda feature / 无驱动时为空）
+  repeated CudaDevice cuda_devices = 9;
+  // CUDA 自检总结："OK N devices, vecadd ...ms" / "ERR: ..." / "disabled (no cuda feature)"
+  string cuda_selftest = 10;
+  // 显存水位（NVML；不可用时三项均 0）
+  uint64 vram_free_mb = 11;
+  uint64 vram_total_mb = 12;
+  // CUDA 任务准入阈值（free 低于此值拒单）
+  uint64 vram_min_free_mb = 13;
+}
