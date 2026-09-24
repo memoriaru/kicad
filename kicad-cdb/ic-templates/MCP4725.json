@@ -1,0 +1,73 @@
+{
+  "name": "MCP4725",
+  "type": "ic-core",
+  "description": "MCP4725 12 位 DAC (SOT-23-6)，I2C 接口，带输出缓冲",
+  "ic": {
+    "mpn": "MCP4725",
+    "manufacturer": "Microchip",
+    "package": "SOT-23-6",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-6",
+    "pins": [
+      { "number": "1", "name": "VDD", "type": "power_in" },
+      { "number": "2", "name": "GND", "type": "power_in" },
+      { "number": "3", "name": "VOUT","type": "output" },
+      { "number": "4", "name": "SCL", "type": "input" },
+      { "number": "5", "name": "SDA", "type": "bidirectional" },
+      { "number": "6", "name": "A0",  "type": "input" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vdd",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VDD", "2": "GND" },
+      "description": "VDD decoupling capacitor"
+    },
+    {
+      "role": "r_scl_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VDD", "2": "SCL" },
+      "description": "I2C SCL pull-up resistor"
+    },
+    {
+      "role": "r_sda_pu",
+      "lib": "Device:R",
+      "value": "10k",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "VDD", "2": "SDA" },
+      "description": "I2C SDA pull-up resistor"
+    }
+  ],
+  "params": {
+    "vdd":       { "value": 3.3,     "unit": "V", "description": "Supply voltage (2.7~5.5V)" },
+    "i2c_freq":  { "value": 400000,  "unit": "Hz", "description": "I2C clock frequency" },
+    "f_update":  { "description": "DAC update rate", "unit": "Hz" },
+    "r_out":     { "value": 1000,    "unit": "ohm", "description": "Output filter resistance" },
+    "c_out":     {
+      "description": "Output reconstruction filter capacitance",
+      "unit": "F",
+      "formula": "c_out = 1 / (2 * 3.14159265 * r_out * f_update)",
+      "depends": ["r_out", "f_update"]
+    }
+  },
+  "interface": {
+    "VDD":  { "direction": "input",  "type": "power" },
+    "GND":  { "direction": "input",  "type": "power" },
+    "SCL":  { "direction": "input",  "type": "signal" },
+    "SDA":  { "direction": "bidirectional", "type": "signal" },
+    "VOUT": { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "vdd_range": "vdd >= 2.7; vdd <= 5.5"
+  },
+  "layout": {
+    "ic":         { "x": 40, "y": 0 },
+    "c_vdd":      { "x": 55, "y": -10 },
+    "r_scl_pu":   { "x": 55, "y": 10 },
+    "r_sda_pu":   { "x": 55, "y": 20 }
+  }
+}

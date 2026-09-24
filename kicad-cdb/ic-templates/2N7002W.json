@@ -1,0 +1,36 @@
+{
+  "name": "2N7002W",
+  "type": "ic-core",
+  "description": "N-MOSFET (2N7002W) SOT-323, 小信号开关",
+  "ic": {
+    "mpn": "2N7002W",
+    "manufacturer": "Nexperia",
+    "package": "SOT-323",
+    "footprint": "Package_TO_SOT_SMD:SOT-323",
+    "pins": [
+      { "number": "1", "name": "G", "type": "input" },
+      { "number": "2", "name": "S", "type": "passive" },
+      { "number": "3", "name": "D", "type": "passive" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "r_pulldown",
+      "lib": "Device:R",
+      "value": "100kΩ",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "G", "2": "S" },
+      "description": "Gate 下拉电阻，确保关断"
+    }
+  ],
+  "params": {},
+  "interface": {
+    "G":   { "direction": "input",  "type": "signal" },
+    "S":   { "direction": "input",  "type": "power" },
+    "D":   { "direction": "output", "type": "signal" }
+  },
+  "layout": {
+    "ic":         { "x": 30, "y": 0 },
+    "r_pulldown": { "x": 30, "y": 12 }
+  }
+}

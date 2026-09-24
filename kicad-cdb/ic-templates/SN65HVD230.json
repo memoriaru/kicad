@@ -1,0 +1,69 @@
+{
+  "name": "SN65HVD230",
+  "type": "ic-core",
+  "description": "SN65HVD230 CAN 收发器 (SOIC-8)，3.3V 供电，斜率控制",
+  "ic": {
+    "mpn": "SN65HVD230",
+    "manufacturer": "TI",
+    "package": "SOIC-8",
+    "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+    "pins": [
+      { "number": "1", "name": "D",    "type": "input" },
+      { "number": "2", "name": "GND",  "type": "power_in" },
+      { "number": "3", "name": "VCC",  "type": "power_in" },
+      { "number": "4", "name": "R",    "type": "output" },
+      { "number": "5", "name": "NC",   "type": "no_connect" },
+      { "number": "6", "name": "CANH", "type": "bidirectional" },
+      { "number": "7", "name": "CANL", "type": "bidirectional" },
+      { "number": "8", "name": "RS",   "type": "input" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vcc",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCC", "2": "GND" },
+      "description": "VCC decoupling capacitor"
+    },
+    {
+      "role": "r_term",
+      "lib": "Device:R",
+      "value": "120",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "CANH", "2": "CANL" },
+      "description": "CAN bus termination resistor"
+    },
+    {
+      "role": "r_slope",
+      "lib": "Device:R",
+      "value": "0",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "RS", "2": "GND" },
+      "description": "Slope control resistor (0=high speed, >0=slowed)"
+    }
+  ],
+  "params": {
+    "vcc":       { "value": 3.3, "unit": "V", "description": "Supply voltage" },
+    "baud_rate": { "value": 500000, "unit": "bps", "description": "CAN bus baud rate" },
+    "r_term":    { "value": 120,  "unit": "ohm", "description": "Bus termination resistance" }
+  },
+  "interface": {
+    "VCC":  { "direction": "input",  "type": "power" },
+    "GND":  { "direction": "input",  "type": "power" },
+    "D":    { "direction": "input",  "type": "signal" },
+    "R":    { "direction": "output", "type": "signal" },
+    "CANH": { "direction": "bidirectional", "type": "signal" },
+    "CANL": { "direction": "bidirectional", "type": "signal" }
+  },
+  "constraints": {
+    "vcc_range": "vcc >= 3.0; vcc <= 3.6"
+  },
+  "layout": {
+    "ic":      { "x": 40, "y": 0 },
+    "c_vcc":   { "x": 55, "y": -10 },
+    "r_term":  { "x": 40, "y": -20 },
+    "r_slope": { "x": 25, "y": -10 }
+  }
+}

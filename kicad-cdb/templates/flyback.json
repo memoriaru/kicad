@@ -1,0 +1,63 @@
+{
+  "name": "flyback",
+  "description": "Flyback converter (isolated, step-up/step-down)",
+  "inputs": ["vin", "vout", "iout_max"],
+  "components": [
+    {
+      "role": "controller",
+      "rules": []
+    },
+    {
+      "role": "t1",
+      "rules": ["flyback_transformer_turns"],
+      "params": { "vin": "$vin", "vout": "$vout", "duty_max": 0.45, "n": 10 }
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10uF",
+      "rules": ["cap_voltage_derating"],
+      "params": { "voperating": "$vin", "derating_factor": 2.0 }
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "100uF",
+      "params": { "iout": "$iout_max", "duty": 0.4, "fsw": 100000, "ripple_v": 0.05 }
+    },
+    {
+      "role": "d_out",
+      "lib": "Device:D",
+      "value": "US1M"
+    },
+    {
+      "role": "r_snub",
+      "lib": "Device:R",
+      "value": "10k"
+    },
+    {
+      "role": "c_snub",
+      "lib": "Device:C",
+      "value": "1nF"
+    }
+  ],
+  "connections": [
+    { "net": "VIN",      "pins": ["controller.VIN", "c_in.1", "t1.P1"] },
+    { "net": "GND",      "pins": ["controller.GND", "c_in.2"] },
+    { "net": "SW",       "pins": ["controller.SW", "t1.P2", "r_snub.1", "c_snub.1"] },
+    { "net": "SNUB_GND", "pins": ["r_snub.2", "c_snub.2"] },
+    { "net": "SEC",      "pins": ["t1.S1", "d_out.A"] },
+    { "net": "SEC_GND",  "pins": ["t1.S2"] },
+    { "net": "VOUT",     "pins": ["d_out.K", "c_out.1"] },
+    { "net": "OUT_GND",  "pins": ["c_out.2"] }
+  ],
+  "layout": {
+    "controller": { "x": 38.1,  "y": 50.8 },
+    "c_in":       { "x": 20.32, "y": 50.8 },
+    "t1":         { "x": 63.5,  "y": 50.8 },
+    "r_snub":     { "x": 63.5,  "y": 68.58 },
+    "c_snub":     { "x": 76.2,  "y": 68.58 },
+    "d_out":      { "x": 88.9,  "y": 50.8 },
+    "c_out":      { "x": 101.6, "y": 50.8 }
+  }
+}

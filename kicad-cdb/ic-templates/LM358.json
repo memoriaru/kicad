@@ -1,0 +1,84 @@
+{
+  "name": "LM358",
+  "type": "ic-core",
+  "description": "LM358 双运算放大器 (SOIC-8)，通用运放，增益/带宽可配置",
+  "ic": {
+    "mpn": "LM358",
+    "manufacturer": "TI",
+    "package": "SOIC-8",
+    "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+    "pins": [
+      { "number": "1", "name": "OUT_A", "type": "output" },
+      { "number": "2", "name": "IN_A-", "type": "input" },
+      { "number": "3", "name": "IN_A+", "type": "input" },
+      { "number": "4", "name": "GND",   "type": "power_in" },
+      { "number": "5", "name": "IN_B+", "type": "input" },
+      { "number": "6", "name": "IN_B-", "type": "input" },
+      { "number": "7", "name": "OUT_B", "type": "output" },
+      { "number": "8", "name": "VCC",   "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vcc",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCC", "2": "GND" },
+      "description": "Supply decoupling capacitor"
+    },
+    {
+      "role": "r_fb_a",
+      "lib": "Device:R",
+      "value": "computed",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "OUT_A", "2": "IN_A-" },
+      "description": "Feedback resistor for channel A gain"
+    },
+    {
+      "role": "r_in_a",
+      "lib": "Device:R",
+      "value": "computed",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "in_a_signal", "2": "IN_A-" },
+      "description": "Input resistor for channel A gain"
+    }
+  ],
+  "params": {
+    "vcc":    { "value": 5.0, "unit": "V", "description": "Supply voltage (3~32V)" },
+    "gain_a": { "description": "Target gain for channel A", "unit": "V/V" },
+    "r_in_a": { "value": 10000, "unit": "ohm", "description": "Input resistor value" },
+    "r_fb_a": {
+      "description": "Feedback resistor = R_in * (Gain - 1)",
+      "unit": "ohm",
+      "formula": "r_fb_a = r_in_a * (gain_a - 1)",
+      "depends": ["r_in_a", "gain_a"]
+    },
+    "gbw":       { "value": 1.1e6, "unit": "Hz", "description": "Gain-bandwidth product" },
+    "f_3db":     {
+      "description": "-3dB bandwidth at target gain",
+      "unit": "Hz",
+      "formula": "f_3db = gbw / gain_a",
+      "depends": ["gbw", "gain_a"]
+    },
+    "slew_rate": { "value": 0.5, "unit": "V/us", "description": "Slew rate" }
+  },
+  "interface": {
+    "VCC":         { "direction": "input",  "type": "power" },
+    "GND":         { "direction": "input",  "type": "power" },
+    "in_a_signal": { "direction": "input",  "type": "signal" },
+    "OUT_A":       { "direction": "output", "type": "signal" },
+    "IN_B+":       { "direction": "input",  "type": "signal" },
+    "OUT_B":       { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "vcc_range": "vcc >= 3; vcc <= 32",
+    "gain_limit": "gain_a <= 100000"
+  },
+  "layout": {
+    "ic":      { "x": 40, "y": 0 },
+    "c_vcc":   { "x": 55, "y": -10 },
+    "r_fb_a":  { "x": 40, "y": 15 },
+    "r_in_a":  { "x": 25, "y": 10 }
+  }
+}

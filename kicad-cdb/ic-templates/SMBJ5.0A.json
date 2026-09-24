@@ -1,0 +1,34 @@
+{
+  "name": "SMBJ5.0A",
+  "type": "ic-core",
+  "description": "SMBJ5.0A 单向 TVS 二极管，过压保护 (DO-214AA/SMB)",
+  "ic": {
+    "mpn": "SMBJ5.0A",
+    "manufacturer": "Littelfuse",
+    "package": "DO-214AA",
+    "footprint": "Diode_SMD:D_SMB",
+    "pins": [
+      { "number": "1", "name": "A",  "type": "passive" },
+      { "number": "2", "name": "K",  "type": "passive" }
+    ]
+  },
+  "peripherals": [],
+  "params": {
+    "vrm":    { "value": 5.0,   "unit": "V", "description": "Standoff voltage (working)" },
+    "vbr":    { "value": 6.4,   "unit": "V", "description": "Breakdown voltage (min)" },
+    "vc":     { "value": 9.2,   "unit": "V", "description": "Clamping voltage at Ipp" },
+    "ipp":    { "value": 21.74, "unit": "A", "description": "Peak pulse current" },
+    "cj":     { "value": 4.0e-12, "unit": "F", "description": "Junction capacitance" }
+  },
+  "interface": {
+    "A": { "direction": "bidirectional", "type": "signal" },
+    "K": { "direction": "bidirectional", "type": "signal" }
+  },
+  "constraints": {
+    "vrm_check": "v_operating <= vrm",
+    "vbr_margin": "v_operating * 1.25 <= vbr"
+  },
+  "layout": {
+    "ic": { "x": 30, "y": 0 }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "name": "inverting",
+  "description": "Inverting Buck-Boost converter (negative output)",
+  "inputs": ["vin", "vout_abs", "iout_max"],
+  "components": [
+    {
+      "role": "controller",
+      "rules": []
+    },
+    {
+      "role": "l_main",
+      "lib": "Device:L",
+      "value": "10uH",
+      "rules": ["inverting_inductor_selection"],
+      "params": { "vin": "$vin", "vout_abs": "$vout_abs", "iout": "$iout_max", "fsw": 500000, "ripple_ratio": 0.3 }
+    },
+    {
+      "role": "c_in",
+      "lib": "Device:C",
+      "value": "10uF",
+      "rules": ["cap_voltage_derating"],
+      "params": { "voperating": "$vin", "derating_factor": 2.0 }
+    },
+    {
+      "role": "c_out",
+      "lib": "Device:C",
+      "value": "22uF",
+      "rules": ["inverting_output_capacitor"],
+      "params": { "iout": "$iout_max", "vin": "$vin", "vout_abs": "$vout_abs", "fsw": 500000, "ripple_v": 0.05 }
+    },
+    {
+      "role": "d_catch",
+      "lib": "Device:D",
+      "value": "SS34",
+      "rules": ["inverting_diode_voltage"],
+      "params": { "vin": "$vin", "vout_abs": "$vout_abs" }
+    }
+  ],
+  "connections": [
+    { "net": "VIN",   "pins": ["controller.VIN", "c_in.1"] },
+    { "net": "GND",   "pins": ["controller.GND", "c_in.2"] },
+    { "net": "SW",    "pins": ["controller.SW", "l_main.1", "d_catch.K"] },
+    { "net": "-VOUT", "pins": ["d_catch.A", "c_out.1"] },
+    { "net": "COM",   "pins": ["c_out.2"] }
+  ],
+  "layout": {
+    "controller": { "x": 50.8,  "y": 50.8 },
+    "c_in":       { "x": 33.02, "y": 50.8 },
+    "l_main":     { "x": 76.2,  "y": 50.8 },
+    "d_catch":    { "x": 76.2,  "y": 68.58 },
+    "c_out":      { "x": 96.52, "y": 68.58 }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "name": "MCP6001",
+  "type": "ic-core",
+  "description": "MCP6001 单通道轨到轨运放 (SOT-23-5)，低功耗 1MHz GBW",
+  "ic": {
+    "mpn": "MCP6001",
+    "manufacturer": "Microchip",
+    "package": "SOT-23-5",
+    "footprint": "Package_TO_SOT_SMD:SOT-23-5",
+    "pins": [
+      { "number": "1", "name": "VCC", "type": "power_in" },
+      { "number": "2", "name": "IN-",  "type": "input" },
+      { "number": "3", "name": "IN+",  "type": "input" },
+      { "number": "4", "name": "GND",  "type": "power_in" },
+      { "number": "5", "name": "OUT",  "type": "output" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vcc",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCC", "2": "GND" },
+      "description": "Supply decoupling capacitor"
+    },
+    {
+      "role": "r_fb",
+      "lib": "Device:R",
+      "value": "computed",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "OUT", "2": "IN-" },
+      "description": "Feedback resistor"
+    },
+    {
+      "role": "r_in",
+      "lib": "Device:R",
+      "value": "computed",
+      "footprint": "Resistor_SMD:R_0805_2012Metric",
+      "pins": { "1": "in_signal", "2": "IN-" },
+      "description": "Input resistor"
+    }
+  ],
+  "params": {
+    "vcc":    { "value": 3.3, "unit": "V", "description": "Supply voltage (1.8~6.0V)" },
+    "gain":   { "description": "Target gain", "unit": "V/V" },
+    "r_in":   { "value": 10000, "unit": "ohm", "description": "Input resistor value" },
+    "r_fb":   {
+      "description": "Feedback resistor = R_in * (Gain - 1)",
+      "unit": "ohm",
+      "formula": "r_fb = r_in * (gain - 1)",
+      "depends": ["r_in", "gain"]
+    },
+    "gbw":       { "value": 1.0e6, "unit": "Hz", "description": "Gain-bandwidth product" },
+    "f_3db":     {
+      "description": "-3dB bandwidth at target gain",
+      "unit": "Hz",
+      "formula": "f_3db = gbw / gain",
+      "depends": ["gbw", "gain"]
+    },
+    "slew_rate": { "value": 0.6, "unit": "V/us", "description": "Slew rate" }
+  },
+  "interface": {
+    "VCC":       { "direction": "input",  "type": "power" },
+    "GND":       { "direction": "input",  "type": "power" },
+    "in_signal": { "direction": "input",  "type": "signal" },
+    "OUT":       { "direction": "output", "type": "signal" }
+  },
+  "constraints": {
+    "vcc_range": "vcc >= 1.8; vcc <= 6.0"
+  },
+  "layout": {
+    "ic":     { "x": 40, "y": 0 },
+    "c_vcc":  { "x": 55, "y": -10 },
+    "r_fb":   { "x": 40, "y": 15 },
+    "r_in":   { "x": 25, "y": 10 }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "name": "CH340G",
+  "type": "ic-core",
+  "description": "CH340G USB 转 UART 转换器 (SOP-16)，全功能 modem 信号，外置晶振",
+  "ic": {
+    "mpn": "CH340G",
+    "manufacturer": "WCH",
+    "package": "SOP-16",
+    "footprint": "Package_SO:SOP-16_3.9x9.9mm_P1.27mm",
+    "pins": [
+      { "number": "1",  "name": "GND",   "type": "power_in" },
+      { "number": "2",  "name": "TXD",   "type": "output" },
+      { "number": "3",  "name": "RXD",   "type": "input" },
+      { "number": "4",  "name": "V3",    "type": "power_out" },
+      { "number": "5",  "name": "UD+",   "type": "bidirectional" },
+      { "number": "6",  "name": "UD-",   "type": "bidirectional" },
+      { "number": "7",  "name": "XI",    "type": "input" },
+      { "number": "8",  "name": "XO",    "type": "output" },
+      { "number": "9",  "name": "CTS#",  "type": "input" },
+      { "number": "10", "name": "DSR#",  "type": "input" },
+      { "number": "11", "name": "RI#",   "type": "input" },
+      { "number": "12", "name": "DCD#",  "type": "input" },
+      { "number": "13", "name": "DTR#",  "type": "output" },
+      { "number": "14", "name": "RTS#",  "type": "output" },
+      { "number": "15", "name": "RS232", "type": "input" },
+      { "number": "16", "name": "VCC",   "type": "power_in" }
+    ]
+  },
+  "peripherals": [
+    {
+      "role": "c_vcc",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "VCC", "2": "GND" },
+      "description": "VCC decoupling capacitor"
+    },
+    {
+      "role": "c_v3",
+      "lib": "Device:C",
+      "value": "100nF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "V3", "2": "GND" },
+      "description": "Internal 3.3V regulator decoupling"
+    },
+    {
+      "role": "crystal",
+      "lib": "Device:Crystal",
+      "value": "12MHz",
+      "footprint": "Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm",
+      "pins": { "1": "XI", "2": "XO" },
+      "description": "External crystal oscillator"
+    },
+    {
+      "role": "c_xtal1",
+      "lib": "Device:C",
+      "value": "22pF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "XI", "2": "GND" },
+      "description": "Crystal load capacitor 1"
+    },
+    {
+      "role": "c_xtal2",
+      "lib": "Device:C",
+      "value": "22pF",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "pins": { "1": "XO", "2": "GND" },
+      "description": "Crystal load capacitor 2"
+    }
+  ],
+  "params": {
+    "vcc":            { "value": 5.0,  "unit": "V", "description": "Supply voltage" },
+    "baud_rate":      { "value": 115200, "unit": "bps", "description": "Target baud rate" },
+    "c_crystal_spec": { "value": 22e-12, "unit": "F", "description": "Crystal specified load capacitance" },
+    "c_stray":        { "value": 5e-12,  "unit": "F", "description": "Estimated stray capacitance" },
+    "c_load":         {
+      "description": "Crystal load capacitance",
+      "unit": "F",
+      "formula": "c_load = 2 * (c_crystal_spec - c_stray)",
+      "depends": ["c_crystal_spec", "c_stray"]
+    }
+  },
+  "interface": {
+    "VCC": { "direction": "input",  "type": "power" },
+    "GND": { "direction": "input",  "type": "power" },
+    "UD+": { "direction": "bidirectional", "type": "signal" },
+    "UD-": { "direction": "bidirectional", "type": "signal" },
+    "TXD": { "direction": "output", "type": "signal" },
+    "RXD": { "direction": "input",  "type": "signal" }
+  },
+  "constraints": {
+    "vcc_range": "vcc >= 3.3; vcc <= 5.25"
+  },
+  "layout": {
+    "ic":       { "x": 40, "y": 0 },
+    "c_vcc":    { "x": 25, "y": -10 },
+    "c_v3":     { "x": 25, "y": 10 },
+    "crystal":  { "x": 55, "y": -15 },
+    "c_xtal1":  { "x": 65, "y": -10 },
+    "c_xtal2":  { "x": 65, "y": 10 }
+  }
+}
