@@ -1,0 +1,24 @@
+[package]
+name = "kicad-symgen"
+version = "0.3.0"
+edition = "2021"
+description = "KiCad symbol (.kicad_sym) and footprint (.kicad_mod) generator with parameterized IC/connector templates"
+license = "MIT"
+repository = "https://github.com/memoriaru/kicad"
+keywords = ["kicad", "symbol", "footprint", "eda", "pcb"]
+categories = ["development-tools"]
+readme = "README.md"
+
+[[bin]]
+name = "symgen"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+json5 = "0.4"
+
+[dev-dependencies]
+pretty_assertions = "1"
+tempfile = "3"
