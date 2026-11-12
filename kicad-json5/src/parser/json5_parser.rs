@@ -96,10 +96,28 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
         }
     }
 
-    // components
+    // components — net_name→id 反查表: 只写 net_name 的 pin 必须解析出 net_id,
+    // 否则 auto-wire(auto.rs collect_pin_world_positions 只认 net_id)静默不画线,
+    // ERC 全板 pin_not_connected(sch json5 真源链实锤 2026-11-12)
     if let Some(comps) = obj.get("components").and_then(|v| v.as_array()) {
+        let name2id: HashMap<String, u32> =
+            net_map.iter().map(|(id, nm)| (nm.clone(), *id)).collect();
+        let mut unknown_nets: std::collections::HashSet<String> = Default::default();
         for cv in comps {
-            schematic.components.push(value_to_component(cv, &net_map));
+            let comp = value_to_component(cv, &net_map, &name2id);
+            for p in &comp.pins {
+                if p.net_id.is_none() && !p.nc {
+                    if let Some(nm) = &p.net_name {
+                        if !nm.is_empty() && unknown_nets.insert(nm.clone()) {
+                            eprintln!(
+                                "[json5_parser] WARNING: net_name \"{nm}\" (如 {} pin {}) 不在 nets 表 — auto-wire 将跳过这些引脚",
+                                comp.reference, p.number
+                            );
+                        }
+                    }
+                }
+            }
+            schematic.components.push(comp);
         }
     }
 
@@ -321,7 +339,11 @@ fn value_to_net(value: &Value) -> Option<Net> {
     })
 }
 
-fn value_to_component(value: &Value, net_map: &HashMap<u32, String>) -> SymbolInstance {
+fn value_to_component(
+    value: &Value,
+    net_map: &HashMap<u32, String>,
+    name2id: &HashMap<String, u32>,
+) -> SymbolInstance {
     let o = value.as_object();
     let lib_id = o.and_then(|o| get_str(o, "lib_id")).unwrap_or_default();
     let reference = o.and_then(|o| get_str(o, "ref")).unwrap_or_default();
@@ -425,6 +447,10 @@ fn value_to_component(value: &Value, net_map: &HashMap<u32, String>) -> SymbolIn
                         .and_then(|id| net_map.get(id))
                         .cloned()
                         .or_else(|| po.and_then(|o| get_str(o, "net_name")));
+                    // 只写 net_name(无数字 net)时按 nets 表反查补 net_id
+                    let net_id = net_id.or_else(|| {
+                        net_name.as_deref().and_then(|nm| name2id.get(nm).copied())
+                    });
 
                     comp.pins.push(PinInstance {
                         number,
@@ -453,6 +479,10 @@ fn value_to_component(value: &Value, net_map: &HashMap<u32, String>) -> SymbolIn
                         .and_then(|id| net_map.get(id))
                         .cloned()
                         .or_else(|| po.and_then(|o| get_str(o, "net_name")));
+                    // 只写 net_name(无数字 net)时按 nets 表反查补 net_id
+                    let net_id = net_id.or_else(|| {
+                        net_name.as_deref().and_then(|nm| name2id.get(nm).copied())
+                    });
 
                     comp.pins.push(PinInstance {
                         number: num.clone(),
@@ -735,6 +765,25 @@ mod tests {
         assert_eq!(sch.metadata.generator, "test");
         assert!(sch.components.is_empty());
         assert!(sch.nets.is_empty());
+    }
+
+    #[test]
+    fn test_component_pin_net_name_resolves_net_id() {
+        // 回归锁(2026-11-12 mini 实验): pin 只写 net_name 必须解析出 net_id,
+        // 否则 auto-wire 静默不画线 → ERC 全板 pin_not_connected
+        let json5 = r#"{
+            nets: [{ id: 1, name: "GND" }, { id: 2, name: "SIG" }],
+            lib_symbols: [{ lib_id: "t:R", reference: "R",
+                            pins: [{ number: "1" }, { number: "2" }] }],
+            components: [{ lib_id: "t:R", ref: "R1", value: "10k",
+                position: { x: 50, y: 50 },
+                pins: [{ number: "1", net_name: "GND" },
+                       { number: "2", net_name: "SIG" }] }],
+        }"#;
+        let sch = parse_json5(json5).unwrap();
+        let pins = &sch.components[0].pins;
+        assert_eq!(pins[0].net_id, Some(1));
+        assert_eq!(pins[1].net_id, Some(2));
     }
 
     #[test]

@@ -35,6 +35,25 @@ impl SexprGenerator {
     /// Compute local pin positions for a symbol based on its template type.
     /// Returns HashMap<pin_number, (local_x, local_y)>.
     pub(super) fn compute_pin_positions(symbol: &Symbol) -> HashMap<String, (f64, f64)> {
+        // Explicit pin graphics win (json5 lib_symbols.graphics / sexpr round-trip):
+        // sexpr_gen emits lib_symbols with exactly these positions, so auto-wire
+        // must consume them too — otherwise label endpoints drift off the real
+        // pins (mini5 实验实锤 2026-11-12: graphics pin at ±5.08 但 auto-wire 走
+        // 启发式 backfill ±5.81 → pin_not_connected×4 + label_dangling×3).
+        let explicit: HashMap<String, (f64, f64)> = symbol
+            .graphics
+            .iter()
+            .filter_map(|g| match g {
+                crate::ir::GraphicElement::Pin(pg) if !pg.number.is_empty() => {
+                    Some((pg.number.clone(), (pg.position.0, pg.position.1)))
+                }
+                _ => None,
+            })
+            .collect();
+        if !explicit.is_empty() {
+            return explicit;
+        }
+
         // Standard Device symbols (Device:R, Device:C, etc.) have fixed pin
         // positions defined in the embedded standard symbol data — use those.
         if let Some(positions) = Self::standard_pin_positions(symbol) {

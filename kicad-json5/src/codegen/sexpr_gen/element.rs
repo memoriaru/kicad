@@ -134,6 +134,24 @@ impl SexprGenerator {
             }
         }
 
+        // Reference/Value fallback — json5 顶层 ref/value 字段必须落成实例 property,
+        // 否则 KiCad 显示默认 "U?"、ERC/BOM 全认不出(sch 真源链实锤 2026-11-12;
+        // 与 pcb 侧 properties_ext 优先教训互为镜像: 无显式 properties 时发射端合成)
+        for (name, val) in [("Reference", &component.reference), ("Value", &component.value)] {
+            if val.is_empty()
+                || component.properties_ext.iter().any(|p| p.name == name)
+            {
+                continue;
+            }
+            let mut prop = crate::ir::Property::new(name, val.clone());
+            prop.position = if name == "Reference" {
+                (0.0, -(body_half_h + 1.27), 0.0)
+            } else {
+                (0.0, body_half_h + 1.27, 0.0)
+            };
+            self.generate_property(output, &prop);
+        }
+
         // Footprint property (if set and not already in properties_ext)
         if let Some(fp) = &component.footprint {
             if !component

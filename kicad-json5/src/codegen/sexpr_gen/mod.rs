@@ -563,6 +563,79 @@ mod tests {
     }
 
     #[test]
+    fn test_instance_reference_value_and_auto_wire_emitted() {
+        // 回归锁(2026-11-12 mini 实验): ①json5 ref/value 必须发射为实例
+        // Reference/Value property(缺 Reference → ERC "Symbol U?");
+        // ②pin 带 net_name 解析出 net_id 后 auto-wire 必须真的画线(旧行为=静默零发射)
+        let src = r#"{
+            nets: [{ id: 1, name: "GND", type: "power", render: "global" },
+                   { id: 2, name: "SIG", render: "wire" }],
+            lib_symbols: [{ lib_id: "tbtest:R", reference: "R",
+                            pins: [{ number: "1" }, { number: "2" }] },
+                           { lib_id: "tbtest:C", reference: "C",
+                             pins: [{ number: "1" }, { number: "2" }] }],
+            components: [
+                { lib_id: "tbtest:R", ref: "R1", value: "10k",
+                  position: { x: 50.8, y: 50.8 },
+                  pins: [{ number: "1", net_name: "GND" },
+                         { number: "2", net_name: "SIG" }] },
+                { lib_id: "tbtest:C", ref: "C1", value: "100n",
+                  position: { x: 76.2, y: 50.8 },
+                  pins: [{ number: "1", net_name: "SIG" },
+                         { number: "2", net_name: "GND" }] },
+            ],
+        }"#;
+        let sch = crate::parser::json5_parser::parse_json5(src).unwrap();
+        let mut generator = SexprGenerator::new();
+        let result = generator.generate(&sch).unwrap();
+        // 实例三大字段全落 property(发射是多行形态: token 分行)
+        assert!(result.contains("(property \"Reference\""), "{result}");
+        assert!(result.contains("\"R1\""));
+        assert!(result.contains("(property \"Value\""));
+        assert!(result.contains("\"10k\""));
+        // auto-wire 兑现: SIG 网络至少画出 wire/label
+        assert!(result.contains("(wire"), "auto-wire 未画出 SIG 网络:\n{result}");
+        assert!(result.contains("SIG"));
+    }
+
+    #[test]
+    fn test_auto_wire_uses_explicit_graphics_pin_positions() {
+        // 回归锁(2026-11-12 mini5 实验): lib_symbols 带显式 graphics pin 几何时,
+        // auto-wire 的 compute_pin_positions 必须吃它 — 发射的 lib_symbol 正是这套
+        // 位置; 旧行为=无视 graphics 走启发式/backfill ±5.81 → wire/label 端点与
+        // pin 实际世界位置差 0.73mm → pin_not_connected×4 + label_dangling×3
+        let src = r#"{
+            nets: [{ id: 1, name: "GND", type: "power", render: "global" },
+                   { id: 2, name: "SIG", render: "wire" }],
+            lib_symbols: [{ lib_id: "tbtest:R", reference: "R",
+                            pins: [{ number: "1" }, { number: "2" }],
+                            graphics: [
+                              { type: "pin", number: "1", name: "", at: [0.0, 5.08, 270], length: 2.54 },
+                              { type: "pin", number: "2", name: "", at: [0.0, -5.08, 90], length: 2.54 }] }],
+            components: [
+                { lib_id: "tbtest:R", ref: "R1", value: "10k",
+                  position: { x: 50.8, y: 50.8 },
+                  pins: [{ number: "1", net_name: "GND" },
+                         { number: "2", net_name: "SIG" }] },
+                { lib_id: "tbtest:R", ref: "R2", value: "1k",
+                  position: { x: 76.2, y: 50.8 },
+                  pins: [{ number: "1", net_name: "SIG" },
+                         { number: "2", net_name: "GND" }] },
+            ],
+        }"#;
+        let sch = crate::parser::json5_parser::parse_json5(src).unwrap();
+        let mut generator = SexprGenerator::new();
+        let result = generator.generate(&sch).unwrap();
+        // pin2 世界坐标 = cy − (−5.08) = 55.88 (symbol-local y-up 惯例):
+        // SIG 的 wire/label 必须落在 55.88, 而不是启发式 5.81 口径的 56.61
+        assert!(result.contains("55.88"), "auto-wire 未用 graphics 几何(端点应为 55.88):\n{result}");
+        assert!(!result.contains("56.61"), "端点仍走 ±5.81 启发式(出现 56.61):\n{result}");
+        // GND global 标签同理应落 45.72 (=50.8−5.08) 而非 44.99
+        assert!(result.contains("45.72"), "global 标签未用 graphics 几何(应为 45.72)");
+        assert!(!result.contains("44.99"), "标签仍走 ±5.81 启发式(出现 44.99)");
+    }
+
+    #[test]
     fn test_generate_wire() {
         let schematic = Schematic::new();
 
