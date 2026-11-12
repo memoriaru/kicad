@@ -548,7 +548,7 @@ impl BoardSexprGenerator {
 
         // Pads
         for pad in &fp.pads {
-            self.write_pad(out, pad, net_names);
+            self.write_pad(out, pad, net_names, fp.position.2);
         }
 
         // Models（多个全量回写; 子字段显式带出 → 二次 convert 位级幂等）
@@ -840,6 +840,7 @@ impl BoardSexprGenerator {
         out: &mut String,
         pad: &Pad,
         net_names: &std::collections::HashMap<u32, String>,
+        fp_rot: f64,
     ) {
         self.line(
             out,
@@ -852,7 +853,11 @@ impl BoardSexprGenerator {
         );
         self.indent_level += 1;
         let (x, y, r) = pad.position;
-        self.line(out, &Self::fmt_at(x, y, r));
+        // KiCad: .kicad_pcb 里 pad `(at rot)` 是 **世界角** = footprint 旋转 + pad 自身旋转
+        // (pad.cpp GetFPRelativeOrientation = pad_world − fp; 库 clone 经 SetOrientation
+        // 归一到世界角)。发射相对角会让所有旋转实例 lib parity 恒 mismatch
+        // (merged-power-board DRC 根因, 2026-11-12 实锤). IR 保持相对角, from_sexpr 对称回算.
+        self.line(out, &Self::fmt_at(x, y, fp_rot + r));
         let (w, h) = pad.size;
         self.line(
             out,
@@ -1801,5 +1806,42 @@ mod tests {
         ] {
             assert!(out2.contains(key), "second pass lost {}:\n{}", key, out2);
         }
+    }
+
+    #[test]
+    fn test_pad_rot_world_angle_roundtrip() {
+        // DRC lib-parity 根因(merged-power-board 2026-11-12 实锤): .kicad_pcb 里 pad `(at rot)`
+        // 存的是 **世界角** = footprint 旋转 + pad 自身旋转(pad.cpp GetFPRelativeOrientation
+        // = pad_world − fp; 库 clone 靠 FOOTPRINT::SetOrientation 把 pad 归一到世界角)。
+        // 发射相对角 → 装载后旋转过的实例 pad 恒差 −fp_rot → 旋转件永远 mismatch。
+        // IR 语义保持相对角(与 json5 真源/.kicad_mod/cdb drc "fp rot + pad local" 一致),
+        // 发射加 fp 角、解析减 fp 角, 两端对称保 sexpr→IR→sexpr 幂等。
+        let src = r#"(kicad_pcb (version 20241229) (generator "test")
+	(net 0 "")
+	(footprint "Test:F" (layer "F.Cu") (at 11 69 90)
+		(pad "1" smd roundrect (at -0.9125 0 90) (size 1.025 1.4) (layers "F.Cu" "F.Mask" "F.Paste") (roundrect_rratio 0.243902) (net 0 ""))
+		(pad "2" smd roundrect (at 0.9125 0 135) (size 1.025 1.4) (layers "F.Cu" "F.Mask" "F.Paste") (roundrect_rratio 0.243902) (net 0 ""))
+	)
+)"#;
+        let board = crate::parse_board(src).unwrap();
+        // 解析端: 世界角 → IR 相对角 (90−90=0, 135−90=45)
+        assert_eq!(board.footprints[0].pads[0].position, (-0.9125, 0.0, 0.0));
+        assert_eq!(board.footprints[0].pads[1].position, (0.9125, 0.0, 45.0));
+
+        let out = BoardSexprGenerator::new().generate(&board).unwrap();
+        // 发射端: 相对 + fp 角 = 世界角
+        assert!(out.contains("(at -0.9125 0 90)"), "pad1 world rot lost:\n{}", out);
+        assert!(out.contains("(at 0.9125 0 135)"), "pad2 world rot lost:\n{}", out);
+
+        // 幂等: 二次往返文本级稳定(uuid 不入库, 生成器对无 uuid 源每次新造, 过滤后比)
+        let board2 = crate::parse_board(&out).unwrap();
+        let out2 = BoardSexprGenerator::new().generate(&board2).unwrap();
+        let strip_uuid = |s: &str| -> String {
+            s.lines()
+                .filter(|l| !l.contains("(uuid"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(strip_uuid(&out), strip_uuid(&out2), "rot round trip not idempotent");
     }
 }

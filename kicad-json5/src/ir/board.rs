@@ -729,6 +729,17 @@ impl Board {
                 fp.pads.push(pad);
             }
         }
+        // KiCad semantics: pad `(at rot)` in a .kicad_pcb stores the **world**
+        // angle (fp rotation + pad's own rotation — pad.cpp GetFPRelativeOrientation
+        // returns pad_world − fp, and the lib-parity DRC compares that). IR keeps
+        // the *relative* convention (json5 truth, .kicad_mod, cdb "fp rot + pad
+        // local"); convert back here so emit (write_pad adds fp rotation) stays
+        // exactly symmetric — sexpr→IR→sexpr idempotent.
+        if fp.position.2 != 0.0 {
+            for pad in &mut fp.pads {
+                pad.position.2 -= fp.position.2;
+            }
+        }
 
         // fp_line
         for line_node in find_children(&items[2..], "fp_line") {
@@ -1060,7 +1071,7 @@ impl Board {
             .map(|t| match t {
                 SExpr::Atom(Atom::Identifier(s)) => s.clone(),
                 SExpr::Atom(Atom::Bool(true)) => "yes".to_string(),
-                SExpr::Atom(Atom::Bool(false)) => "none".to_string(),
+                SExpr::Atom(Atom::Bool(false)) => "no".to_string(),   // KiCad 10 connect_pads 词表 yes/no/clearance
                 _ => String::new(),
             })
             .unwrap_or_default();
