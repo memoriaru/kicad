@@ -273,12 +273,89 @@ fn value_to_symbol(value: &Value) -> Symbol {
             }
         }
 
-        // pin graphics (original geometry). Round-trip fidelity: sexpr_gen writes
-        // these positions instead of falling back to auto-layout.
+        // graphics (original geometry). Round-trip fidelity: sexpr_gen writes
+        // these positions instead of falling back to auto-layout. Supported
+        // types: pin / rect (at+size) / line|polyline (pts). Non-pin graphics
+        // are the symbol body — symbol.rs splits them into the _0_1 unit while
+        // pins go to _1_1, which is what KiCad expects for non-power symbols.
         if let Some(graphics) = o.get("graphics").and_then(|v| v.as_array()) {
             for gv in graphics {
                 let go = gv.as_object();
-                if go.and_then(|o| o.get("type")).and_then(|v| v.as_str()) != Some("pin") {
+                let gtype = go.and_then(|o| o.get("type")).and_then(|v| v.as_str());
+                let gtype = match gtype {
+                    Some(t) => t,
+                    None => continue,
+                };
+                if gtype != "pin" {
+                    // rect / line / polyline: shared stroke/fill parsing
+                    let mut stroke = crate::ir::Stroke::default();
+                    if let Some(w) = go.and_then(|o| o.get("stroke_width")).and_then(|v| v.as_f64()) {
+                        stroke.width = w;
+                    }
+                    if let Some(st) = go.and_then(|o| o.get("stroke_type")).and_then(|v| v.as_str()) {
+                        stroke.stroke_type = crate::ir::StrokeType::from_str(st);
+                    }
+                    let fill = match go.and_then(|o| o.get("fill")).and_then(|v| v.as_str()) {
+                        Some("outline") => crate::ir::Fill::outline(),
+                        _ => crate::ir::Fill::none(),
+                    };
+                    match gtype {
+                        "rect" => {
+                            // at = corner, size = [dx, dy] (end = at + size)
+                            let at = go
+                                .and_then(|o| o.get("at"))
+                                .and_then(|v| v.as_array())
+                                .and_then(|a| {
+                                    if a.len() == 2 {
+                                        Some((a[0].as_f64()?, a[1].as_f64()?))
+                                    } else {
+                                        None
+                                    }
+                                });
+                            let size = go
+                                .and_then(|o| o.get("size"))
+                                .and_then(|v| v.as_array())
+                                .and_then(|a| {
+                                    if a.len() == 2 {
+                                        Some((a[0].as_f64()?, a[1].as_f64()?))
+                                    } else {
+                                        None
+                                    }
+                                });
+                            if let (Some((x0, y0)), Some((dx, dy))) = (at, size) {
+                                let mut rect = crate::ir::Rectangle::new((x0, y0), (x0 + dx, y0 + dy));
+                                rect.stroke = stroke;
+                                rect.fill = fill;
+                                symbol.graphics.push(crate::ir::GraphicElement::Rectangle(rect));
+                            }
+                        }
+                        "line" | "polyline" => {
+                            let pts = go
+                                .and_then(|o| o.get("pts"))
+                                .and_then(|v| v.as_array())
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(|p| {
+                                            let p = p.as_array()?;
+                                            if p.len() == 2 {
+                                                Some((p[0].as_f64()?, p[1].as_f64()?))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            if pts.len() >= 2 {
+                                let mut pl = crate::ir::Polyline::new();
+                                pl.points = pts;
+                                pl.stroke = stroke;
+                                pl.fill = fill;
+                                symbol.graphics.push(crate::ir::GraphicElement::Polyline(pl));
+                            }
+                        }
+                        _ => {}
+                    }
                     continue;
                 }
                 let number = go.and_then(|o| get_str(o, "number")).unwrap_or_default();

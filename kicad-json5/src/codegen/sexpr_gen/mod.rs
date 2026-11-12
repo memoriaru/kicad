@@ -636,6 +636,47 @@ mod tests {
     }
 
     #[test]
+    fn test_json5_graphics_body_rect_line_emitted() {
+        // 回归锁(2026-11-12): json5 lib_symbols.graphics 旧版只解析 pin,
+        // rect/line 体几何被静默 skip → 渲染出无体符号(只有引脚 stub).
+        // 修复后: rect(at+size)/line(pts) 入 IR, symbol.rs 拆 unit 发射
+        // (非 power 符号: 公共图形入 _0_1, pin 入 _1_1).
+        let src = r#"{
+            nets: [{ id: 1, name: "GND", type: "power", render: "global" }],
+            lib_symbols: [{ lib_id: "tbtest:R", reference: "R",
+                            pins: [{ number: "1" }, { number: "2" }],
+                            graphics: [
+                              { type: "rect", at: [-2.54, -3.81], size: [5.08, 7.62] },
+                              { type: "line", pts: [[-1.27, 1.27], [1.27, -1.27]] },
+                              { type: "pin", number: "1", name: "", at: [0.0, 5.08, 270], length: 2.54 },
+                              { type: "pin", number: "2", name: "", at: [0.0, -5.08, 90], length: 2.54 }] }],
+            components: [
+                { lib_id: "tbtest:R", ref: "R1", value: "10k",
+                  position: { x: 50.8, y: 50.8 },
+                  pins: [{ number: "1", net_name: "GND" },
+                         { number: "2", net_name: "GND" }] },
+            ],
+        }"#;
+        let sch = crate::parser::json5_parser::parse_json5(src).unwrap();
+        let sym = &sch.lib_symbols[0];
+        let non_pin = sym.graphics.iter()
+            .filter(|g| !matches!(g, crate::ir::GraphicElement::Pin(_))).count();
+        assert_eq!(non_pin, 2, "json5 graphics 非 pin 体几何未入 IR(rect/line 被 skip)");
+        let mut generator = SexprGenerator::new();
+        let result = generator.generate(&sch).unwrap();
+        assert!(result.contains("(rectangle"), "rectangle 未发射:\n{result}");
+        assert!(result.contains("(start -2.54 -3.81)") && result.contains("(end 2.54 3.81)"),
+                "rectangle start/end 口径不对(end 应为 at+size)");
+        assert!(result.contains("(polyline"), "line(pts) 未发射为 polyline");
+        // 非 power 有 pin 符号: 体图形入 _0_1, pin 入 _1_1
+        assert!(result.contains("(symbol \"R_0_1\"") && result.contains("(symbol \"R_1_1\""),
+                "unit 拆分缺失(_0_1 图形 / _1_1 pin)");
+        let g0 = result.split("(symbol \"R_1_1\"").next().unwrap();
+        assert!(g0.contains("(rectangle") && !g0.contains("(pin "),
+                "_0_1 应只含图形不含 pin");
+    }
+
+    #[test]
     fn test_generate_wire() {
         let schematic = Schematic::new();
 
