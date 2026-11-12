@@ -290,6 +290,53 @@ impl SexprGenerator {
         self.write_line(output, ")");
     }
 
+    /// Schematic-level text note (zone titles, annotations). KiCad 顶层形态:
+    /// (text "…" (exclude_from_sim no) (at …) (effects (font …)) (uuid …))
+    pub(super) fn generate_text_item(&mut self, output: &mut String, item: &crate::ir::TextItem) {
+        self.write_line(output, "(text");
+        self.indent_level += 1;
+        self.write_line(output, &format!("\"{}\"", Self::escape_string(&item.text)));
+        self.write_line(output, "(exclude_from_sim no)");
+        self.write_line(
+            output,
+            &Self::format_at(item.position.0, item.position.1, item.position.2),
+        );
+        self.generate_effects(output, &item.effects);
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
+    /// Schematic-level graphic polyline (section dividers 等). KiCad 顶层形态:
+    /// (polyline (pts (xy …)…) (stroke (width …) (type …)) (fill (type none)) (uuid …))
+    pub(super) fn generate_schematic_polyline(
+        &mut self,
+        output: &mut String,
+        pl: &crate::ir::Polyline,
+    ) {
+        if pl.points.len() < 2 {
+            return;
+        }
+        self.write_line(output, "(polyline");
+        self.indent_level += 1;
+        let pts = pl
+            .points
+            .iter()
+            .map(|(x, y)| Self::format_xy(*x, *y))
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.write_line(output, &format!("(pts {})", pts));
+        self.generate_stroke(output, &pl.stroke);
+        self.write_line(output, "(fill (type none))");
+        if self.config.include_uuids {
+            self.write_line(output, &format!("(uuid \"{}\")", Self::new_uuid()));
+        }
+        self.indent_level -= 1;
+        self.write_line(output, ")");
+    }
+
     pub(super) fn generate_label(&mut self, output: &mut String, label: &Label) {
         // KiCad uses "netclass_flag" as the token for directive labels
         let label_type = label.label_type.as_str();

@@ -275,6 +275,14 @@ impl SexprGenerator {
             self.generate_no_connect(&mut output, nc);
         }
 
+        // Schematic-level graphic polylines (section dividers) + text notes
+        for pl in &schematic.polylines {
+            self.generate_schematic_polyline(&mut output, pl);
+        }
+        for item in &schematic.text_items {
+            self.generate_text_item(&mut output, item);
+        }
+
         // Buses
         for bus in &schematic.buses {
             self.generate_bus(&mut output, bus);
@@ -674,6 +682,31 @@ mod tests {
         let g0 = result.split("(symbol \"R_1_1\"").next().unwrap();
         assert!(g0.contains("(rectangle") && !g0.contains("(pin "),
                 "_0_1 应只含图形不含 pin");
+    }
+
+    #[test]
+    fn test_json5_texts_polylines_emitted() {
+        // 回归锁(2026-11-12 原理图分区框): json5 顶层 texts/polylines 旧版无解析
+        // (IR TextItem/Polyline 是死字段, G8 分区虚线框只有 kdesign Python 链能发),
+        // 补 parser+发射双链后顶层文本/虚线框可用.
+        let src = r#"{
+            nets: [],
+            texts: [{ text: "电力输入", at: [20.32, 29.21, 0], size: [2.54, 2.54] }],
+            polylines: [{ pts: [[20.32, 31.75], [78.74, 31.75], [78.74, 247.65],
+                                [20.32, 247.65], [20.32, 31.75]],
+                          width: 0.15, type: "dash" }],
+            components: [],
+        }"#;
+        let sch = crate::parser::json5_parser::parse_json5(src).unwrap();
+        assert_eq!(sch.text_items.len(), 1, "顶层 texts 未入 IR");
+        assert_eq!(sch.polylines.len(), 1, "顶层 polylines 未入 IR");
+        let mut generator = SexprGenerator::new();
+        let result = generator.generate(&sch).unwrap();
+        assert!(result.contains("(text \"电力输入\""), "顶层 text 未发射:\n{result}");
+        assert!(result.contains("(at 20.32 29.21 0)"), "text at 未发射");
+        assert!(result.contains("(polyline"), "顶层 polyline 未发射");
+        assert!(result.contains("(type dash)"), "stroke dash 未发射");
+        assert!(result.contains("(fill (type none))"), "polyline fill 未发射");
     }
 
     #[test]

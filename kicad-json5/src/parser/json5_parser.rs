@@ -170,6 +170,72 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
         }
     }
 
+    // texts (schematic-level text notes: zone titles, annotations)
+    if let Some(texts) = obj.get("texts").and_then(|v| v.as_array()) {
+        for tv in texts {
+            if let Some(t) = tv.as_object().and_then(|o| o.get("text")).and_then(|v| v.as_str()) {
+                let mut item = crate::ir::TextItem {
+                    text: t.to_string(),
+                    position: (0.0, 0.0, 0.0),
+                    effects: crate::ir::TextEffects::default(),
+                };
+                if let Some(at) = tv.as_object().and_then(|o| o.get("at")).and_then(|v| v.as_array()) {
+                    let xs: Vec<Option<f64>> = at.iter().map(|v| v.as_f64()).collect();
+                    if !xs.is_empty() {
+                        item.position = (
+                            xs[0].unwrap_or(0.0),
+                            xs.get(1).and_then(|v| *v).unwrap_or(0.0),
+                            xs.get(2).and_then(|v| *v).unwrap_or(0.0),
+                        );
+                    }
+                }
+                if let Some(sz) = tv.as_object().and_then(|o| o.get("size")).and_then(|v| v.as_array()) {
+                    if sz.len() == 2 {
+                        let h = sz[0].as_f64().unwrap_or(1.27);
+                        let w = sz[1].as_f64().unwrap_or(h);
+                        item.effects.font.size = (w, h);
+                    }
+                }
+                schematic.text_items.push(item);
+            }
+        }
+    }
+
+    // polylines (schematic-level graphic polylines: section dividers etc.)
+    if let Some(polys) = obj.get("polylines").and_then(|v| v.as_array()) {
+        for pv in polys {
+            let pts: Vec<(f64, f64)> = pv
+                .as_object()
+                .and_then(|o| o.get("pts"))
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|p| {
+                            let p = p.as_array()?;
+                            if p.len() == 2 {
+                                Some((p[0].as_f64()?, p[1].as_f64()?))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if pts.len() < 2 {
+                continue;
+            }
+            let mut pl = crate::ir::Polyline::new();
+            pl.points = pts;
+            if let Some(w) = pv.as_object().and_then(|o| o.get("width")).and_then(|v| v.as_f64()) {
+                pl.stroke.width = w;
+            }
+            if let Some(t) = pv.as_object().and_then(|o| o.get("type")).and_then(|v| v.as_str()) {
+                pl.stroke.stroke_type = crate::ir::StrokeType::from_str(t);
+            }
+            schematic.polylines.push(pl);
+        }
+    }
+
     // Backfill lib_symbol pins from component instances.
     // JSON5 lib_symbols often lack pin definitions, but component instances have them.
     // For IC-type symbols, we need pin info to generate correct lib_symbol graphics and
