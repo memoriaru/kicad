@@ -1319,11 +1319,11 @@ impl BoardSexprGenerator {
         } else {
             String::new()
         };
+        // KiCad 规范: (fill (thermal_gap ..) ..) — fill token 不接 yes/no 布尔
         self.line(
             out,
             &format!(
-                "(fill {} (thermal_gap {}) (thermal_bridge_width {}) (island_removal_mode {}){})",
-                if zone.fill { "yes" } else { "no" },
+                "(fill (thermal_gap {}) (thermal_bridge_width {}) (island_removal_mode {}){})",
                 Self::fmt_num(zone.thermal_gap),
                 Self::fmt_num(zone.thermal_bridge_width),
                 zone.island_removal_mode,
@@ -1688,9 +1688,14 @@ mod tests {
         assert!(output.contains("(net \"GND\")"));
         assert!(output.contains("(polygon"));
         assert!(output.contains("(connect_pads yes (clearance 0.3))"));
+        // KiCad 规范 fill token 不接布尔 (kiad-cli 10 报 "应为 mode, arc_segments, ..."
+        // 拒载整板, 波4 实证) — fill 列表只带热参数/island, 不带 yes/no
         assert!(output.contains(
-            "(fill yes (thermal_gap 0.508) (thermal_bridge_width 0.508) (island_removal_mode 0))"
+            "(fill (thermal_gap 0.508) (thermal_bridge_width 0.508) (island_removal_mode 0))"
         ));
+        // 回归锁: (fill yes)/(fill no) 一旦复发即红
+        assert!(!output.contains("(fill yes"));
+        assert!(!output.contains("(fill no"));
     }
 
     #[test]
