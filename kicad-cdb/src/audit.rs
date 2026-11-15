@@ -19,6 +19,10 @@ pub struct AngleReport {
     pub overlaps: Vec<AngleIssue>,
     pub right_angles: usize,
     pub miter_candidates: usize,
+    /// Every junction where two same-net same-layer segments meet at a
+    /// non-straight angle (acute + right + oblique). The headline metric for
+    /// bend-reduction comparisons — right_angles alone misses 45° miters.
+    pub total_bends: usize,
 }
 
 fn dist2(a: (f64, f64), b: (f64, f64)) -> f64 {
@@ -130,6 +134,7 @@ pub fn audit_angles(board: &Board) -> AngleReport {
                         });
                     }
                 } else if v < 50.0 {
+                    report.total_bends += 1;
                     report.acute.push(AngleIssue {
                         angle_deg: v,
                         net: names.get(&anet).cloned().unwrap_or_default(),
@@ -138,7 +143,11 @@ pub fn audit_angles(board: &Board) -> AngleReport {
                         kind: "acute",
                     });
                 } else if (89.0..91.0).contains(&v) {
+                    report.total_bends += 1;
                     report.right_angles += 1;
+                } else {
+                    // Oblique bend (45° miter etc.) — still a direction change.
+                    report.total_bends += 1;
                 }
             }
         }

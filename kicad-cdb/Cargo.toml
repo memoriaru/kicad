@@ -16,6 +16,7 @@ serde_json = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls"], default-features = false }
+json5 = "1"
 kicad-json5 = { path = "../kicad-json5" }
 kicad-symgen = { path = "../kicad-symgen" }
 csv = "1"

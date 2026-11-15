@@ -31,6 +31,9 @@ pub struct LayoutDirectives {
     /// Per-net exact-name width overrides (keys uppercased; highest
     /// precedence, beats trace_width_override for the matched nets).
     pub net_width_overrides: HashMap<String, f64>,
+    /// P0-turn: CLI override for the A* direction-change (turn) penalty.
+    /// Precedence vs ROUTER_TURN_COST env: CLI wins, env next, const default.
+    pub turn_cost_override: Option<f64>,
     /// v35（M2）：连接器锚边覆盖——ref（原样大小写）→ 目标板边。
     /// 命中时 generate_constraints 用覆盖值替代 infer_connector_edge 的
     /// 网络名推断（排线自由度：连接器位置可任选）。
@@ -175,9 +178,11 @@ impl LayoutDirectives {
         trace_width: Option<f64>,
         clearance: Option<f64>,
         width_by_net: &[(String, f64)],
+        turn_cost: Option<f64>,
     ) {
         self.trace_width_override = trace_width;
         self.clearance_override = clearance;
+        self.turn_cost_override = turn_cost;
         for (name, w) in width_by_net {
             self.net_width_overrides.insert(name.to_uppercase(), *w);
         }

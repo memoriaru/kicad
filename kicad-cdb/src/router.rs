@@ -48,7 +48,20 @@ fn power_net_name(name: &str) -> bool {
 const VIA_COST: f64 = 2.0;
 
 /// Cost penalty for direction change (encourages straight traces).
-const TURN_COST: f64 = 1.0;
+/// Applied on any step whose full (dc,dr) vector differs from the parent
+/// direction — diagonal zigzag is penalized too (the old dc-only check let
+/// it pass). Parent direction is normalized to a unit step first (K4
+/// cardinal jumps record multi-cell vectors that are still straight travel).
+///
+/// Default is 0 (no penalty): 2026-11-07 A/B on battery/sensor/analog-board regression
+/// boards showed the full-vector penalty monotonically WORSENS DRC quality
+/// (battery violations 119→174→256 at tc=0/0.3/1.0) and analog-board completion
+/// (52→51→50/54) while inflating via count (4→20 on battery) — the grid
+/// penalty ecosystem (congestion/proximity/CLR walls) is tuned around free
+/// diagonal zigzag, and blocking it stiffens routes against those walls.
+/// Revisit together with a potential-field guide, not standalone.
+/// Overridable per run: --turn-cost CLI > ROUTER_TURN_COST env > default.
+const TURN_COST: f64 = 0.0;
 
 /// Penalty for going against the preferred layer direction.
 /// F.Cu prefers horizontal (dc != 0), B.Cu prefers vertical (dr != 0).
@@ -161,6 +174,9 @@ struct RoutingGrid {
     astar_cache: std::cell::RefCell<AStarCache>,
     /// Index: net_id → list of (layer, cell_flat_idx) occupied by that net.
     net_cells: Vec<Vec<(usize, usize)>>,
+    /// Per-step direction-change penalty. Defaults to TURN_COST; overridden
+    /// by CLI --turn-cost (LayoutDirectives) or ROUTER_TURN_COST env for A/B.
+    turn_cost: f64,
 }
 
 // Safety: RoutingGrid contains RefCell<AStarCache> which is not Sync.
@@ -242,6 +258,7 @@ impl RoutingGrid {
                 version: 0,
             }),
             net_cells: vec![Vec::new(); max_net_id + 1],
+            turn_cost: TURN_COST,
         }
     }
 
@@ -1391,10 +1408,20 @@ fn astar_route_with_limit_impl(
                     }
                 }
 
-                // Direction change penalty (encourages straight traces)
-                if let Some((pd, _pr)) = dir_from_parent.or(prev_dir) {
-                    if dc != pd {
-                        cost += TURN_COST;
+                // Direction change penalty (encourages straight traces).
+                // Full (dc,dr) comparison — the old dc-only check let diagonal
+                // zigzag ((1,1)↔(1,0)) pass unpenalized. The parent step is
+                // normalized to a unit direction first: K4 cardinal jumps
+                // record multi-cell vectors ((0,4) for a 4-cell jump), which
+                // is still straight travel and must not read as a turn.
+                if let Some((pd, pr)) = dir_from_parent.or(prev_dir) {
+                    let pdn = if pd != 0 && pr != 0 {
+                        (pd, pr)
+                    } else {
+                        (pd.signum(), pr.signum())
+                    };
+                    if (dc, dr) != pdn {
+                        cost += grid.turn_cost;
                     }
                 }
 
@@ -2206,6 +2233,12 @@ pub fn auto_route_signal_nets_with_config(
         GRID_RES
     };
     let mut grid = RoutingGrid::new(board, layer_config.clone(), grid_res);
+    // Turn-cost override precedence: CLI --turn-cost (LayoutDirectives) >
+    // ROUTER_TURN_COST env (experiment/A-B channel) > TURN_COST default.
+    grid.turn_cost = directives
+        .turn_cost_override
+        .or_else(|| std::env::var("ROUTER_TURN_COST").ok().and_then(|v| v.parse().ok()))
+        .unwrap_or(TURN_COST);
     grid.mark_component_bodies(board);
     grid.mark_pads(board);
     grid.mark_existing_traces(board, base_clearance);
@@ -2902,6 +2935,7 @@ pub fn auto_route_signal_nets_with_config(
     let origin_y = grid.origin_y;
     let layer_data = &grid.layer_data;
     let _congestion = &grid.congestion;
+    let turn_cost = grid.turn_cost;
 
     // P-route-1: Precompute layer→slot lookup table (avoids iter().position() in hot loop)
     let max_layer = *sig_layers.iter().max().unwrap_or(&0);
@@ -3066,6 +3100,18 @@ pub fn auto_route_signal_nets_with_config(
                         }
                         let ci = flat(&node);
                         let current_g = lg![ci];
+                        // Parent direction for turn cost — this inline A* never
+                        // jumps, so parent vectors are already unit steps.
+                        let dir_from_parent = {
+                            let packed = lcf![ci];
+                            if packed == u32::MAX {
+                                None
+                            } else {
+                                let pc = (packed & 0xFFF) as i32;
+                                let pr = ((packed >> 12) & 0xFFF) as i32;
+                                Some((node.col as i32 - pc, node.row as i32 - pr))
+                            }
+                        };
                         for &(dc, dr, move_cost) in DIRECTIONS {
                             let nc = node.col as i32 + dc;
                             let nr = node.row as i32 + dr;
@@ -3094,6 +3140,13 @@ pub fn auto_route_signal_nets_with_config(
                                 let mut cost = move_cost;
                                 if layer != node.layer {
                                     cost += VIA_COST;
+                                }
+                                // Turn cost: keep first-pass paths straight too
+                                // (mirrors the serial A* full-vector comparison)
+                                if let Some((pd, pr)) = dir_from_parent {
+                                    if (dc, dr) != (pd, pr) {
+                                        cost += turn_cost;
+                                    }
                                 }
                                 // Global guide bonus: prefer cells inside planned corridor
                                 if let Some(ref guide) = global_guide {

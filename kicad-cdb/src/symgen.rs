@@ -345,7 +345,7 @@ pub fn generate_rich_symbol_lib(
                     }
                     let label_x = -hw + (i as f64 + 0.5) * section_width;
                     out.push_str(&format!(
-                        "      (text \"{}\" (at {} {}) (length 2.54)\n",
+                        "      (text \"{}\" (at {} {})\n",
                         label, label_x, label_y
                     ));
                     out.push_str("        (effects (font (size 0.762 0.762))))\n");
