@@ -293,9 +293,11 @@ impl SexprGenerator {
     /// Schematic-level text note (zone titles, annotations). KiCad 顶层形态:
     /// (text "…" (exclude_from_sim no) (at …) (effects (font …)) (uuid …))
     pub(super) fn generate_text_item(&mut self, output: &mut String, item: &crate::ir::TextItem) {
-        self.write_line(output, "(text");
+        // KiCad 官方形态: (text "内容" (exclude_from_sim no) ...) —— text 与字符串同行。
+        // 91b2062 首版写成两行 (text\n"内容"), sexpr 虽等价但测试断言 contains 跨行必挂
+        // (该 commit "132 测试全绿"声称与现实分裂的假绿账, 本行即根修)。
+        self.write_line(output, &format!("(text \"{}\"", Self::escape_string(&item.text)));
         self.indent_level += 1;
-        self.write_line(output, &format!("\"{}\"", Self::escape_string(&item.text)));
         self.write_line(output, "(exclude_from_sim no)");
         self.write_line(
             output,
