@@ -89,7 +89,7 @@ impl Default for StitchConfig {
     }
 }
 
-fn net_display(board: &Board, id: u32) -> String {
+pub fn net_display(board: &Board, id: u32) -> String {
     board
         .nets
         .iter()
@@ -98,7 +98,7 @@ fn net_display(board: &Board, id: u32) -> String {
         .unwrap_or_default()
 }
 
-fn is_high_speed(net: &str, cfg: &StitchConfig) -> bool {
+pub fn is_high_speed(net: &str, cfg: &StitchConfig) -> bool {
     if cfg.all_nets {
         return true;
     }
@@ -136,7 +136,7 @@ pub fn point_in_poly(pt: (f64, f64), poly: &[(f64, f64)]) -> bool {
 /// ⚠ 不能用 board.layers——Board::default() 只有 F/B 两层声明（首版测试全挂的根因：
 /// 邻层轴塌缩成 [F.Cu, B.Cu]，In1 的 GND zone 永远不被看见）。两层板轴=[F,B]
 /// （F.Cu 邻=B.Cu ✓）；via 跨过的内层是活动铜层也入轴（信号的参考层查找必需）。
-fn copper_axis(board: &Board) -> Vec<String> {
+pub fn copper_axis(board: &Board) -> Vec<String> {
     const SIX: [&str; 6] = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "B.Cu"];
     let mut axis: Vec<String> = Vec::new();
     for l in SIX {
