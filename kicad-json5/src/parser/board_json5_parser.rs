@@ -152,6 +152,7 @@ fn value_to_board(value: &Value) -> Result<Board> {
                     drill: get_f64(vo, "drill").unwrap_or(0.3),
                     layers: parse_string_list(vv, "layers"),
                     net: get_f64(vo, "net").unwrap_or(0.0) as u32,
+                    via_type: get_str(vo, "via_type").unwrap_or_default().to_string(),
                 });
             }
         }

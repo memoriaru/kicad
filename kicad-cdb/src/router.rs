@@ -900,6 +900,7 @@ fn fanout_ic_pads(
                             drill: via_drill,
                             layers: fanout_via_layers.clone(),
                             net: net_id,
+                            via_type: String::new(),
                         };
                         mark_segment_on_grid(escape_grid, &seg, net_id, fanout_clearance);
                         let via_from = signal_layers[0];
@@ -983,6 +984,7 @@ fn fanout_ic_pads(
                                 drill: via_drill,
                                 layers: fanout_via_layers.clone(),
                                 net: net_id,
+                                via_type: String::new(),
                             };
                             mark_segment_on_grid(escape_grid, &seg1, net_id, fanout_clearance);
                             mark_segment_on_grid(escape_grid, &seg2, net_id, fanout_clearance);
@@ -2097,6 +2099,7 @@ fn path_to_board_elements(
                 drill: via_drill,
                 layers: via_layer_names,
                 net: net_id,
+                via_type: String::new(),
             });
 
             // New layer starts from prev (the via sits there), NOT curr —
@@ -9894,6 +9897,7 @@ mod tests {
             drill: 0.3,
             layers: vec!["F.Cu".into(), "B.Cu".into()],
             net: 2,
+            via_type: String::new(),
         });
 
         let cfg = crate::layer_config::BoardLayerConfig::two_layer();
@@ -10517,6 +10521,7 @@ pub fn commit_wavefront_path(
                 drill: via_drill,
                 layers: vec![layer0.clone(), layer1.clone()],
                 net: net_id,
+                via_type: String::new(),
             });
             via_count += 1;
         }

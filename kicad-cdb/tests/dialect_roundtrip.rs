@@ -188,6 +188,7 @@ fn generated_vias_carry_net_names() {
         drill: 0.3,
         layers: vec!["F.Cu".into(), "B.Cu".into()],
         net: vout_id,
+        via_type: String::new(),
     });
     let out = generate_kicad_pcb(&board).unwrap();
     let via_block = out.split("(via").nth(1).expect("via serialized");

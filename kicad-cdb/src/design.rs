@@ -1523,6 +1523,7 @@ pub fn generate_plane_thermal_vias(
                 drill: 0.3,
                 layers: vec![first_layer.clone(), last_layer.clone()],
                 net: net_id,
+                via_type: String::new(),
             });
             via_count += 1;
         }
@@ -1650,6 +1651,7 @@ fn generate_thermal_features(
                         drill: 0.3,
                         layers: vec!["F.Cu".into(), "B.Cu".into()],
                         net: gnd_id,
+                        via_type: String::new(),
                     });
                 }
             }

@@ -409,6 +409,17 @@ impl Board {
                 drill,
                 layers,
                 net,
+                via_type: via_node
+                    .get(1)
+                    .and_then(|t| match t {
+                        crate::parser::ast::SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => {
+                            Some(s.as_str())
+                        }
+                        _ => None,
+                    })
+                    .filter(|s| *s == "blind" || *s == "micro")
+                    .unwrap_or("")
+                    .to_string(),
             });
         }
 
@@ -1781,6 +1792,11 @@ pub struct Via {
     pub drill: f64,
     pub layers: Vec<String>,
     pub net: u32,
+    /// KiCad via 类型 token: "" = through (默认), "blind"/"micro" 原样带出。
+    /// 回流自 downstream project an earlier change(2026-10-01): 起因=P3 analog-board v2.5 盲孔 via-in-pad
+    /// 落板——无类型 via 被 KiCad 归一化成通孔致 7~9 shorting; 历史快照 json5
+    /// 带 via_type:"blind" 真语义, 缺此字段=静默丢盲孔。
+    pub via_type: String,
 }
 
 // ---------------------------------------------------------------------------

@@ -1180,7 +1180,11 @@ impl BoardSexprGenerator {
         via: &Via,
         net_names: &std::collections::HashMap<u32, String>,
     ) {
-        self.line(out, "(via");
+        if via.via_type.is_empty() {
+            self.line(out, "(via");
+        } else {
+            self.line(out, &format!("(via {}", via.via_type));
+        }
         self.indent_level += 1;
         let (x, y) = via.at;
         self.line(out, &Self::fmt_at(x, y, 0.0));

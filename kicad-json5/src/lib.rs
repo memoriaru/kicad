@@ -509,8 +509,13 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
     if !board.vias.is_empty() {
         s.push_str("  vias: [\n");
         for via in &board.vias {
+            let vt = if via.via_type.is_empty() {
+                String::new()
+            } else {
+                format!(", via_type: \"{}\"", via.via_type)
+            };
             s.push_str(&format!(
-                "    {{ at: [{}, {}], size: {}, drill: {}, layers: [{}], net: {} }},\n",
+                "    {{ at: [{}, {}], size: {}, drill: {}, layers: [{}], net: {}{} }},\n",
                 via.at.0,
                 via.at.1,
                 via.size,
@@ -520,7 +525,8 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
                     .map(|l| format!("\"{}\"", l))
                     .collect::<Vec<_>>()
                     .join(", "),
-                via.net
+                via.net,
+                vt
             ));
         }
         s.push_str("  ],\n");
@@ -912,6 +918,7 @@ mod tests {
             drill: 0.4,
             layers: vec!["F.Cu".into(), "B.Cu".into()],
             net: 1,
+            via_type: String::new(),
         });
 
         let json5 = generate_board_json5(&board).unwrap();
@@ -923,5 +930,37 @@ mod tests {
         assert_eq!(parsed.vias.len(), 1);
         assert_eq!(parsed.vias[0].at, (5.0, 2.5));
         assert_eq!(parsed.vias[0].layers.len(), 2);
+    }
+
+    /// via_type 三链路保真(回流 an earlier change): json5↔IR↔sexpr 的 blind/micro 不丢。
+    /// 起因=历史快照(p3b~p21b)带 via_type:"blind", 缺字段时反向编译静默把盲孔变通孔。
+    #[test]
+    fn test_via_type_roundtrip_all_three_paths() {
+        let mut board = ir::Board::new();
+        board.add_net("VCC");
+        board.vias.push(ir::board::Via {
+            at: (1.0, 2.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "In2.Cu".into()],
+            net: 1,
+            via_type: "blind".into(),
+        });
+        // ① json5 发射→解析 保真
+        let j = generate_board_json5(&board).unwrap();
+        assert!(j.contains("via_type: \"blind\""), "json5 须带 via_type");
+        let back = parse_board_json5(&j).unwrap();
+        assert_eq!(back.vias[0].via_type, "blind");
+        // ② sexpr 发射→解析 保真 ((via blind ...))
+        let mut gen = BoardSexprGenerator::new();
+        let sx = gen.generate(&back).unwrap();
+        assert!(sx.contains("(via blind"), "sexpr 须带类型 token");
+        let back2 = parse_board(&sx).unwrap();
+        assert_eq!(back2.vias[0].via_type, "blind");
+        // ③ 无类型 via 默认形态不变 (不产生多余 token)
+        board.vias[0].via_type = String::new();
+        let mut gen2 = BoardSexprGenerator::new();
+        let sx2 = gen2.generate(&board).unwrap();
+        assert!(!sx2.contains("(via blind") && !sx2.contains("(via micro"));
     }
 }
