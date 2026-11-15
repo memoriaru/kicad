@@ -53,6 +53,7 @@ pub mod silk;
 pub mod skill_comp;
 pub mod skill_match;
 pub mod skills;
+pub mod stitching;
 pub mod symgen;
 pub mod topology;
 
