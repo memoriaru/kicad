@@ -15,6 +15,7 @@ pub mod bom;
 pub mod composition;
 pub mod config;
 pub mod csv_import;
+pub mod current_carry;
 pub mod db;
 pub mod design;
 pub mod design_iteration;
