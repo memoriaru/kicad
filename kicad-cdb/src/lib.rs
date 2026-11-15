@@ -21,6 +21,7 @@ pub mod design;
 pub mod design_iteration;
 pub mod design_review;
 pub mod ground_audit;
+pub mod impedance;
 pub mod modules;
 pub mod drc;
 pub mod erc;
