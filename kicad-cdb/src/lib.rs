@@ -13,6 +13,7 @@
 pub mod audit;
 pub mod bom;
 pub mod composition;
+pub mod constraint;
 pub mod config;
 pub mod csv_import;
 pub mod current_carry;

@@ -7495,6 +7495,7 @@ fn identify_high_speed_nets(board: &Board) -> HashSet<u32> {
 }
 
 /// Bus group for coordinated routing (e.g., DDR3 byte lanes, SerDes channels).
+#[derive(Clone)]
 struct BusGroup {
     name: String,
     net_ids: Vec<u32>,
@@ -7671,7 +7672,38 @@ pub fn classify_footprint_role(fp: &Footprint) -> PadRole {
 
 /// Identify bus groups for coordinated routing: DDR3, SerDes, PCIe, USB3, SPI, etc.
 /// Each group carries intra-group skew tolerance and optional inter-group skew constraints.
+///
+// 注入口：constraint.rs 声明驱动的分组（模板/手写 json5）可覆盖内置模式表——
+// thread_local 存在则直接返回（set_bus_groups_override 注入；空=恢复内置）。
+thread_local! {
+    static BUS_GROUPS_OVERRIDE: std::cell::RefCell<Option<Vec<BusGroup>>> =
+        std::cell::RefCell::new(None);
+}
+
+/// 声明驱动 bus group 注入（一源三吃的 router 消费端）。
+/// specs 为空 = 清除覆盖，恢复内置自动分组（测试隔离用）。
+pub fn set_bus_groups_override(specs: Vec<crate::constraint::BusGroupSpec>) {
+    BUS_GROUPS_OVERRIDE.with(|c| {
+        *c.borrow_mut() = (!specs.is_empty()).then(|| {
+            specs
+                .into_iter()
+                .map(|s| BusGroup {
+                    name: s.name,
+                    net_ids: s.net_ids,
+                    _priority: s.priority,
+                    intra_skew_mm: s.intra_skew_mm,
+                    inter_skew_mm: s.inter_skew_mm,
+                    reference_group: s.reference_group,
+                })
+                .collect()
+        });
+    });
+}
+
 fn identify_bus_groups(board: &Board) -> Vec<BusGroup> {
+    if let Some(g) = BUS_GROUPS_OVERRIDE.with(|c| c.borrow().clone()) {
+        return g;
+    }
     let mut groups = Vec::new();
     let mut assigned: HashSet<u32> = HashSet::new();
     let net_by_name: HashMap<String, u32> = board
