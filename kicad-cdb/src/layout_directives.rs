@@ -49,6 +49,10 @@ pub struct SaCostWeights {
     pub congestion: f64,
     /// Penalty for component pairs with insufficient routing channel (< 1mm gap).
     pub routing_congestion: f64,
+    /// 去耦阶梯项开关（0=关=默认；默认基线不变）。
+    pub decoupling: f64,
+    /// 分区禁入项开关（0=关=默认）。
+    pub zone_exclusion: f64,
 }
 
 impl Default for SaCostWeights {
@@ -59,6 +63,8 @@ impl Default for SaCostWeights {
             overlap: 50.0,
             congestion: 2.0,
             routing_congestion: 0.5,
+            decoupling: 0.0,
+            zone_exclusion: 0.0,
         }
     }
 }
@@ -469,3 +475,24 @@ fn stripline_impedance(w: f64, h: f64, er: f64, _t: f64) -> f64 {
     };
     z0.max(10.0) // sanity clamp
 }
+// ---------------------------------------------------------------------------
+// 去耦阶梯 + 分区禁入（声明形态；布局引擎消费为 SaExtraCost）
+// 口径: 容值越小越靠近电源引脚(0.01µF<2mm / 0.1µF 每电源脚)。
+// ---------------------------------------------------------------------------
+
+/// 去耦配对声明：cap 距 ic 的目标距离（容值→距离阶梯由声明方翻译，引擎不猜容值）。
+#[derive(Debug, Clone)]
+pub struct DecapPair {
+    pub cap_ref: String,
+    pub ic_ref: String,
+    pub target_mm: f64,
+}
+
+/// 分区禁入声明：命中 refs 的器件不得落入 rect（x0,y0,x1,y1）。
+#[derive(Debug, Clone)]
+pub struct ZoneExclusion {
+    pub refs: Vec<String>,
+    pub rect: (f64, f64, f64, f64),
+    pub reason: String,
+}
+

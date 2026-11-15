@@ -1924,6 +1924,40 @@ impl SaNetIndex {
 
 /// Zero-allocation cost function for SA inner loop.
 /// Uses precomputed net index instead of building HashMap each iteration.
+/// 附加代价索引（预解析到 box 下标；None=零开销）。
+/// decap: (cap_box, ic_box, target_mm) —— 超目标距离每 mm 计罚；
+/// forbidden: (box, rect) —— 中心落入禁入区计罚。
+pub struct SaExtraCost {
+    pub decap: Vec<(usize, usize, f64)>,
+    pub forbidden: Vec<(usize, (f64, f64, f64, f64))>,
+}
+
+/// 声明 → 索引（refdes 解析不到的跳过并回报 missing——语义层给的名单必须诚实对账）。
+pub fn build_extra_cost(
+    boxes: &[LayoutBox],
+    decap_pairs: &[crate::layout_directives::DecapPair],
+    zones: &[crate::layout_directives::ZoneExclusion],
+) -> (SaExtraCost, Vec<String>) {
+    let mut missing = Vec::new();
+    let idx_of = |r: &str| boxes.iter().position(|b| b.reference == r);
+    let mut decap = Vec::new();
+    for d in decap_pairs {
+        match (idx_of(&d.cap_ref), idx_of(&d.ic_ref)) {
+            (Some(c), Some(i)) => decap.push((c, i, d.target_mm)),
+            _ => missing.push(format!("decap {}→{}", d.cap_ref, d.ic_ref)),
+        }
+    }
+    let mut forbidden = Vec::new();
+    for z in zones {
+        for b in boxes {
+            if z.refs.iter().any(|r| b.reference.contains(r.as_str()) || b.lib_id.contains(r.as_str())) {
+                forbidden.push((boxes.iter().position(|x| x.reference == b.reference).unwrap(), z.rect));
+            }
+        }
+    }
+    (SaExtraCost { decap, forbidden }, missing)
+}
+
 fn evaluate_cost_fast(
     boxes: &[LayoutBox],
     positions: &[(f64, f64)],
@@ -1933,6 +1967,7 @@ fn evaluate_cost_fast(
     zones: &BoardZones,
     weights: &crate::layout_directives::SaCostWeights,
     net_idx: &SaNetIndex,
+    extra: Option<&SaExtraCost>,
 ) -> f64 {
     let n = boxes.len();
     let board_w = zones.right.x + zones.right.w;
@@ -2104,6 +2139,31 @@ fn evaluate_cost_fast(
         }
     }
 
+    // 去耦阶梯：cap→ic 超目标距离每 mm 计罚（容值→距离映射由声明层给，引擎不猜）
+    let mut decap_cost = 0.0;
+    if weights.decoupling > 0.0 {
+        if let Some(ex) = extra {
+            for &(ci, ii, target) in &ex.decap {
+                let d = (positions[ci].0 - positions[ii].0).hypot(positions[ci].1 - positions[ii].1);
+                if d > target {
+                    decap_cost += d - target;
+                }
+            }
+        }
+    }
+    // 分区禁入：中心落入禁入 rect 计罚
+    let mut zone_cost = 0.0;
+    if weights.zone_exclusion > 0.0 {
+        if let Some(ex) = extra {
+            for &(bi, (x0, y0, x1, y1)) in &ex.forbidden {
+                let (cx, cy) = positions[bi];
+                if cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1 {
+                    zone_cost += 1.0;
+                }
+            }
+        }
+    }
+
     wire_len * weights.wire_length
         + board_area * weights.board_area
         + oob
@@ -2111,6 +2171,8 @@ fn evaluate_cost_fast(
         + overlap
         + congestion_cost * weights.congestion
         + channel_penalty * rc_w
+        + decap_cost * weights.decoupling
+        + zone_cost * weights.zone_exclusion
 }
 
 /// Perturb a SequencePair for SA neighborhood search.
@@ -2252,6 +2314,7 @@ fn sa_floorplan_single(
     seed: u64,
     thread_id: usize,
     pin_fixed: bool,
+    extra: Option<&SaExtraCost>,
 ) -> (SequencePair, f64) {
     let n = boxes.len();
 
@@ -2345,6 +2408,7 @@ fn sa_floorplan_single(
         zones,
         weights,
         &net_idx,
+        extra,
     );
 
     if thread_id == 0 {
@@ -2379,6 +2443,7 @@ fn sa_floorplan_single(
                 zones,
                 weights,
                 &net_idx,
+                extra,
             );
 
             let delta = new_cost - current_cost;
@@ -2462,6 +2527,7 @@ fn sa_floorplan(
                 42 + i as u64 * 7919, // distinct seeds
                 i,
                 false,
+                None,
             )
         })
         .collect();
@@ -4525,6 +4591,72 @@ fn compute_alignment_quality(boxes: &[LayoutBox]) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    /// 开关对照（默认权重 0 = 基线不变；开权重后差值=预期罚量）。
+    #[test]
+    fn test_extra_cost_decap_and_zone_toggle() {
+        use crate::layout_directives::{DecapPair, SaCostWeights, ZoneExclusion};
+        let mkbox = |ref_: &str, x: f64, y: f64| LayoutBox {
+            id: ref_.into(),
+            lib_id: "Device:C".into(),
+            reference: ref_.into(),
+            width: 2.0,
+            height: 1.2,
+            rotation: 0.0,
+            margin: 0.0,
+            fixed: false,
+            tags: Default::default(),
+            nets: Default::default(),
+            anchor_ic: None,
+            ic_priority: IcPriority::GenericIc,
+            pins: vec![],
+            x,
+            y,
+        };
+        // U1 @ (10,10), C1 @ (14,10) —— 距离 4mm, 目标 2mm ⇒ 超距 2mm
+        let boxes = vec![mkbox("U1", 10.0, 10.0), mkbox("C1", 14.0, 10.0)];
+        let (extra, missing) = build_extra_cost(
+            &boxes,
+            &[DecapPair { cap_ref: "C1".into(), ic_ref: "U1".into(), target_mm: 2.0 },
+             DecapPair { cap_ref: "GHOST".into(), ic_ref: "U1".into(), target_mm: 1.0 }],
+            &[ZoneExclusion {
+                refs: vec!["U1".into()],
+                rect: (0.0, 0.0, 5.0, 5.0),
+                reason: "模拟区".into(),
+            }],
+        );
+        assert_eq!(missing, vec!["decap GHOST→U1".to_string()], "缺网对账");
+        assert_eq!(extra.decap.len(), 1);
+        assert_eq!(extra.forbidden.len(), 1);
+
+        let zones = BoardZones::new(50.0, 50.0, 2.0);
+        let net_idx = SaNetIndex::build(&boxes);
+        let widths = vec![2.0f64, 2.0];
+        let heights = vec![1.2f64, 1.2];
+        let positions = vec![(10.0f64, 10.0), (14.0, 10.0)];
+        let rotations = vec![false, false];
+        let call = |w: &SaCostWeights, ex: Option<&SaExtraCost>| -> f64 {
+            evaluate_cost_fast(&boxes, &positions, &rotations, &widths, &heights, &zones, w, &net_idx, ex)
+        };
+        let base_w = SaCostWeights::default();
+        assert_eq!(base_w.decoupling, 0.0, "默认关(基线不变红线)");
+        assert_eq!(base_w.zone_exclusion, 0.0, "默认关");
+        let base = call(&base_w, Some(&extra));
+        let base_none = call(&base_w, None);
+        assert!((base - base_none).abs() < 1e-12, "权重 0 时 extra 不得改变 cost");
+
+        let dec_w = SaCostWeights { decoupling: 5.0, ..base_w.clone() };
+        let d = call(&dec_w, Some(&extra)) - base;
+        assert!((d - 10.0).abs() < 1e-9, "decap 罚量 = (4-2)×5 = 10, got {d}");
+
+        let zone_w = SaCostWeights { zone_exclusion: 3.0, ..base_w.clone() };
+        assert!((call(&zone_w, Some(&extra)) - base).abs() < 1e-12, "区外不罚");
+        let mut pos_in = positions.clone();
+        pos_in[0] = (2.0, 2.0);
+        let z_in = evaluate_cost_fast(&boxes, &pos_in, &rotations, &widths, &heights, &zones, &zone_w, &net_idx, Some(&extra));
+        let b_in = evaluate_cost_fast(&boxes, &pos_in, &rotations, &widths, &heights, &zones, &base_w, &net_idx, Some(&extra));
+        assert!((z_in - b_in - 3.0).abs() < 1e-9, "入区罚 3");
+    }
+
     use super::*;
 
     #[test]
@@ -5615,7 +5747,7 @@ pub fn run_sa_seeds_with_dims(
         .par_iter()
         .map(|&seed| {
             let (sp, cost) = sa_floorplan_single(
-                &boxes, &widths, &heights, spacing, &zones, &weights, seed, 0, true,
+                &boxes, &widths, &heights, spacing, &zones, &weights, seed, 0, true, None,
             );
             let mut positions = sp.decode(&widths, &heights, spacing);
             // v36 修复: 自由件板界 clamp（SA 移动分支有 clamp 但初始摆位无;

@@ -1480,7 +1480,7 @@ pub struct Model3D {
     pub rotate: (f64, f64, f64),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Footprint {
     pub lib_id: String,
     pub reference: String,
@@ -1586,10 +1586,11 @@ impl Footprint {
 // Pad
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PadType {
-    Smd,
+    #[default]
     ThruHole,
+    Smd,
     Connect,
     NpThruHole,
 }
@@ -1605,8 +1606,9 @@ impl PadType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PadShape {
+    #[default]
     Circle,
     Rect,
     RoundRect,
@@ -1628,7 +1630,7 @@ impl PadShape {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Pad {
     pub number: String,
     pub pad_type: PadType,

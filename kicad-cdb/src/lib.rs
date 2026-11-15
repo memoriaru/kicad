@@ -40,6 +40,7 @@ pub mod layer_config;
 pub mod layout_directives;
 pub mod layout_engine;
 pub mod loop_audit;
+pub mod mfg_rules;
 pub mod models;
 pub mod netlist;
 pub mod pipeline;
