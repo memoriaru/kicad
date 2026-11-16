@@ -177,6 +177,12 @@ impl BoardSexprGenerator {
             }
         }
 
+        // Net classes (rule plane). KiCad writes these after the net table and
+        // before the footprints; add_net references net *names* in both dialects.
+        for nc in &board.net_classes {
+            self.write_net_class(&mut out, nc);
+        }
+
         // Build net id→name lookup for pad/segment/via references
         let net_names: std::collections::HashMap<u32, String> =
             board.nets.iter().map(|n| (n.id, n.name.clone())).collect();
@@ -352,10 +358,23 @@ impl BoardSexprGenerator {
             self.line(out, "(stackup");
             self.indent_level += 1;
             for sl in &setup.stackup {
-                self.line(
-                    out,
-                    &format!("(layer \"{}\" (type {}))", sl.name, sl.layer_type),
-                );
+                // KiCad writes a quoted type plus the process attributes; a bare
+                // dielectric line is what impedance/current audits need, so keep
+                // whatever the IR carries instead of dropping it.
+                let mut attrs = format!("(type \"{}\")", Self::esc(&sl.layer_type));
+                if let Some(t) = sl.thickness {
+                    attrs.push_str(&format!(" (thickness {})", Self::fmt_num(t)));
+                }
+                if let Some(ref m) = sl.material {
+                    attrs.push_str(&format!(" (material \"{}\")", Self::esc(m)));
+                }
+                if let Some(e) = sl.epsilon_r {
+                    attrs.push_str(&format!(" (epsilon_r {})", Self::fmt_num(e)));
+                }
+                if let Some(l) = sl.loss_tangent {
+                    attrs.push_str(&format!(" (loss_tangent {})", Self::fmt_num(l)));
+                }
+                self.line(out, &format!("(layer \"{}\" {})", sl.name, attrs));
             }
             self.indent_level -= 1;
             self.line(out, ")");
@@ -400,6 +419,41 @@ impl BoardSexprGenerator {
             );
         }
 
+        self.indent_level -= 1;
+        self.line(out, ")");
+    }
+
+    // ── Net class ────────────────────────────────────────────────────────
+
+    /// Token order follows what pcbnew writes; KiCad rejects anything outside the
+    /// known body tokens (`clearance`, `trace_width`, `via_dia`, `via_drill`,
+    /// `uvia_dia`, `uvia_drill`, `diff_pair_width`, `diff_pair_gap`, `add_net`).
+    fn write_net_class(&mut self, out: &mut String, nc: &crate::ir::board::NetClass) {
+        self.line(
+            out,
+            &format!(
+                "(net_class {} \"{}\"",
+                nc.name,
+                Self::esc(&nc.description)
+            ),
+        );
+        self.indent_level += 1;
+        let num = |tag: &str, v: Option<f64>, out: &mut String, gen: &mut Self| {
+            if let Some(v) = v {
+                gen.line(out, &format!("({} {})", tag, Self::fmt_num(v)));
+            }
+        };
+        num("clearance", nc.clearance, out, self);
+        num("trace_width", nc.trace_width, out, self);
+        num("via_dia", nc.via_dia, out, self);
+        num("via_drill", nc.via_drill, out, self);
+        num("uvia_dia", nc.uvia_dia, out, self);
+        num("uvia_drill", nc.uvia_drill, out, self);
+        num("diff_pair_width", nc.diff_pair_width, out, self);
+        num("diff_pair_gap", nc.diff_pair_gap, out, self);
+        for net in &nc.nets {
+            self.line(out, &format!("(add_net \"{}\")", Self::esc(net)));
+        }
         self.indent_level -= 1;
         self.line(out, ")");
     }

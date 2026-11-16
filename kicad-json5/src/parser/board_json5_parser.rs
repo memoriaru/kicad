@@ -37,8 +37,20 @@ fn parse_point(v: &Value) -> Option<(f64, f64)> {
     Some((arr.first()?.as_f64()?, arr.get(1)?.as_f64()?))
 }
 
-fn parse_position(obj: &serde_json::Map<String, Value>) -> (f64, f64, f64) {
-    let x = obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+/// `[x, y]` or `{x:, y:}` — setup origins accept either spelling.
+fn parse_point_or_none(
+    obj: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Option<(f64, f64)> {
+    let v = obj.get(key)?;
+    if let Some(p) = parse_point(v) {
+        return Some(p);
+    }
+    let o = v.as_object()?;
+    Some((o.get("x")?.as_f64()?, o.get("y")?.as_f64()?))
+}
+
+fn parse_position(obj: &serde_json::Map<String, Value>) -> (f64, f64, f64) {    let x = obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let y = obj.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let r = obj.get("rotation").and_then(|v| v.as_f64()).unwrap_or(0.0);
     (x, y, r)
@@ -115,6 +127,86 @@ fn value_to_board(value: &Value) -> Result<Board> {
                     name: get_str(no, "name").unwrap_or("").to_string(),
                 });
             }
+        }
+    }
+
+    // setup / stackup — the process plane (layer thickness/eps_r drive the
+    // impedance and current audits; mask clearances drive DRC)
+    if let Some(so) = get_obj(value, "setup") {
+        if let Some(stackup) = so.get("stackup").and_then(|v| v.as_array()) {
+            board.setup.stackup.clear();
+            for lv in stackup {
+                if let Some(lo) = lv.as_object() {
+                    board.setup.stackup.push(StackupLayer {
+                        name: get_str(lo, "name").unwrap_or("").to_string(),
+                        layer_type: get_str(lo, "type").unwrap_or("dielectric").to_string(),
+                        color: get_str(lo, "color").map(|s| s.to_string()),
+                        thickness: get_f64(lo, "thickness"),
+                        material: get_str(lo, "material").map(|s| s.to_string()),
+                        epsilon_r: get_f64(lo, "epsilon_r"),
+                        loss_tangent: get_f64(lo, "loss_tangent"),
+                    });
+                }
+            }
+        }
+        board.setup.pad_to_mask_clearance =
+            get_f64(so, "pad_to_mask_clearance").unwrap_or(0.0);
+        board.setup.pad_to_paste_clearance =
+            get_f64(so, "pad_to_paste_clearance").unwrap_or(0.0);
+        board.setup.pad_to_paste_clearance_ratio =
+            get_f64(so, "pad_to_paste_clearance_ratio").unwrap_or(0.0);
+        board.setup.aux_axis_origin = parse_point_or_none(so, "aux_axis_origin");
+        board.setup.grid_origin = parse_point_or_none(so, "grid_origin");
+    }
+
+    // net_classes — per-net rule plane (clearance / default widths / via params)
+    if let Some(ncls) = get_arr(value, "net_classes") {
+        board.net_classes.clear();
+        for nv in ncls {
+            let Some(no) = nv.as_object() else { continue };
+            board.net_classes.push(NetClass {
+                name: get_str(no, "name").unwrap_or("Default").to_string(),
+                description: get_str(no, "description").unwrap_or("").to_string(),
+                clearance: get_f64(no, "clearance"),
+                trace_width: get_f64(no, "trace_width"),
+                via_dia: get_f64(no, "via_dia"),
+                via_drill: get_f64(no, "via_drill"),
+                uvia_dia: get_f64(no, "uvia_dia"),
+                uvia_drill: get_f64(no, "uvia_drill"),
+                diff_pair_width: get_f64(no, "diff_pair_width"),
+                diff_pair_gap: get_f64(no, "diff_pair_gap"),
+                nets: parse_string_list(nv, "nets"),
+            });
+        }
+    }
+
+    // rules — DRC floors. KiCad stores these in the sibling .kicad_pro, and
+    // kicad-cli enforces them from there (min_track_width → track_width error);
+    // declaring them here makes the rule plane explicit instead of inherited
+    // silently from kicad-cli's built-in defaults.
+    if let Some(ro) = get_obj(value, "rules") {
+        let rules = DesignRules {
+            min_clearance: get_f64(ro, "min_clearance"),
+            min_track_width: get_f64(ro, "min_track_width"),
+            min_via_diameter: get_f64(ro, "min_via_diameter"),
+            min_via_annular_width: get_f64(ro, "min_via_annular_width"),
+            min_microvia_diameter: get_f64(ro, "min_microvia_diameter"),
+            min_microvia_drill: get_f64(ro, "min_microvia_drill"),
+            min_through_hole_diameter: get_f64(ro, "min_through_hole_diameter"),
+            min_hole_clearance: get_f64(ro, "min_hole_clearance"),
+            min_hole_to_hole: get_f64(ro, "min_hole_to_hole"),
+            min_copper_edge_clearance: get_f64(ro, "min_copper_edge_clearance"),
+            min_silk_clearance: get_f64(ro, "min_silk_clearance"),
+            min_text_height: get_f64(ro, "min_text_height"),
+            min_text_thickness: get_f64(ro, "min_text_thickness"),
+            min_connection: get_f64(ro, "min_connection"),
+            min_groove_width: get_f64(ro, "min_groove_width"),
+            solder_mask_to_copper_clearance: get_f64(ro, "solder_mask_to_copper_clearance"),
+            max_error: get_f64(ro, "max_error"),
+            min_resolved_spokes: get_f64(ro, "min_resolved_spokes"),
+        };
+        if !rules.is_empty() {
+            board.rules = Some(rules);
         }
     }
 

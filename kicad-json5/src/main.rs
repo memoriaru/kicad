@@ -93,6 +93,15 @@ struct Args {
     /// eliminating KiCad ERC power_pin_not_driven warnings.
     #[arg(long, default_value_t = true)]
     power_flags: bool,
+
+    /// Do not touch the sibling `.kicad_pro`. By default the DRC floors (`rules:`)
+    /// travel through it: a `.json5 → .kicad_pcb` compile writes a minimal project
+    /// file carrying `board.design_settings.rules` (a board file has no legal home
+    /// for them, and without it kicad-cli silently judges against its built-in
+    /// 0.2 mm defaults); a `.kicad_pcb → .json5` compile reads that sibling back.
+    /// Existing hand-written project files are never overwritten.
+    #[arg(long, default_value_t = false)]
+    no_pro: bool,
 }
 
 /// Board detection must tolerate both JSON5 unquoted keys (`segments:`) and
@@ -220,6 +229,20 @@ fn run_pcb(args: &Args, source: &str) -> Result<(), Box<dyn std::error::Error>> 
         dialect.prepare_board(&mut board);
     }
 
+    // Rule plane, forward leg: DRC floors live in the sibling `.kicad_pro`, never in
+    // the board file. A .kicad_pcb → .json5 compile that ignores them erases the
+    // rule plane from the true source — which is how the v42 boards lost theirs and
+    // ended up judged against kicad-cli's invisible built-in defaults.
+    if matches!(output_ext, Some("json5" | "json")) && !args.no_pro && board.rules.is_none() {
+        let pro = kicad_json5::pro::pro_path_for(&args.input);
+        if let Some(rules) = kicad_json5::pro::read_rules_pro(&pro) {
+            board.rules = Some(rules);
+            if args.verbose {
+                eprintln!("Rules ← {}", pro.display());
+            }
+        }
+    }
+
     let output_content = match output_ext {
         Some("json5" | "json") => kicad_json5::generate_board_json5(&board)?,
         Some("kicad_pcb") | None => {
@@ -245,6 +268,33 @@ fn run_pcb(args: &Args, source: &str) -> Result<(), Box<dyn std::error::Error>> 
         std::fs::write(output, &output_content)?;
         if args.verbose {
             eprintln!("Written: {}", output.display());
+        }
+
+        // Rule plane, reverse leg: `rules:` declared in the json5 true source has no
+        // legal home inside .kicad_pcb, so it ships as the sibling project file —
+        // without it the emitted board is judged against kicad-cli's built-in 0.2 mm
+        // defaults no matter what the true source says. A hand-written KiCad project
+        // is never clobbered; only a file we generated may be rewritten.
+        if matches!(output_ext, Some("kicad_pcb") | None | Some("sexpr"))
+            && !args.no_pro
+            && board.rules.is_some()
+        {
+            let pro = kicad_json5::pro::pro_path_for(output);
+            if !pro.exists() || kicad_json5::pro::pro_is_generated(&pro) {
+                // borrow of board.rules ends here; write_pro_for takes a reference
+                if let Some(rules) = &board.rules {
+                    match kicad_json5::pro::write_pro_for(output, rules) {
+                        Ok(p) => {
+                            if args.verbose {
+                                eprintln!("Rules → {}", p.display());
+                            }
+                        }
+                        Err(e) => eprintln!("WARN: cannot write rule plane project file: {e}"),
+                    }
+                }
+            } else if args.verbose {
+                eprintln!("Rules → kept existing {}", pro.display());
+            }
         }
     } else {
         println!("{}", output_content);

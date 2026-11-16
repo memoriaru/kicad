@@ -132,6 +132,15 @@ pub struct Board {
     pub layers: Vec<LayerDef>,
     pub setup: BoardSetup,
     pub nets: Vec<NetDef>,
+    /// `(net_class ...)` declarations — the per-net rule plane (clearance, default
+    /// widths, via params). Empty means "no explicit rules": kicad-cli then judges
+    /// everything against its built-in defaults (0.2000 clearance / 0.2000 width),
+    /// which is what all of our boards silently did until 2026-11-16.
+    pub net_classes: Vec<NetClass>,
+    /// DRC floors (min_track_width, min_clearance, …). KiCad keeps these in the
+    /// **project** file (`.kicad_pro` → `board.design_settings.rules`), never in
+    /// the board — see [`crate::pro`].
+    pub rules: Option<DesignRules>,
     pub footprints: Vec<Footprint>,
     pub segments: Vec<Segment>,
     pub vias: Vec<Via>,
@@ -153,6 +162,8 @@ impl Default for Board {
                 id: 0,
                 name: String::new(),
             }],
+            net_classes: Vec::new(),
+            rules: None,
             footprints: Vec::new(),
             segments: Vec::new(),
             vias: Vec::new(),
@@ -346,6 +357,104 @@ impl Board {
             if !board.nets.iter().any(|n| n.id == d.id) {
                 board.nets.push(d.clone());
             }
+        }
+
+        // setup / stackup. Missing legs here = silent loss on reverse compile
+        // (this is exactly how the four v42 boards lost their stackup).
+        if let Some(setup_node) = find_child(items, "setup") {
+            let si = &setup_node[1..];
+            if let Some(stackup) = find_child(si, "stackup") {
+                for child in &stackup[1..] {
+                    let Some(li) = child.as_list() else { continue };
+                    if li.first().and_then(|h| h.as_ident()) != Some("layer") {
+                        continue;
+                    }
+                    let name = li.get(1).and_then(|v| v.as_string()).unwrap_or("").to_string();
+                    // `(type top)` (ident) and `(type "top")` (string) both occur
+                    let layer_type = li
+                        .get(2)
+                        .and_then(|c| c.as_list())
+                        .and_then(|c| c.get(1))
+                        .map(|v| {
+                            v.as_string()
+                                .or_else(|| v.as_ident())
+                                .unwrap_or("dielectric")
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| "dielectric".to_string());
+                    let num = |tag: &str| {
+                        find_child(&li[2..], tag).and_then(|c| c.get(1)).and_then(|v| v.as_number())
+                    };
+                    board.setup.stackup.push(StackupLayer {
+                        name,
+                        layer_type,
+                        color: None,
+                        thickness: num("thickness"),
+                        material: find_child(&li[2..], "material")
+                            .and_then(|c| c.get(1))
+                            .and_then(|v| v.as_string())
+                            .map(|s| s.to_string()),
+                        epsilon_r: num("epsilon_r"),
+                        loss_tangent: num("loss_tangent"),
+                    });
+                }
+            }
+            board.setup.pad_to_mask_clearance = find_child(si, "pad_to_mask_clearance")
+                .and_then(|c| c.get(1))
+                .and_then(|v| v.as_number())
+                .unwrap_or(0.0);
+            board.setup.pad_to_paste_clearance = find_child(si, "pad_to_paste_clearance")
+                .and_then(|c| c.get(1))
+                .and_then(|v| v.as_number())
+                .unwrap_or(0.0);
+            board.setup.pad_to_paste_clearance_ratio = find_child(si, "pad_to_paste_clearance_ratio")
+                .and_then(|c| c.get(1))
+                .and_then(|v| v.as_number())
+                .unwrap_or(0.0);
+            let origin = |tag: &str| {
+                find_child(si, tag)
+                    .and_then(|c| c.get(1))
+                    .and_then(|v| v.as_number())
+                    .zip(find_child(si, tag).and_then(|c| c.get(2)).and_then(|v| v.as_number()))
+            };
+            board.setup.aux_axis_origin = origin("aux_axis_origin");
+            board.setup.grid_origin = origin("grid_origin");
+        }
+
+        // net_class — the per-net rule plane. Silently dropping it (as this
+        // parser used to) means a reverse compile erases the board's clearance
+        // and via rules, same failure class as the via_type incident.
+        for n in find_children(items, "net_class") {
+            let Some(name) = n.get(1).and_then(|v| v.as_string().or_else(|| v.as_ident())) else {
+                continue;
+            };
+            let mut nc = NetClass {
+                name: name.to_string(),
+                ..Default::default()
+            };
+            if let Some(desc) = n.get(2).and_then(|v| v.as_string()) {
+                nc.description = desc.to_string();
+            }
+            let body = &n[2..];
+            let num = |tag: &str| {
+                find_child(body, tag)
+                    .and_then(|c| c.get(1))
+                    .and_then(|v| v.as_number())
+            };
+            nc.clearance = num("clearance");
+            nc.trace_width = num("trace_width");
+            nc.via_dia = num("via_dia");
+            nc.via_drill = num("via_drill");
+            nc.uvia_dia = num("uvia_dia");
+            nc.uvia_drill = num("uvia_drill");
+            nc.diff_pair_width = num("diff_pair_width");
+            nc.diff_pair_gap = num("diff_pair_gap");
+            for an in find_children(body, "add_net") {
+                if let Some(m) = an.get(1).and_then(|v| v.as_string()) {
+                    nc.nets.push(m.to_string());
+                }
+            }
+            board.net_classes.push(nc);
         }
 
         // footprints
@@ -1412,6 +1521,89 @@ pub struct StackupLayer {
     pub material: Option<String>,
     pub epsilon_r: Option<f64>,
     pub loss_tangent: Option<f64>,
+}
+
+// ---------------------------------------------------------------------------
+// Rule plane
+// ---------------------------------------------------------------------------
+
+/// `(net_class NAME "desc" ...)` — the board-level rule plane. Note that
+/// `trace_width` here is the class **default** width, not a floor; the floor is
+/// [`DesignRules::min_track_width`] in the project file (verified against
+/// kicad-cli 10 on 2026-11-16: a 0.127 track passes with the class default at
+/// 0.25, and only `rules.min_track_width` makes it a `track_width` violation).
+#[derive(Debug, Clone, Default)]
+pub struct NetClass {
+    pub name: String,
+    pub description: String,
+    pub clearance: Option<f64>,
+    pub trace_width: Option<f64>,
+    pub via_dia: Option<f64>,
+    pub via_drill: Option<f64>,
+    pub uvia_dia: Option<f64>,
+    pub uvia_drill: Option<f64>,
+    pub diff_pair_width: Option<f64>,
+    pub diff_pair_gap: Option<f64>,
+    /// `add_net` members (names, not ids — KiCad writes names here).
+    pub nets: Vec<String>,
+}
+
+/// DRC floors. Emitted into a sibling `.kicad_pro` (`board.design_settings.rules`),
+/// because the board file has no legal home for them: `(constraints …)` is an
+/// unknown token and `setup` rejects every `*track_width*` spelling.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DesignRules {
+    pub min_clearance: Option<f64>,
+    pub min_track_width: Option<f64>,
+    pub min_via_diameter: Option<f64>,
+    pub min_via_annular_width: Option<f64>,
+    pub min_microvia_diameter: Option<f64>,
+    pub min_microvia_drill: Option<f64>,
+    pub min_through_hole_diameter: Option<f64>,
+    pub min_hole_clearance: Option<f64>,
+    pub min_hole_to_hole: Option<f64>,
+    pub min_copper_edge_clearance: Option<f64>,
+    pub min_silk_clearance: Option<f64>,
+    pub min_text_height: Option<f64>,
+    pub min_text_thickness: Option<f64>,
+    pub min_connection: Option<f64>,
+    pub min_groove_width: Option<f64>,
+    pub solder_mask_to_copper_clearance: Option<f64>,
+    pub max_error: Option<f64>,
+    /// `min_resolved_spokes` — zone thermal spoke count.
+    pub min_resolved_spokes: Option<f64>,
+}
+
+impl DesignRules {
+    /// KiCad's own defaults, as observed in a stock KiCad 10 project. Handy as a
+    /// starting point when pinning a board's rule plane to something explicit.
+    pub fn kicad_defaults() -> Self {
+        Self {
+            min_clearance: Some(0.2),
+            min_track_width: Some(0.2),
+            min_via_diameter: Some(0.5),
+            min_via_annular_width: Some(0.1),
+            min_microvia_diameter: Some(0.2),
+            min_microvia_drill: Some(0.1),
+            min_through_hole_diameter: Some(0.3),
+            min_hole_clearance: Some(0.25),
+            min_hole_to_hole: Some(0.25),
+            min_copper_edge_clearance: Some(0.5),
+            min_silk_clearance: Some(0.0),
+            min_text_height: Some(0.8),
+            min_text_thickness: Some(0.08),
+            min_connection: Some(0.0),
+            min_groove_width: Some(0.0),
+            solder_mask_to_copper_clearance: Some(0.0),
+            max_error: Some(0.005),
+            min_resolved_spokes: Some(2.0),
+        }
+    }
+
+    /// No field set — nothing worth writing out.
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 // ---------------------------------------------------------------------------

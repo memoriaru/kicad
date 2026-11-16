@@ -545,3 +545,141 @@ fn test_model_roundtrip_double_hop_idempotent() {
         assert_eq!(m.rotate, e.3);
     }
 }
+
+// ── 规则面四腿往返 ─────────────────────────────────────────────────────────
+// setup/stackup 与 net_class 走 sexpr + json5 双向; DRC 地板(rules)走兄弟
+// .kicad_pro。任何一腿缺失 = 反向编译静默丢规则(v42 四板丢 stackup、丢
+// net_class 都是 exit 0 的静默事故, 取证见 2026-11-16 /tmp/ruleplane)。
+const RULE_SRC: &str = r#"(kicad_pcb (version "20240108") (generator "test")
+	(net_class Default "Default net class"
+		(clearance 0.2) (trace_width 0.2) (via_dia 0.8) (via_drill 0.4)
+		(uvia_dia 0.3) (uvia_drill 0.1)
+		(add_net "GND") (add_net "SPI_CLK")
+	)
+	(net_class SIG127 ""
+		(clearance 0.127) (trace_width 0.127) (via_dia 0.6) (via_drill 0.3)
+		(diff_pair_width 0.127) (diff_pair_gap 0.127)
+		(add_net "DIFF_CLK_N")
+	)
+	(setup
+		(stackup
+			(layer "F.Mask" (type "Green Mask") (thickness 0.01))
+			(layer "F.Cu" (type "copper") (thickness 0.03))
+			(layer "ppki" (type "semi-prepreg") (thickness 0.2) (material "SemiPREPREG") (epsilon_r 4.3) (loss_tangent 0.015))
+			(layer "In1.Cu" (type "copper") (thickness 0.03))
+		)
+		(pad_to_mask_clearance 0.05)
+		(pad_to_paste_clearance -0.03)
+		(grid_origin 108.5 65)
+	)
+	(net 0 "")
+	(net 1 "GND")
+	(footprint "Test:R" (layer "F.Cu") (at 0 0) (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net 1 "GND")))
+)"#;
+
+#[test]
+fn test_rule_plane_sexpr_roundtrip() {
+    let board = parse_board(RULE_SRC).unwrap();
+
+    assert_eq!(board.setup.stackup.len(), 4, "stackup 层被静默丢弃");
+    let cu = board.setup.stackup.iter().find(|l| l.name == "F.Cu").unwrap();
+    assert_eq!(cu.layer_type, "copper");
+    assert_eq!(cu.thickness, Some(0.03));
+    let pp = board.setup.stackup.iter().find(|l| l.name == "ppki").unwrap();
+    assert_eq!(pp.layer_type, "semi-prepreg", "(type ident) 与 (type \"str\") 都要收");
+    assert_eq!(pp.material.as_deref(), Some("SemiPREPREG"));
+    assert_eq!(pp.epsilon_r, Some(4.3));
+    assert_eq!(pp.loss_tangent, Some(0.015));
+    assert_eq!(board.setup.pad_to_mask_clearance, 0.05);
+    assert_eq!(board.setup.pad_to_paste_clearance, -0.03);
+    assert_eq!(board.setup.grid_origin, Some((108.5, 65.0)));
+
+    assert_eq!(board.net_classes.len(), 2, "net_class 被静默丢弃");
+    // KiCad 写的类名是裸 ident(无引号), 必须同样收进来
+    assert_eq!(board.net_classes[0].name, "Default");
+    assert_eq!(board.net_classes[0].clearance, Some(0.2));
+    assert_eq!(board.net_classes[0].nets, vec!["GND".to_string(), "SPI_CLK".to_string()]);
+    let sig = &board.net_classes[1];
+    assert_eq!(sig.name, "SIG127");
+    assert_eq!(sig.clearance, Some(0.127));
+    assert_eq!(sig.trace_width, Some(0.127));
+    assert_eq!(sig.diff_pair_gap, Some(0.127));
+    assert_eq!(sig.nets, vec!["DIFF_CLK_N".to_string()]);
+
+    // sexpr → sexpr: 发射腿必须真的把规则写回去
+    let mut gen = codegen::BoardSexprGenerator::new();
+    let sexpr = gen.generate(&board).unwrap();
+    for needle in [
+        "(net_class Default",
+        "(add_net \"SPI_CLK\")",
+        "(net_class SIG127",
+        "(stackup",
+        "(layer \"ppki\"",
+        "(epsilon_r 4.3)",
+        "(material \"SemiPREPREG\")",
+        "(pad_to_mask_clearance 0.05)",
+    ] {
+        assert!(sexpr.contains(needle), "sexpr 发射缺腿: {needle}");
+    }
+    let re = parse_board(&sexpr).unwrap();
+    assert_eq!(re.setup.stackup.len(), 4, "stackup 二跳后丢层");
+    assert_eq!(re.net_classes.len(), 2, "net_class 二跳后丢");
+    assert_eq!(re.net_classes[1].clearance, Some(0.127));
+    assert_eq!(re.net_classes[1].nets, vec!["DIFF_CLK_N".to_string()]);
+}
+
+#[test]
+fn test_rule_plane_json5_roundtrip() {
+    let board = parse_board(RULE_SRC).unwrap();
+    let json5 = generate_board_json5(&board).unwrap();
+    for needle in ["setup:", "stackup:", "net_classes:", "epsilon_r: 4.3", "(min", "SIG127"] {
+        if needle == "(min" {
+            continue; // rules 未声明时不该出现, 下面单独测
+        }
+        assert!(json5.contains(needle), "json5 发射缺腿: {needle}");
+    }
+    let re = parse_board_json5(&json5).unwrap();
+    assert_eq!(re.setup.stackup.len(), 4, "json5 反向丢 stackup");
+    assert_eq!(
+        re.setup.stackup.iter().find(|l| l.name == "ppki").unwrap().epsilon_r,
+        Some(4.3)
+    );
+    assert_eq!(re.net_classes.len(), 2, "json5 反向丢 net_class");
+    assert_eq!(re.net_classes[0].clearance, Some(0.2));
+    assert_eq!(re.net_classes[0].nets.len(), 2);
+    assert_eq!(re.net_classes[1].uvia_dia, None, "未声明的规则字段不得凭空造值");
+    assert_eq!(re.setup.pad_to_mask_clearance, 0.05);
+    assert_eq!(re.setup.grid_origin, Some((108.5, 65.0)));
+}
+
+#[test]
+fn test_rule_plane_rules_to_json5_and_pro() {
+    // rules 只存在于工程文件: json5 真源带 rules, 发射进兄弟 .kicad_pro
+    let mut board = parse_board(RULE_SRC).unwrap();
+    let mut rules = ir::board::DesignRules::kicad_defaults();
+    rules.min_clearance = Some(0.2);
+    rules.min_track_width = Some(0.2);
+    board.rules = Some(rules.clone());
+
+    let json5 = generate_board_json5(&board).unwrap();
+    assert!(json5.contains("rules:"), "json5 不写 rules 块");
+    assert!(json5.contains("min_clearance: 0.2"));
+    let re = parse_board_json5(&json5).unwrap();
+    assert_eq!(re.rules.as_ref(), Some(&rules), "rules 往返漂移");
+
+    // pro bridge: 写 → 读回必须一字不差, 且认得出"这是我们生成的"
+    let dir = std::env::temp_dir().join(format!("kj5-pro-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pcb = dir.join("b.kicad_pcb");
+    let pro = kicad_json5::pro::write_pro_for(&pcb, &rules).unwrap();
+    assert_eq!(pro, dir.join("b.kicad_pro"));
+    assert_eq!(kicad_json5::pro::read_rules_pro(&pro).as_ref(), Some(&rules));
+    assert!(kicad_json5::pro::pro_is_generated(&pro), "自家生成的 pro 应可安全覆写");
+    std::fs::write(&pro, r#"{"board":{"design_settings":{"rules":{}},"other":1},"meta":{},"x":1}"#)
+        .unwrap();
+    assert!(
+        !kicad_json5::pro::pro_is_generated(&pro),
+        "手写 KiCad 工程文件不得被编译覆盖"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}

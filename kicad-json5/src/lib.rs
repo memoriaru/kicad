@@ -12,6 +12,7 @@ pub mod ir;
 pub mod layout;
 pub mod lexer;
 pub mod parser;
+pub mod pro;
 pub mod topology;
 
 pub use codegen::{
@@ -161,6 +162,67 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
     }
     s.push_str("  ],\n");
 
+    // setup / stackup — only when the board actually carries one
+    if !board.setup.stackup.is_empty()
+        || board.setup.pad_to_mask_clearance != 0.0
+        || board.setup.pad_to_paste_clearance != 0.0
+        || board.setup.aux_axis_origin.is_some()
+        || board.setup.grid_origin.is_some()
+    {
+        s.push_str("  setup: {\n");
+        if !board.setup.stackup.is_empty() {
+            s.push_str("    stackup: [\n");
+            for sl in &board.setup.stackup {
+                s.push_str(&format!(
+                    "      {{ name: \"{}\", type: \"{}\"",
+                    escape_json5(&sl.name),
+                    escape_json5(&sl.layer_type)
+                ));
+                if let Some(t) = sl.thickness {
+                    s.push_str(&format!(", thickness: {}", t));
+                }
+                if let Some(ref m) = sl.material {
+                    s.push_str(&format!(", material: \"{}\"", escape_json5(m)));
+                }
+                if let Some(e) = sl.epsilon_r {
+                    s.push_str(&format!(", epsilon_r: {}", e));
+                }
+                if let Some(l) = sl.loss_tangent {
+                    s.push_str(&format!(", loss_tangent: {}", l));
+                }
+                s.push_str(" },\n");
+            }
+            s.push_str("    ],\n");
+        }
+        for (key, v) in [
+            (
+                "pad_to_mask_clearance",
+                board.setup.pad_to_mask_clearance,
+            ),
+            (
+                "pad_to_paste_clearance",
+                board.setup.pad_to_paste_clearance,
+            ),
+            (
+                "pad_to_paste_clearance_ratio",
+                board.setup.pad_to_paste_clearance_ratio,
+            ),
+        ] {
+            if v != 0.0 {
+                s.push_str(&format!("    {}: {},\n", key, v));
+            }
+        }
+        for (key, pt) in [
+            ("aux_axis_origin", board.setup.aux_axis_origin),
+            ("grid_origin", board.setup.grid_origin),
+        ] {
+            if let Some((x, y)) = pt {
+                s.push_str(&format!("    {}: [{}, {}],\n", key, x, y));
+            }
+        }
+        s.push_str("  },\n");
+    }
+
     // nets
     s.push_str("  nets: [\n");
     for net in &board.nets {
@@ -171,6 +233,77 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
         ));
     }
     s.push_str("  ],\n");
+
+    // net_classes — per-net rule plane
+    if !board.net_classes.is_empty() {
+        s.push_str("  net_classes: [\n");
+        for nc in &board.net_classes {
+            s.push_str(&format!("    {{ name: \"{}\"", escape_json5(&nc.name)));
+            if !nc.description.is_empty() {
+                s.push_str(&format!(
+                    ", description: \"{}\"",
+                    escape_json5(&nc.description)
+                ));
+            }
+            for (key, v) in [
+                ("clearance", nc.clearance),
+                ("trace_width", nc.trace_width),
+                ("via_dia", nc.via_dia),
+                ("via_drill", nc.via_drill),
+                ("uvia_dia", nc.uvia_dia),
+                ("uvia_drill", nc.uvia_drill),
+                ("diff_pair_width", nc.diff_pair_width),
+                ("diff_pair_gap", nc.diff_pair_gap),
+            ] {
+                if let Some(v) = v {
+                    s.push_str(&format!(", {}: {}", key, v));
+                }
+            }
+            if !nc.nets.is_empty() {
+                let names: Vec<String> = nc
+                    .nets
+                    .iter()
+                    .map(|n| format!("\"{}\"", escape_json5(n)))
+                    .collect();
+                s.push_str(&format!(", nets: [{}]", names.join(", ")));
+            }
+            s.push_str(" },\n");
+        }
+        s.push_str("  ],\n");
+    }
+
+    // rules — DRC floors; they land in the sibling .kicad_pro (see crate::pro)
+    if let Some(ref r) = board.rules {
+        s.push_str("  rules: {\n");
+        for (key, v) in [
+            ("min_clearance", r.min_clearance),
+            ("min_track_width", r.min_track_width),
+            ("min_via_diameter", r.min_via_diameter),
+            ("min_via_annular_width", r.min_via_annular_width),
+            ("min_microvia_diameter", r.min_microvia_diameter),
+            ("min_microvia_drill", r.min_microvia_drill),
+            ("min_through_hole_diameter", r.min_through_hole_diameter),
+            ("min_hole_clearance", r.min_hole_clearance),
+            ("min_hole_to_hole", r.min_hole_to_hole),
+            ("min_copper_edge_clearance", r.min_copper_edge_clearance),
+            ("min_silk_clearance", r.min_silk_clearance),
+            ("min_text_height", r.min_text_height),
+            ("min_text_thickness", r.min_text_thickness),
+            ("min_connection", r.min_connection),
+            ("min_groove_width", r.min_groove_width),
+            (
+                "solder_mask_to_copper_clearance",
+                r.solder_mask_to_copper_clearance,
+            ),
+            ("max_error", r.max_error),
+            ("min_resolved_spokes", r.min_resolved_spokes),
+        ] {
+            if let Some(v) = v {
+                s.push_str(&format!("    {}: {},\n", key, v));
+            }
+        }
+        s.push_str("  },\n");
+    }
 
     // footprints
     if !board.footprints.is_empty() {
