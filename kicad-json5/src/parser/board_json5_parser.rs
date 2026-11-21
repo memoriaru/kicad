@@ -506,6 +506,11 @@ fn value_to_footprint(v: &Value) -> Footprint {
                             .and_then(|e| e.get("italic"))
                             .and_then(|x| x.as_bool())
                             .unwrap_or(false),
+                        justify_mirror: effects
+                            .and_then(|e| e.get("justify"))
+                            .and_then(|x| x.as_str())
+                            .map(|s| s == "mirror")
+                            .unwrap_or(false),
                     },
                     uuid: None,
                 });

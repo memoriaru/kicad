@@ -791,11 +791,19 @@ impl Board {
                         } else {
                             (1.0, 1.0, 0.15, false, false)
                         };
+                        let justify_mirror = find_child(&e[1..], "justify")
+                            .map(|j| {
+                                j[1..]
+                                    .iter()
+                                    .any(|i| i.as_string().map(|s| s == "mirror").unwrap_or(false))
+                            })
+                            .unwrap_or(false);
                         FpPropertyEffects {
                             font_size: (fs_w, fs_h),
                             font_thickness: thickness,
                             bold,
                             italic,
+                            justify_mirror,
                         }
                     })
                     .unwrap_or_default();
@@ -1658,6 +1666,8 @@ pub struct FpPropertyEffects {
     pub font_thickness: f64,
     pub bold: bool,
     pub italic: bool,
+    /// KiCad `(justify mirror)` — back-side text renders mirrored
+    pub justify_mirror: bool,
 }
 
 impl Default for FpPropertyEffects {
@@ -1666,6 +1676,7 @@ impl Default for FpPropertyEffects {
             font_size: (1.0, 1.0),
             font_thickness: 0.15,
             bold: false,
+            justify_mirror: false,
             italic: false,
         }
     }

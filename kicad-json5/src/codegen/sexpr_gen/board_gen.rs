@@ -640,13 +640,18 @@ impl BoardSexprGenerator {
         self.line(
             out,
             &format!(
-                "(effects (font (size {} {}) (thickness {}){}{}))",
+                "(effects (font (size {} {}) (thickness {}){}{}{}))",
                 Self::fmt_num(fw),
                 Self::fmt_num(fh),
                 Self::fmt_num(prop.effects.font_thickness),
                 if prop.effects.bold { " (bold yes)" } else { "" },
                 if prop.effects.italic {
                     " (italic yes)"
+                } else {
+                    ""
+                },
+                if prop.effects.justify_mirror {
+                    " (justify mirror)"
                 } else {
                     ""
                 },

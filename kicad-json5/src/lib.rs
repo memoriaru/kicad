@@ -401,7 +401,7 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
                         s.push_str("          unlocked: true,\n");
                     }
                     s.push_str(&format!(
-                        "          effects: {{ font_size: [{}, {}], thickness: {}{}{} }},\n",
+                        "          effects: {{ font_size: [{}, {}], thickness: {}{}{}{} }},\n",
                         prop.effects.font_size.0,
                         prop.effects.font_size.1,
                         prop.effects.font_thickness,
@@ -412,6 +412,11 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
                         },
                         if prop.effects.italic {
                             ", italic: true"
+                        } else {
+                            ""
+                        },
+                        if prop.effects.justify_mirror {
+                            ", justify: \"mirror\""
                         } else {
                             ""
                         },

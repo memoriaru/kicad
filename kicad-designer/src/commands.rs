@@ -3171,7 +3171,7 @@ pub fn cmd_reroute(
                 ));
             }
         }
-        directives.apply_routing_overrides(trace_width, clearance, &by_net);
+        directives.apply_routing_overrides(trace_width, clearance, &by_net, None);
         eprintln!(
             "[reroute] Overrides: width={:?} clearance={:?} per-net={:?}",
             trace_width, clearance, by_net
