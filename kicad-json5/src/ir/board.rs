@@ -793,9 +793,13 @@ impl Board {
                         };
                         let justify_mirror = find_child(&e[1..], "justify")
                             .map(|j| {
-                                j[1..]
-                                    .iter()
-                                    .any(|i| i.as_string().map(|s| s == "mirror").unwrap_or(false))
+                                j[1..].iter().any(|i| {
+                                    let s = i
+                                        .as_string()
+                                        .or_else(|| i.as_ident())
+                                        .unwrap_or("");
+                                    s == "mirror"
+                                })
                             })
                             .unwrap_or(false);
                         FpPropertyEffects {
