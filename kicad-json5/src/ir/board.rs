@@ -337,6 +337,14 @@ impl Board {
             if n.len() >= 3 {
                 let id = n[1].as_number().unwrap_or(0.0) as u32;
                 let name = n[2].as_string().unwrap_or("").to_string();
+                // KiCad 保留 netcode 0 = 未连接：命名网占用 id 0 会在装载/重存时被
+                // KiCad 重排（实测 P30b: net4 GND 孔被标成 VBAT_SW），这里告警。
+                if id == 0 && !name.is_empty() {
+                    eprintln!(
+                        "警告: nets 表命名网占用保留码 0 (name=\"{}\")，KiCad 装载后网名会错乱；请改用非零 id",
+                        name
+                    );
+                }
                 nets.push(NetDef { id, name });
             }
         }
