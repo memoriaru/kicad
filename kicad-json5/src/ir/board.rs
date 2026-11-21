@@ -755,9 +755,14 @@ impl Board {
                     .map(parse_at)
                     .unwrap_or((0.0, 0.0, 0.0));
                 let prop_layer = parse_layer(prop_rest);
+                // hide 位置双兼容: KiCad 直属子级 或 effects 内 (本项目历史板文本手术产物)
                 let prop_hide = find_child(prop_rest, "hide")
                     .map(|h| Self::parse_bool_value(h.get(1)))
-                    .unwrap_or(false);
+                    .unwrap_or(false)
+                    || find_child(prop_rest, "effects")
+                        .and_then(|e| find_child(&e[1..], "hide"))
+                        .map(|h| Self::parse_bool_value(h.get(1)))
+                        .unwrap_or(false);
                 let prop_unlocked = find_child(prop_rest, "unlocked")
                     .map(|u| Self::parse_bool_value(u.get(1)))
                     .unwrap_or(false);
