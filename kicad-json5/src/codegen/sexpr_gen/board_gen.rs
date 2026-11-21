@@ -640,7 +640,7 @@ impl BoardSexprGenerator {
         self.line(
             out,
             &format!(
-                "(effects (font (size {} {}) (thickness {}){}{}{}))",
+                "(effects (font (size {} {}) (thickness {}){}{}){})",
                 Self::fmt_num(fw),
                 Self::fmt_num(fh),
                 Self::fmt_num(prop.effects.font_thickness),
@@ -650,6 +650,7 @@ impl BoardSexprGenerator {
                 } else {
                     ""
                 },
+                // justify 在 effects 层 (font 内仅容 face/size/line_spacing/thickness/bold/italic)
                 if prop.effects.justify_mirror {
                     " (justify mirror)"
                 } else {
