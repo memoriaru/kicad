@@ -14,12 +14,26 @@ impl SexprGenerator {
         self.write_line(output, "(lib_symbols");
         self.indent_level += 1;
 
+        // power:PWR_FLAG 走内置完整定义 (见下). 真源里若出现同名定义, 那是反向导出的退化副本
+        // (丢了 #FLG 前缀/属性位置/隐藏/引脚显示), 不能让它顶替内置定义 —— 跳过, 统一用内置的.
+        // 这样"真源有没有这份副本"都不影响产物: 往返幂等, 且不会出现两份同名定义.
+        let builtin_pwr_flag = self.config.insert_power_flags
+            && matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10);
         for symbol in symbols {
+            if builtin_pwr_flag && symbol.lib_id == "power:PWR_FLAG" {
+                continue;
+            }
             self.generate_symbol_def(output, symbol);
         }
 
-        // Inject power symbol lib definitions for render=Power nets
-        let mut injected: HashSet<String> = HashSet::new();
+        // Inject power symbol lib definitions for render=Power nets.
+        // "已发射"集合从真源已有的定义起算: 反向会把注入的定义一起导出, 不判重则往返一次后
+        // 同名定义出现两份. 真源自带的定义优先, 只补缺.
+        let mut injected: HashSet<String> = symbols
+            .iter()
+            .filter(|s| !(builtin_pwr_flag && s.lib_id == "power:PWR_FLAG"))
+            .map(|s| s.lib_id.clone())
+            .collect();
         for net in nets {
             if net.render == RenderHint::Power {
                 if let Some(lib_id) = Self::resolve_power_symbol(&net.name) {
@@ -31,9 +45,7 @@ impl SexprGenerator {
         }
 
         // Inject PWR_FLAG symbol for power pin driven checks (only when enabled)
-        if self.config.insert_power_flags
-            && matches!(self.effective_version, KicadVersion::V9 | KicadVersion::V10)
-        {
+        if builtin_pwr_flag {
             // Emit PWR_FLAG lib_symbol — exact copy from KiCad official power.kicad_sym
             self.write_line(output, "(symbol \"power:PWR_FLAG\"");
             self.indent_level += 1;

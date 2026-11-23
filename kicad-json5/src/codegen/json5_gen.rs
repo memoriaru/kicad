@@ -14,6 +14,28 @@ pub struct Json5Config {
     pub include_empty: bool,
 }
 
+/// 线型 → 正向解析 (`StrokeType::from_str`) 认的字符串
+fn stroke_type_str(t: &crate::ir::StrokeType) -> &'static str {
+    use crate::ir::StrokeType::*;
+    match t {
+        Default => "default",
+        Dash => "dash",
+        Dot => "dot",
+        DashDot => "dash_dot",
+        DashDotDot => "dash_dot_dot",
+        Solid => "solid",
+    }
+}
+
+/// 填充 → 正向解析认的字符串 (只认 "outline", 其余一律 none —— 与解析端口径一致)
+fn fill_type_str(f: &crate::ir::Fill) -> &'static str {
+    use crate::ir::FillType::*;
+    match f.fill_type {
+        Outline => "outline",
+        None | Background | Color => "none",
+    }
+}
+
 impl Default for Json5Config {
     fn default() -> Self {
         Self {
@@ -143,9 +165,56 @@ impl Json5Generator {
             self.write_junctions(&mut output, schematic);
         }
 
+        // 原理图级文字与折线 (分区标题 / 分区框): 正向 json5 解析一直支持这两个键, 此前这里不导出,
+        // 往返一次分区框和标题就没了 (两块板实测各 4 段文字 + 4 条折线, 2026-11-24)
+        if !schematic.text_items.is_empty() {
+            self.write_texts(&mut output, schematic);
+        }
+        if !schematic.polylines.is_empty() {
+            self.write_polylines(&mut output, schematic);
+        }
+
         output.push_str("}\n");
 
         Ok(output)
+    }
+
+    /// 顶层 texts —— 键名与正向解析对齐 (text / at / size; size = [高, 宽])
+    fn write_texts(&self, output: &mut String, schematic: &Schematic) {
+        output.push_str(&format!("{}texts: [\n", self.indent(1)));
+        for t in &schematic.text_items {
+            output.push_str(&format!(
+                "{}{{ text: \"{}\", at: [{}, {}, {}], size: [{}, {}] }},\n",
+                self.indent(2),
+                self.escape_string(&t.text),
+                Self::format_number(t.position.0),
+                Self::format_number(t.position.1),
+                Self::format_number(t.position.2),
+                Self::format_number(t.effects.font.size.1),
+                Self::format_number(t.effects.font.size.0),
+            ));
+        }
+        output.push_str(&format!("{}],\n\n", self.indent(1)));
+    }
+
+    /// 顶层 polylines —— 键名与正向解析对齐 (pts / width / type=线型)
+    fn write_polylines(&self, output: &mut String, schematic: &Schematic) {
+        output.push_str(&format!("{}polylines: [\n", self.indent(1)));
+        for pl in &schematic.polylines {
+            let pts: Vec<String> = pl
+                .points
+                .iter()
+                .map(|p| format!("[{}, {}]", Self::format_number(p.0), Self::format_number(p.1)))
+                .collect();
+            output.push_str(&format!(
+                "{}{{ pts: [{}], width: {}, type: \"{}\" }},\n",
+                self.indent(2),
+                pts.join(", "),
+                Self::format_number(pl.stroke.width),
+                stroke_type_str(&pl.stroke.stroke_type),
+            ));
+        }
+        output.push_str(&format!("{}],\n\n", self.indent(1)));
     }
 
     fn indent(&self, level: usize) -> String {
@@ -311,19 +380,30 @@ impl Json5Generator {
             }
             output.push_str(&format!("{}],\n", self.indent(3)));
         }
-        // Pin graphics (original geometry from the source schematic). Round-trip
+        // Symbol graphics (original geometry from the source schematic). Round-trip
         // fidelity: sexpr_gen uses these positions instead of auto-layout, which
         // would otherwise re-place pins and mis-attach global labels.
-        let pin_graphics: Vec<&crate::ir::GraphicElement> = symbol
-            .graphics
-            .iter()
-            .filter(|g| matches!(g, crate::ir::GraphicElement::Pin(_)))
-            .collect();
-        if !pin_graphics.is_empty() {
+        //
+        // 这里必须连非 pin 图形 (符号体矩形/折线) 一起导出: 正向解析早就支持 rect / polyline,
+        // 此前只导 pin, 往返一次所有符号的"体"就没了 两块板分别 8 个 / 18 个符号实测, 2026-11-24).
+        // 键名与 parser/json5_parser.rs 的 graphics 约定一致:
+        //   pin     { type, number, name, pin_type, shape, at, length }
+        //   rect    { type: "rect", at: [x0, y0], size: [dx, dy], stroke_width, stroke_type, fill }
+        //   polyline{ type: "polyline", pts: [[x, y], ..], stroke_width, stroke_type, fill }
+        // circle / arc / 文字正向不解析, 导出了也不往返, 不写.
+        let exportable = |g: &crate::ir::GraphicElement| {
+            matches!(
+                g,
+                crate::ir::GraphicElement::Pin(_)
+                    | crate::ir::GraphicElement::Rectangle(_)
+                    | crate::ir::GraphicElement::Polyline(_)
+            )
+        };
+        if symbol.graphics.iter().any(|g| exportable(g)) {
             output.push_str(&format!("{}graphics: [\n", self.indent(3)));
-            for g in &pin_graphics {
-                if let crate::ir::GraphicElement::Pin(pin) = g {
-                    output.push_str(&format!(
+            for g in &symbol.graphics {
+                match g {
+                    crate::ir::GraphicElement::Pin(pin) => output.push_str(&format!(
                         "{}{{ type: \"pin\", number: \"{}\", name: \"{}\", pin_type: \"{}\", shape: \"{}\", at: [{}, {}, {}], length: {} }},\n",
                         self.indent(4),
                         self.escape_string(&pin.number),
@@ -334,7 +414,34 @@ impl Json5Generator {
                         Self::format_number(pin.position.1),
                         Self::format_number(pin.position.2),
                         Self::format_number(pin.length),
-                    ));
+                    )),
+                    crate::ir::GraphicElement::Rectangle(rect) => output.push_str(&format!(
+                        "{}{{ type: \"rect\", at: [{}, {}], size: [{}, {}], stroke_width: {}, stroke_type: \"{}\", fill: \"{}\" }},\n",
+                        self.indent(4),
+                        Self::format_number(rect.start.0),
+                        Self::format_number(rect.start.1),
+                        Self::format_number(rect.end.0 - rect.start.0),
+                        Self::format_number(rect.end.1 - rect.start.1),
+                        Self::format_number(rect.stroke.width),
+                        stroke_type_str(&rect.stroke.stroke_type),
+                        fill_type_str(&rect.fill),
+                    )),
+                    crate::ir::GraphicElement::Polyline(pl) => {
+                        let pts: Vec<String> = pl
+                            .points
+                            .iter()
+                            .map(|p| format!("[{}, {}]", Self::format_number(p.0), Self::format_number(p.1)))
+                            .collect();
+                        output.push_str(&format!(
+                            "{}{{ type: \"polyline\", pts: [{}], stroke_width: {}, stroke_type: \"{}\", fill: \"{}\" }},\n",
+                            self.indent(4),
+                            pts.join(", "),
+                            Self::format_number(pl.stroke.width),
+                            stroke_type_str(&pl.stroke.stroke_type),
+                            fill_type_str(&pl.fill),
+                        ));
+                    }
+                    _ => {}
                 }
             }
             output.push_str(&format!("{}],\n", self.indent(3)));

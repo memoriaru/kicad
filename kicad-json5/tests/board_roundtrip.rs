@@ -125,7 +125,14 @@ fn test_board_json5_roundtrip() {
         board2.graphics.len(),
         "graphics count"
     );
-    assert_eq!(board.nets.len(), board2.nets.len(), "net count");
+    // net 0 ("无网络"占位) 不往返 —— 真源约定不列它 (见 generate_board_json5 的 nets 段注释)
+    let real_nets = |b: &ir::Board| {
+        b.nets
+            .iter()
+            .filter(|n| !(n.id == 0 && n.name.is_empty()))
+            .count()
+    };
+    assert_eq!(real_nets(&board), real_nets(&board2), "net count");
 
     // Spot-check first footprint
     let fp1 = &board.footprints[0];

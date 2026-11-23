@@ -1389,17 +1389,28 @@ impl BoardSexprGenerator {
             self.line(out, ")");
         }
 
-        // fill — 热参数与 island 模式一并带出, 缺省值对齐 KiCad 写盘习惯
+        // fill — 热参数与 island 模式一并带出, 缺省值对齐 KiCad 写盘习惯.
+        // KiCad 10 的 fill 块只认一个可选前缀 `yes` (它自己保存的板即 `(fill yes (thermal_gap ..) ..)`).
+        // 最小板实测 (2026-11-24): 带 yes / 不带前缀 / 整个 fill 块不写 —— 三种写法 KiCad 都照样填充;
+        // 写 `no` 则整板拒载 ("应为 mode, arc_segments, thermal_gap ..") —— 这才是当年记录的拒载报错的
+        // 真正来源, 不是 yes. 即 KiCad 文件格式里没有"这块铺铜不填"的开关:
+        // zone.fill=true 写 yes (与 KiCad 一致, 往返守恒); false 只能不写前缀, KiCad 仍会填充 ——
+        // 要"不填充"得用禁布区 (keepout) 或不放这个 zone. 禁布区本身 KiCad 不写 yes, 保持原样.
         let island_tail = if zone.island_removal_mode == 2 {
             format!(" (island_area {})", Self::fmt_num(zone.island_area))
         } else {
             String::new()
         };
-        // KiCad 规范: (fill (thermal_gap ..) ..) — fill token 不接 yes/no 布尔
+        let switch = match (&zone.keepout, zone.fill) {
+            (Some(_), _) => String::new(),
+            (None, true) => "yes ".to_string(),
+            (None, false) => String::new(),
+        };
         self.line(
             out,
             &format!(
-                "(fill (thermal_gap {}) (thermal_bridge_width {}) (island_removal_mode {}){})",
+                "(fill {}(thermal_gap {}) (thermal_bridge_width {}) (island_removal_mode {}){})",
+                switch,
                 Self::fmt_num(zone.thermal_gap),
                 Self::fmt_num(zone.thermal_bridge_width),
                 zone.island_removal_mode,
@@ -1764,14 +1775,31 @@ mod tests {
         assert!(output.contains("(net \"GND\")"));
         assert!(output.contains("(polygon"));
         assert!(output.contains("(connect_pads yes (clearance 0.3))"));
-        // KiCad 规范 fill token 不接布尔 (kiad-cli 10 报 "应为 mode, arc_segments, ..."
-        // 拒载整板, 波4 实证) — fill 列表只带热参数/island, 不带 yes/no
+        // zone 的填充开关是 fill 块首项 yes|no (KiCad 10 自己保存的板即此写法).
+        // 历史更正: 当年"接布尔即拒载 (应为 mode, arc_segments ..)"的报错来自**图形项**的
+        // fill 块, 不是 zone —— 旧断言 !contains("(fill yes") 把 zone.fill 钉成了无效字段.
+        assert!(output.contains(
+            "(fill yes (thermal_gap 0.508) (thermal_bridge_width 0.508) (island_removal_mode 0))"
+        ));
+
+        // fill=false 不写前缀 (不能写 no: 最小板实测整板拒载). 注意 KiCad 对这种写法仍会填充 ——
+        // 文件格式里没有"不填充"的开关, false 只是"不声明 yes".
+        board.zones[0].fill = false;
+        let output = gen.generate(&board).unwrap();
         assert!(output.contains(
             "(fill (thermal_gap 0.508) (thermal_bridge_width 0.508) (island_removal_mode 0))"
         ));
-        // 回归锁: (fill yes)/(fill no) 一旦复发即红
         assert!(!output.contains("(fill yes"));
         assert!(!output.contains("(fill no"));
+
+        // 禁布区不填充: KiCad 对 keepout zone 不写 yes/no
+        board.zones[0].fill = true;
+        board.zones[0].keepout = Some(crate::ir::board::Keepout::default());
+        let output = gen.generate(&board).unwrap();
+        assert!(output.contains(
+            "(fill (thermal_gap 0.508) (thermal_bridge_width 0.508) (island_removal_mode 0))"
+        ));
+        assert!(!output.contains("(fill yes"));
     }
 
     #[test]

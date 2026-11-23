@@ -223,9 +223,14 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
         s.push_str("  },\n");
     }
 
-    // nets
+    // nets — net 0（"无网络"占位）不导出: KiCad 保存的板首行恒有 (net 0 ""), 真源约定不列它.
+    // 导出它会让"反向→再编译"多出一行, 并把按发射顺序分配的确定性 uuid 整体错位
+    // (merged-power-board 实测: 往返产物 3294 行差异全是 uuid 平移, 2026-11-24)
     s.push_str("  nets: [\n");
     for net in &board.nets {
+        if net.id == 0 && net.name.is_empty() {
+            continue;
+        }
         s.push_str(&format!(
             "    {{ id: {}, name: \"{}\" }},\n",
             net.id,
@@ -859,7 +864,10 @@ mod tests {
         let parsed = parse_board_json5(&json5).unwrap();
 
         assert_eq!(parsed.version, board.version);
-        assert_eq!(parsed.nets.len(), 3); // "" + "VIN" + "GND"
+        // net 0 ("无网络"占位) 不往返: 真源约定不列它, 导出它会让"反向→再编译"多一行并把
+        // 按发射顺序分配的确定性 uuid 整体错位 (merged-power-board 实测 3294 行差异, 2026-11-24)
+        assert_eq!(parsed.nets.len(), 2); // "VIN" + "GND"
+        assert!(parsed.nets.iter().all(|n| n.id != 0));
         assert_eq!(parsed.footprints.len(), 1);
         assert_eq!(parsed.footprints[0].lib_id, "Device:R");
         assert_eq!(parsed.footprints[0].reference, "R1");
