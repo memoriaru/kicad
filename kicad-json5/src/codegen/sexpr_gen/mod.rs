@@ -15,7 +15,6 @@ use crate::ir::{
     NoConnect, Pin, PinGraphic, PinShape, PinType, Polyline, Rectangle, Stroke, StrokeType, Symbol,
     SymbolInstance, Text, TextEffects, VerticalAlign, Wire,
 };
-use uuid::Uuid;
 
 /// KiCad file format version
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -109,6 +108,14 @@ impl Default for SexprConfig {
     }
 }
 
+thread_local! {
+    /// 原理图侧 uuid 序列计数器: 同一输入 ⇒ 逐字节相同的输出 (与 BoardSexprGenerator 的
+    /// 确定性计数器同一宗旨; 那边是实例字段, 这边的发射点全是无状态关联函数, 故挂线程局部).
+    /// 旧实现每次调用 Uuid::new_v4() —— 真源里没写 uuid 的项 (属性/图元/页) 每次编译现掷随机数,
+    /// 同一真源编译两次产物差上千行全是 uuid (merged-power-board 实测 1496 行, 2026-11-24).
+    static SCH_UUID_COUNTER: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// S-expression generator for KiCad schematic files
 pub struct SexprGenerator {
     config: SexprConfig,
@@ -151,6 +158,8 @@ impl SexprGenerator {
 
     /// Generate S-expression from IR Schematic
     pub fn generate(&mut self, schematic: &crate::ir::Schematic) -> Result<String> {
+        // 每次生成都从同一 uuid 序列起点开始: 同一进程里重复生成同一输入也得到相同产物
+        SCH_UUID_COUNTER.with(|c| c.set(0));
         // Clone and snap component positions to 1.27mm grid so all pin endpoints
         // land on KiCad's connection grid (eliminates endpoint_off_grid warnings).
         let mut schematic = schematic.clone();
@@ -208,7 +217,7 @@ impl SexprGenerator {
         if self.config.include_uuids {
             let uuid = if schematic.metadata.uuid.is_empty() {
                 if self.config.generate_uuids {
-                    Uuid::new_v4().to_string()
+                    Self::new_uuid() // 确定性序列 (真源未给页 uuid 时每次编译也得同一个)
                 } else {
                     String::new()
                 }
@@ -399,9 +408,39 @@ impl SexprGenerator {
             .replace('\t', "\\t")
     }
 
-    /// Generate a new UUID string
+    /// Generate a new UUID string (deterministic sequence, see `SCH_UUID_COUNTER`)
     pub(super) fn new_uuid() -> String {
-        Uuid::new_v4().to_string()
+        let n = SCH_UUID_COUNTER.with(|c| {
+            let n = c.get().wrapping_add(1);
+            c.set(n);
+            n
+        });
+        // splitmix64, 与 board_gen.rs::uuid 同一混合器; 种子域不同 (前缀 5CH_ 的 ASCII) 避免两域撞号
+        let mut z = 0x3543485F9E3779B9u64 ^ n.wrapping_mul(0xBF58476D1CE4E5B9);
+        z = z.wrapping_add(0x9E3779B97F4A7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^= z >> 31;
+        let h2 = z.wrapping_mul(0x2545F4914245C3C9) ^ 0xCAFEBABEDEADBEEF;
+        let mut bytes = [0u8; 16];
+        #[allow(clippy::needless_range_loop)] // bit-stuffing, clearest indexed
+        for i in 0..8 {
+            bytes[i] = ((z >> (i * 8)) & 0xFF) as u8;
+        }
+        for i in 0..8 {
+            bytes[8 + i] = ((h2 >> (i * 8)) & 0xFF) as u8;
+        }
+        bytes[6] = (bytes[6] & 0x0F) | 0x40; // v4 版本位
+        bytes[8] = (bytes[8] & 0x3F) | 0x80; // RFC 4122 变体位
+        let hex: String = bytes.iter().map(|x| format!("{:02x}", x)).collect();
+        format!(
+            "{}-{}-{}-{}-{}",
+            &hex[0..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..32]
+        )
     }
 
     /// Format boolean as yes/no

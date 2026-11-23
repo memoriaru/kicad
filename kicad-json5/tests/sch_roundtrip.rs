@@ -226,3 +226,40 @@ fn test_topology_tiny_scarab() {
         "Should have component stats"
     );
 }
+
+#[test]
+fn test_sch_generation_is_deterministic() {
+    // 真源未给 uuid 的项 (页/属性/图元/元件) 旧实现每次 Uuid::new_v4(): 同一输入编译两次产物差上千行
+    // (merged-power-board 原理图实测 1496 行, 2026-11-24). 这里把能清的 uuid 全清掉, 模拟"真源不带 uuid".
+    let mut original = parse_sch_from(&fixtures_dir(), "battery-power-board.kicad_sch");
+    original.metadata.uuid = String::new();
+    for c in &mut original.components {
+        c.uuid = None;
+    }
+    let mut gen = SexprGenerator::new();
+    let a = gen.generate(&original).expect("Sexpr generation failed");
+    let b = gen.generate(&original).expect("Sexpr generation failed");
+    let c = SexprGenerator::new()
+        .generate(&original)
+        .expect("Sexpr generation failed");
+    assert_eq!(a, b, "同一生成器重复生成应逐字节相同");
+    assert_eq!(a, c, "不同生成器实例应逐字节相同");
+
+    // 确定性不等于到处撞号: 文件内 uuid 仍须唯一, 且是 v4 形态
+    let ids: Vec<&str> = a
+        .lines()
+        .filter_map(|l| l.split("(uuid \"").nth(1))
+        .filter_map(|r| r.split('"').next())
+        .collect();
+    assert!(!ids.is_empty(), "应发射 uuid");
+    let mut uniq = ids.clone();
+    uniq.sort_unstable();
+    uniq.dedup();
+    assert_eq!(ids.len(), uniq.len(), "文件内 uuid 有重复");
+    for id in &ids {
+        let b = id.as_bytes();
+        assert_eq!(id.len(), 36, "uuid 形态错: {id}");
+        assert_eq!(b[14], b'4', "非 v4 版本位: {id}");
+        assert!(matches!(b[19], b'8' | b'9' | b'a' | b'b'), "非 RFC 4122 变体位: {id}");
+    }
+}
