@@ -269,6 +269,47 @@ fn value_to_board(value: &Value) -> Result<Board> {
     Ok(board)
 }
 
+/// footprint attr: 单值串 / 空格分隔多值串 / 字符串数组三种拼法都认
+/// (旧实现 get_str 先匹配, 数组与多值串落到 None 分支静默丢失 — 2026-11-23 修,
+/// 测试点/安装孔的 exclude_from_pos_files exclude_from_bom 因此从未进过板)
+fn parse_footprint_attr(v: Option<&Value>) -> Option<FootprintAttr> {
+    let single = |s: &str| match s {
+        "smd" => Some(FootprintAttr::Smd),
+        "thru_hole" | "through_hole" => Some(FootprintAttr::ThruHole),
+        "virtual" => Some(FootprintAttr::Virtual),
+        "board_only" => Some(FootprintAttr::BoardOnly),
+        _ => None,
+    };
+    // 进多值串的通孔项统一成 KiCad 9+ 落板 token through_hole: 板侧解析只认它,
+    // 留着 thru_hole 会在 板→IR 回读时漂成另一种拼写 (往返不等)
+    let norm = |s: &str| {
+        if s == "thru_hole" {
+            "through_hole".to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    let vals: Vec<String> = match v {
+        Some(Value::String(s)) => {
+            if let Some(a) = single(s) {
+                return Some(a);
+            }
+            s.split_whitespace().map(norm).collect()
+        }
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|x| x.as_str().map(norm))
+            .collect(),
+        _ => return None,
+    };
+    match vals.as_slice() {
+        [] => None,
+        // 单元素数组按单值语义归一 (["smd"] 与 "smd" 等价, 不留 Other 外壳)
+        [one] => single(one).or_else(|| Some(FootprintAttr::Other(vals))),
+        _ => Some(FootprintAttr::Other(vals)),
+    }
+}
+
 fn value_to_footprint(v: &Value) -> Footprint {
     let obj = match v.as_object() {
         Some(o) => o,
@@ -301,25 +342,7 @@ fn value_to_footprint(v: &Value) -> Footprint {
     fp.sheetname = get_str(obj, "sheetname").map(|s| s.to_string());
     fp.sheetfile = get_str(obj, "sheetfile").map(|s| s.to_string());
     fp.solder_mask_margin = get_f64(obj, "solder_mask_margin");
-    fp.attr = match get_str(obj, "attr") {
-        Some("smd") => Some(FootprintAttr::Smd),
-        Some("thru_hole") => Some(FootprintAttr::ThruHole),
-        Some("virtual") => Some(FootprintAttr::Virtual),
-        Some("board_only") => Some(FootprintAttr::BoardOnly),
-        Some(_) => {
-            let vals: Vec<String> = v
-                .get("attr")
-                .and_then(|a| a.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                        .collect()
-                })
-                .unwrap_or_default();
-            (!vals.is_empty()).then_some(FootprintAttr::Other(vals))
-        }
-        None => None,
-    };
+    fp.attr = parse_footprint_attr(v.get("attr"));
 
     // models（3D 模型引用; 兼容旧单数 model 键——无 models 数组时回退读取）
     if let Some(ms) = get_arr(v, "models") {

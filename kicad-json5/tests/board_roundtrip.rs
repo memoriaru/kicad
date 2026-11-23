@@ -683,3 +683,42 @@ fn test_rule_plane_rules_to_json5_and_pro() {
     );
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn test_footprint_attr_json5_multivalue() {
+    // 三种拼法: 单值串 / 空格分隔多值串 / 字符串数组.
+    // 旧实现 get_str 先匹配, 数组与多值串落到 None 分支静默丢失 —
+    // 测试点/安装孔的 exclude_from_pos_files exclude_from_bom 因此从未进过板.
+    for (src, expect) in [
+        (r#"attr: "smd""#, "(attr smd)"),
+        // 落板 token 必须是 through_hole: 旧写法 thru_hole KiCad 10 整板拒载 (最小板实锤)
+        (r#"attr: "thru_hole""#, "(attr through_hole)"),
+        (r#"attr: "through_hole""#, "(attr through_hole)"),
+        (r#"attr: ["thru_hole", "exclude_from_bom"]"#, "(attr through_hole exclude_from_bom)"),
+        (
+            r#"attr: "exclude_from_pos_files exclude_from_bom""#,
+            "(attr exclude_from_pos_files exclude_from_bom)",
+        ),
+        (
+            r#"attr: ["exclude_from_pos_files", "exclude_from_bom"]"#,
+            "(attr exclude_from_pos_files exclude_from_bom)",
+        ),
+        (r#"attr: ["smd", "dnp"]"#, "(attr smd dnp)"),
+        (r#"attr: ["smd"]"#, "(attr smd)"),
+    ] {
+        let json5 = format!(r#"{{ footprints: [ {{ lib_id: "x:y", reference: "R1", {src} }} ] }}"#);
+        let board = parse_board_json5(&json5).unwrap();
+        let sexpr = codegen::BoardSexprGenerator::new().generate(&board).unwrap();
+        assert!(sexpr.contains(expect), "attr 未进板: {src} → 期望 {expect}");
+        assert!(!sexpr.contains("(attr thru_hole"), "落板发射了 KiCad 10 拒载的旧 token: {src}");
+        // json5 再往返不漂移
+        let b2 = parse_board_json5(&generate_board_json5(&board).unwrap()).unwrap();
+        assert_eq!(b2.footprints[0].attr, board.footprints[0].attr, "attr 往返漂移: {src}");
+        // 板文件再解析回来也不漂移
+        let b3 = parse_board(&sexpr).unwrap();
+        assert_eq!(b3.footprints[0].attr, board.footprints[0].attr, "attr 板往返漂移: {src}");
+    }
+    // 未声明不得凭空造值
+    let b = parse_board_json5(r#"{ footprints: [ { lib_id: "x:y", reference: "R1" } ] }"#).unwrap();
+    assert_eq!(b.footprints[0].attr, None);
+}

@@ -522,12 +522,19 @@ impl BoardSexprGenerator {
             self.line(out, &format!("(sheetfile \"{}\")", Self::esc(sf)));
         }
         if let Some(ref attr) = fp.attr {
+            // 封装 attr 的通孔 token 是 through_hole (KiCad 9+); 旧写法 thru_hole KiCad 10
+            // 整板拒载 (最小板实锤 2026-11-23). json5 方言沿用 thru_hole 与 pad type 对齐,
+            // 落板时在此换算 — Other 分支的多值串同样可能带它.
             match attr {
                 FootprintAttr::Smd => self.line(out, "(attr smd)"),
-                FootprintAttr::ThruHole => self.line(out, "(attr thru_hole)"),
+                FootprintAttr::ThruHole => self.line(out, "(attr through_hole)"),
                 FootprintAttr::Virtual => self.line(out, "(attr virtual)"),
                 FootprintAttr::BoardOnly => self.line(out, "(attr board_only)"),
                 FootprintAttr::Other(vals) => {
+                    let vals: Vec<&str> = vals
+                        .iter()
+                        .map(|v| if v == "thru_hole" { "through_hole" } else { v.as_str() })
+                        .collect();
                     self.line(out, &format!("(attr {})", vals.join(" ")));
                 }
             }
