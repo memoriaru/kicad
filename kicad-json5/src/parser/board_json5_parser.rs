@@ -212,7 +212,8 @@ fn value_to_board(value: &Value) -> Result<Board> {
 
     // footprints
     if let Some(fps) = get_arr(value, "footprints") {
-        for fv in fps {
+        for (i, fv) in fps.iter().enumerate() {
+            check_double_write(i, fv)?;
             board.footprints.push(value_to_footprint(fv));
         }
     }
@@ -258,10 +259,29 @@ fn value_to_board(value: &Value) -> Result<Board> {
     }
 
     // graphics
+    // 解析不出来的元素报错, 不再静默跳过. 2026-11-24 一块探针板的 graphics 元素没写 type, 编译成功、产物能加载,
+    // 只是板框没了 —— 直到 DRC 报 invalid_outline 才发现. (在这之前 exporter 写 "kind" / parser 读 "type" 那次,
+    // 所有板级图形包括板框也是这么消失的, 见 value_to_graphic 里的注释.)
     if let Some(graphics) = get_arr(value, "graphics") {
-        for gv in graphics {
-            if let Some(gr) = value_to_graphic(gv) {
-                board.graphics.push(gr);
+        for (i, gv) in graphics.iter().enumerate() {
+            match value_to_graphic(gv) {
+                Some(gr) => board.graphics.push(gr),
+                None => {
+                    let what = match gv.as_object() {
+                        None => "不是对象".to_string(),
+                        Some(o) => match get_str(o, "type").or_else(|| get_str(o, "kind")) {
+                            None => "没写 type".to_string(),
+                            Some(t) if !matches!(t, "line" | "arc" | "circle" | "rect" | "poly" | "text") => {
+                                format!("type 不认识: {:?}", t)
+                            }
+                            Some(t) => format!("type {:?} 缺必要字段 (start/end/mid/center)", t),
+                        },
+                    };
+                    return Err(err(format!(
+                        "graphics[{}] {} —— 这个元素以前会被静默丢掉",
+                        i, what
+                    )));
+                }
             }
         }
     }
@@ -308,6 +328,40 @@ fn parse_footprint_attr(v: Option<&Value>) -> Option<FootprintAttr> {
         [one] => single(one).or_else(|| Some(FootprintAttr::Other(vals))),
         _ => Some(FootprintAttr::Other(vals)),
     }
+}
+
+/// 位号 / 值是双写的: 顶层 `reference` / `value`, 以及 properties 里的 Reference / Value.
+/// 落板只取 properties 那份 (codegen: properties 非空时不看顶层字段), 顶层那份被静默忽略.
+/// 两处不一致时, 人改的顶层位号不生效, 而 DRC 报告 / 贴片表 / 网表对拍用的都是落板的那份.
+/// 2026-11-24 一块探针板因此整板件的位号全成了同一个名字. 两处都写了就必须一致.
+fn check_double_write(i: usize, fv: &Value) -> Result<()> {
+    let Some(o) = fv.as_object() else {
+        return Ok(());
+    };
+    if let Some(props) = get_arr(fv, "properties") {
+        for pv in props {
+            let Some(po) = pv.as_object() else {
+                continue;
+            };
+            let (Some(pval), Some(pname)) = (get_str(po, "value"), get_str(po, "name")) else {
+                continue;
+            };
+            let top_key = match pname {
+                "Reference" => "reference",
+                "Value" => "value",
+                _ => continue,
+            };
+            if let Some(top) = o.get(top_key).and_then(|v| v.as_str()) {
+                if top != pval {
+                    return Err(err(format!(
+                        "footprints[{}] {}: 顶层 {} 写的是 {:?}, properties 里的 {} 写的是 {:?} —— 两处必须一致 (落板只认 properties 那份)",
+                        i, top_key, top_key, top, pname, pval
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn value_to_footprint(v: &Value) -> Footprint {
@@ -886,6 +940,42 @@ fn value_to_graphic(v: &Value) -> Option<BoardGraphic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 位号双写不一致必须报错: 落板只认 properties 那份, 顶层那份静默失效过 (2026-11-24).
+    #[test]
+    fn reference_double_write_disagreement_is_an_error() {
+        let ok = r#"{ version: "20240108", footprints: [ { lib_id: "L:R", reference: "R1", value: "1k",
+            properties: [ { name: "Reference", value: "R1" }, { name: "Value", value: "1k" } ] } ] }"#;
+        assert!(parse_board_json5(ok).is_ok(), "两处一致 (以及只有 properties 没有顶层) 都要能过");
+        let only_props = r#"{ version: "20240108", footprints: [ { lib_id: "L:R",
+            properties: [ { name: "Reference", value: "R1" } ] } ] }"#;
+        assert!(parse_board_json5(only_props).is_ok(), "没写顶层字段不算不一致");
+        let bad_ref = r#"{ version: "20240108", footprints: [ { lib_id: "L:R", reference: "R1", value: "1k",
+            properties: [ { name: "Reference", value: "R17" } ] } ] }"#;
+        let e = parse_board_json5(bad_ref).unwrap_err().to_string();
+        assert!(e.contains("footprints[0] reference") && e.contains("R17"), "{}", e);
+        let bad_val = r#"{ version: "20240108", footprints: [ { lib_id: "L:R", reference: "R1", value: "1k",
+            properties: [ { name: "Value", value: "10k" } ] } ] }"#;
+        let e = parse_board_json5(bad_val).unwrap_err().to_string();
+        assert!(e.contains("Value"), "{}", e);
+    }
+
+    /// 板级图形缺 type / 类型不认识必须报错: 以前静默丢掉, 板框丢过两次.
+    #[test]
+    fn unparseable_graphic_is_an_error() {
+        let ok = r#"{ version: "20240108", graphics: [
+            { type: "rect", start: [0, 0], end: [10, 10], layer: "Edge.Cuts" },
+            { kind: "line", start: [0, 0], end: [1, 0], layer: "F.SilkS" } ] }"#;
+        assert_eq!(parse_board_json5(ok).unwrap().graphics.len(), 2);
+        for (src, needle) in [
+            (r#"{ version: "20240108", graphics: [ { start: [0, 0], end: [10, 10], layer: "Edge.Cuts" } ] }"#, "没写 type"),
+            (r#"{ version: "20240108", graphics: [ { type: "blob", start: [0, 0] } ] }"#, "type 不认识"),
+            (r#"{ version: "20240108", graphics: [ { type: "line", layer: "F.SilkS" } ] }"#, "缺必要字段"),
+        ] {
+            let e = parse_board_json5(src).unwrap_err().to_string();
+            assert!(e.contains("graphics[0]") && e.contains(needle), "{}", e);
+        }
+    }
 
     #[test]
     fn test_parse_empty_board() {
