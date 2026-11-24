@@ -1518,6 +1518,7 @@ mod tests {
             drill: 0.3,
             layers: vec!["F.Cu".into(), "B.Cu".into()],
             net: 0,
+            via_type: String::new(),
         });
         let svg = PcbRenderer::new(&board).render_to_string();
         assert!(svg.contains(VIA_THROUGH));

@@ -152,6 +152,7 @@ fn test_attribution_board_level_miniboard() {
         drill: 0.3,
         layers: vec!["F.Cu".into(), "B.Cu".into()],
         net: 2,
+        via_type: String::new(),
     });
 
     let e = kicad_cdb::router::export_wavefront_grid_repair(

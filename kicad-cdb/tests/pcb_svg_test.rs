@@ -20,6 +20,15 @@ fn load_board() -> Board {
     parse_board(&source).expect("Failed to parse .kicad_pcb")
 }
 
+/// 去掉 net 0 ("无网络"占位) 之后的网表. 真源约定不列 net 0: KiCad 保存的板首行恒有 (net 0 ""),
+/// 反向产物里没有它 (kicad-json5 lib.rs generate_board_json5, 2026-11-24 起).
+fn nets_no0(b: &Board) -> Vec<&kicad_json5::ir::board::NetDef> {
+    b.nets
+        .iter()
+        .filter(|n| !(n.id == 0 && n.name.is_empty()))
+        .collect()
+}
+
 #[test]
 fn render_fixture_pcb() {
     let board = load_board();
@@ -45,7 +54,12 @@ fn board_json5_roundtrip() {
     let seg_count = board.segments.len();
     let via_count = board.vias.len();
     let zone_count = board.zones.len();
-    let net_count = board.nets.len();
+    // 网的往返守恒按"去掉 net 0 占位之后"比较 (见 nets_no0)
+    assert!(
+        board.nets.iter().any(|n| n.id == 0 && n.name.is_empty()),
+        "fixture 应含 KiCad 的 net 0 占位行, 否则本测试覆盖不到\"占位被省略\""
+    );
+    let net_count = nets_no0(&board).len();
     let gr_count = board.graphics.len();
 
     // Board IR → JSON5 → Board IR
@@ -56,10 +70,14 @@ fn board_json5_roundtrip() {
     assert_eq!(board2.segments.len(), seg_count, "segment count");
     assert_eq!(board2.vias.len(), via_count, "via count");
     assert_eq!(board2.zones.len(), zone_count, "zone count");
-    assert_eq!(board2.nets.len(), net_count, "net count");
+    assert_eq!(nets_no0(&board2).len(), net_count, "net count (不含 net 0 占位)");
     assert_eq!(board2.graphics.len(), gr_count, "graphics count");
 
-    for (i, (n1, n2)) in board.nets.iter().zip(board2.nets.iter()).enumerate() {
+    for (i, (n1, n2)) in nets_no0(&board)
+        .iter()
+        .zip(nets_no0(&board2).iter())
+        .enumerate()
+    {
         assert_eq!(n1.name, n2.name, "net {} name mismatch", i);
         assert_eq!(n1.id, n2.id, "net {} id mismatch", i);
     }
