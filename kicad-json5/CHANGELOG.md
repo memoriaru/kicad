@@ -20,8 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   traces leave the 0°/45°/90° grid); traces knocked off the grid are slid back
   together with their neighbours. SES parsing lives in pcbnew, so this is the
   one place in this repo where the seams can be caught.
+  A slide is rolled back when it would eat a neighbour's clearance: after
+  sliding, every moved segment must still keep the board's minimum clearance
+  (the board's `rules`, the net class, or `min_clearance` passed by the caller;
+  `kicad-json5` reads the sibling `.kicad_pro` for it) from foreign copper —
+  same-layer traces, vias, same-layer pads (rounded rectangles by their
+  rounding). On analog-board a 0.001 mm slide took NET_A / NET_B from 0.125
+  to 0.124.
   Cross-checked against the Python implementation on three real boards
-  (identical segment arrays). Tests: `tests/board_snap.rs`.
 
 ### Changed
 - **Board S-expression emission now defaults to the Official KiCad dialect**

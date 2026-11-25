@@ -307,3 +307,37 @@ fn zero_tolerance_is_a_no_op() {
     assert_eq!(board.snap_trace_junctions(-1.0), Default::default());
     assert_eq!(board.segments.len(), before.len());
 }
+
+#[test]
+fn slide_that_eats_a_neighbours_clearance_is_rolled_back() {
+    // analog-board 实锤: 挪 0.001 之后 NET_A 与 NET_B 的间距 0.125 → 0.124. 长竖线 A 的下端并到锚点 (5.008, 1.0)
+    // 之后要整条平移 0.008; 右边 0.15 处有一条异网竖线 B → 平移后间距 0.142 < 0.15 → 整链回退.
+    let lines = || {
+        vec![
+            seg(5.0, 30.0, 5.0, 1.0, 1), // A (长线: 并到锚点后偏差角最小, 所以锚点在它的另一侧)
+            seg(5.008, 1.0, 9.0, 1.0, 1),
+            seg(5.008, 1.0, 8.0, 3.992, 1),
+            seg(5.35, 30.0, 5.35, 0.5, 2), // B: 与 A 的铜缘间距正好 0.15
+        ]
+    };
+    let mut board = Board::default();
+    board.segments = lines();
+    let rep = board.snap_trace_junctions_with_rules(0.01, Some(0.15));
+    assert_eq!(rep.clusters, 1);
+    assert_eq!(rep.leftover, 1);
+    assert_eq!(seams(&board, 0.01), 0);
+    // A 的上端没有动 (整链回退), A 带着偏差留下
+    assert_eq!(board.segments[0].start, (5.0, 30.0));
+    assert_eq!(board.segments[0].end, (5.008, 1.0));
+    assert!(off_grid(board.segments[0].start, board.segments[0].end) > 0.0);
+    assert_eq!(board.segments[3].start, (5.35, 30.0));
+
+    // 规则放宽到 0.14: 同样的平移就能过
+    let mut board2 = Board::default();
+    board2.segments = lines();
+    let rep2 = board2.snap_trace_junctions_with_rules(0.01, Some(0.14));
+    assert_eq!(rep2.straightened, 1);
+    assert_eq!(rep2.leftover, 0);
+    assert_eq!(board2.segments[0].start, (5.008, 30.0));
+    assert_eq!(board2.segments[0].end, (5.008, 1.0));
+}

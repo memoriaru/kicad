@@ -144,6 +144,8 @@ pub struct Board {
     pub footprints: Vec<Footprint>,
     pub segments: Vec<Segment>,
     pub vias: Vec<Via>,
+    /// 仅在 `snap_trace_junctions_with_rules` 执行期间有值 (调用方给的铜间距下限).
+    pub snap_min_clearance: Option<f64>,
     pub zones: Vec<Zone>,
     pub graphics: Vec<BoardGraphic>,
 }
@@ -167,6 +169,7 @@ impl Default for Board {
             footprints: Vec::new(),
             segments: Vec::new(),
             vias: Vec::new(),
+            snap_min_clearance: None,
             zones: Vec::new(),
             graphics: Vec::new(),
         }
@@ -2213,6 +2216,93 @@ fn off_grid_deg(a: (f64, f64), b: (f64, f64)) -> f64 {
     (ang - (ang / 45.0).round() * 45.0).abs()
 }
 
+/// 点 p 到线段 a→b 的距离.
+fn pt_seg(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let l2 = dx * dx + dy * dy;
+    if l2 < 1e-18 {
+        return (p.0 - a.0).hypot(p.1 - a.1);
+    }
+    let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0);
+    (p.0 - a.0 - t * dx).hypot(p.1 - a.1 - t * dy)
+}
+
+/// 两线段的距离 (相交为 0).
+fn seg_seg(a1: (f64, f64), b1: (f64, f64), a2: (f64, f64), b2: (f64, f64)) -> f64 {
+    let o = |p: (f64, f64), q: (f64, f64), r: (f64, f64)| {
+        (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0)
+    };
+    if o(a1, b1, a2) * o(a1, b1, b2) < 0.0 && o(a2, b2, a1) * o(a2, b2, b1) < 0.0 {
+        return 0.0;
+    }
+    pt_seg(a1, a2, b2)
+        .min(pt_seg(b1, a2, b2))
+        .min(pt_seg(a2, a1, b1))
+        .min(pt_seg(b2, a1, b1))
+}
+
+/// 点到中心矩形 [−hw, hw] × [−hh, hh] 的距离 (在内部为负).
+fn pt_rect(p: (f64, f64), hw: f64, hh: f64) -> f64 {
+    let (ex, ey) = (p.0.abs() - hw, p.1.abs() - hh);
+    if ex <= 0.0 && ey <= 0.0 {
+        ex.max(ey)
+    } else if ex <= 0.0 {
+        ey
+    } else if ey <= 0.0 {
+        ex
+    } else {
+        ex.hypot(ey)
+    }
+}
+
+/// 线段到中心矩形的距离 (相交为负).
+fn seg_rect(a: (f64, f64), b: (f64, f64), hw: f64, hh: f64) -> f64 {
+    let corners = [(hw, hh), (-hw, hh), (-hw, -hh), (hw, -hh)];
+    let edge = corners
+        .iter()
+        .map(|&c| pt_seg(c, a, b))
+        .fold(f64::INFINITY, f64::min);
+    pt_rect(a, hw, hh).min(pt_rect(b, hw, hh)).min(edge)
+}
+
+/// 圆帽线段 a→b (半宽 `half_w`) 到焊盘铜缘的距离. 圆角矩形按圆角算 (= 缩进 r 的矩形 ⊕ 半径 r 的圆),
+/// 椭圆按两端半圆算; 梯形 / custom 按包围矩形算 (偏严). 与 downstream project `p30geom.viol_roundrect` 同口径.
+fn seg_pad_gap(fp: &Footprint, pad: &Pad, a: (f64, f64), b: (f64, f64), half_w: f64) -> f64 {
+    let (cx, cy) = fp.pad_world_center(pad);
+    let theta = (fp.position.2 + pad.position.2).to_radians();
+    let (c, s) = (theta.cos(), theta.sin());
+    let loc = |p: (f64, f64)| {
+        let (dx, dy) = (p.0 - cx, p.1 - cy);
+        (dx * c - dy * s, dx * s + dy * c)
+    };
+    let (la, lb) = (loc(a), loc(b));
+    let (hw, hh) = (pad.size.0 / 2.0, pad.size.1 / 2.0);
+    let d = match pad.shape {
+        // 正方形 (两个边长相等): 外接圆
+        PadShape::Circle => pt_seg((0.0, 0.0), la, lb) - hw,
+        PadShape::RoundRect => {
+            let r = pad.roundrect_rratio.unwrap_or(0.25) * pad.size.0.min(pad.size.1);
+            if (pad.size.0 - pad.size.1).abs() < 1e-9 {
+                pt_seg((0.0, 0.0), la, lb) - hw
+            } else if r >= hw.min(hh) {
+                pt_seg((0.0, 0.0), la, lb) - hw.min(hh)
+            } else {
+                seg_rect(la, lb, hw - r, hh - r) - r
+            }
+        }
+        PadShape::Oval => {
+            let r = hw.min(hh);
+            if hw >= hh {
+                seg_rect(la, lb, hw - r, 0.0) - r
+            } else {
+                seg_rect(la, lb, 0.0, hh - r) - r
+            }
+        }
+        _ => seg_rect(la, lb, hw, hh),
+    };
+    d - half_w
+}
+
 impl Footprint {
     /// 焊盘中心的世界坐标.
     pub fn pad_world_center(&self, pad: &Pad) -> (f64, f64) {
@@ -2242,8 +2332,96 @@ impl Footprint {
 }
 
 impl Board {
-    /// 走线接缝清理, 见本节开头. `tol_mm` <= 0 时什么都不做.
+    /// 走线接缝清理, 见本节开头. `tol_mm` <= 0 时什么都不做. 间距规则取板自带的 `rules` / 网类, 都没有按 0.2 mm.
     pub fn snap_trace_junctions(&mut self, tol_mm: f64) -> SnapReport {
+        self.snap_trace_junctions_with_rules(tol_mm, None)
+    }
+
+    /// 同上, `min_clearance` 是铜间距的下限 (mm): 保方向平移之后, 被挪动的线段与异网铜的间距不得低于它, 否则整链回退.
+    /// 板自带 `rules` 或网类里写了更大的值时取大的. `None` = 只用板自带的.
+    pub fn snap_trace_junctions_with_rules(
+        &mut self,
+        tol_mm: f64,
+        min_clearance: Option<f64>,
+    ) -> SnapReport {
+        self.snap_min_clearance = min_clearance;
+        let rep = self.snap_trace_junctions_inner(tol_mm);
+        self.snap_min_clearance = None;
+        rep
+    }
+
+    fn snap_clearance_of(&self, net: u32) -> f64 {
+        let base = self
+            .snap_min_clearance
+            .or_else(|| self.rules.as_ref().and_then(|r| r.min_clearance))
+            .unwrap_or(0.2);
+        let name = self
+            .nets
+            .iter()
+            .find(|n| n.id == net)
+            .map(|n| n.name.as_str());
+        let cls = self
+            .net_classes
+            .iter()
+            .find(|c| name.is_some_and(|nm| c.nets.iter().any(|x| x == nm)))
+            .and_then(|c| c.clearance);
+        base.max(cls.unwrap_or(0.0))
+    }
+
+    /// 保方向平移之后的间距检查: 被挪动的线段 (下标) 与异网铜 —— 同层走线 / 过孔 (通孔, 对每一层都算) / 同层焊盘 ——
+    /// 的铜缘间距都 >= 该网的间距规则; 不是的话返回第一处. 铺铜不算 (会重灌, 自动避让).
+    fn moved_clearance_bad(&self, moved: &[usize]) -> Option<String> {
+        for &i in moved {
+            let s = &self.segments[i];
+            let hw = s.width / 2.0;
+            let clr = self.snap_clearance_of(s.net);
+            let (x0, y0) = (s.start.0.min(s.end.0) - 6.0, s.start.1.min(s.end.1) - 6.0);
+            let (x1, y1) = (s.start.0.max(s.end.0) + 6.0, s.start.1.max(s.end.1) + 6.0);
+            let inbox = |p: (f64, f64)| p.0 >= x0 && p.0 <= x1 && p.1 >= y0 && p.1 <= y1;
+            for (j, o) in self.segments.iter().enumerate() {
+                if j == i
+                    || o.net == s.net
+                    || o.layer != s.layer
+                    || (!inbox(o.start) && !inbox(o.end))
+                {
+                    continue;
+                }
+                let d = seg_seg(s.start, s.end, o.start, o.end) - hw - o.width / 2.0;
+                if d < clr - 1e-6 {
+                    return Some(format!("seg {i} — seg {j}: {d:.4} < {clr}"));
+                }
+            }
+            for (k, v) in self.vias.iter().enumerate() {
+                if v.net == s.net || !inbox(v.at) {
+                    continue;
+                }
+                let d = pt_seg(v.at, s.start, s.end) - hw - v.size / 2.0;
+                if d < clr - 1e-6 {
+                    return Some(format!("seg {i} — via {k}: {d:.4} < {clr}"));
+                }
+            }
+            for fp in &self.footprints {
+                for pad in &fp.pads {
+                    if pad.net == Some(s.net) || !inbox(fp.pad_world_center(pad)) {
+                        continue;
+                    }
+                    if !pad.layers.iter().any(|l| l == &s.layer || l == "*.Cu") {
+                        continue;
+                    }
+                    let d = seg_pad_gap(fp, pad, s.start, s.end, hw);
+                    if d < clr - 1e-6 {
+                        return Some(format!(
+                            "seg {i} — pad {}.{}: {d:.4} < {clr}",
+                            fp.reference, pad.number
+                        ));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn snap_trace_junctions_inner(&mut self, tol_mm: f64) -> SnapReport {
         let mut rep = SnapReport::default();
         if !(tol_mm > 0.0) || self.segments.is_empty() {
             return rep;
@@ -2570,12 +2748,24 @@ impl Board {
                     }
                 }
             }
+            // 平移会吃掉与邻线的间距 (analog-board 实测: 挪 0.001 之后 NET_A 与 NET_B 的间距 0.125 → 0.124): 成功的链还要过间距检查
+            let mut why_clear = None;
+            if ok && !trail.is_empty() {
+                let mut moved_idx: Vec<usize> = trail.iter().map(|x| x.0).collect();
+                moved_idx.sort_unstable();
+                moved_idx.dedup();
+                if let Some(why) = self.moved_clearance_bad(&moved_idx) {
+                    ok = false;
+                    why_clear = Some(why);
+                }
+            }
             if dbg {
                 eprintln!(
-                    "snap debug: net {net} seg {seg_i} side {side} was ({:.4},{:.4})-({:.4},{:.4}) now ({:.4},{:.4})-({:.4},{:.4}): {} {}",
+                    "snap debug: net {net} seg {seg_i} side {side} was ({:.4},{:.4})-({:.4},{:.4}) now ({:.4},{:.4})-({:.4},{:.4}): {} {}{}",
                     q0.0, q0.1, o0.0, o0.1, self.segments[seg_i].start.0, self.segments[seg_i].start.1,
                     self.segments[seg_i].end.0, self.segments[seg_i].end.1,
-                    if ok { "slid" } else { "rolled back" }, trail.len()
+                    if ok { "slid" } else { "rolled back" }, trail.len(),
+                    why_clear.map(|w| format!(" ({w})")).unwrap_or_default()
                 );
             }
             if ok {
