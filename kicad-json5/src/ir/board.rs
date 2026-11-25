@@ -2137,3 +2137,461 @@ fn normalize_net_name_refs(node: &mut SExpr, nets: &mut Vec<NetDef>) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// 走线接缝清理 (trace junction snapping)
+// ---------------------------------------------------------------------------
+//
+// 布线器会在走线里留下两类"接缝", DRC 都不报, 在 gerber 里是零长度的 draw 或亚微米的缝:
+//   * 准零长度碎片: freerouting 回导的板, 在多条走线的交汇点上, 汇到同一点的两根线被写了两个差
+//     0.0001–0.01 mm 的坐标, 中间用一小段连起来 (2026-11-25 实测: analog-board 251 段 / carrier 16 段);
+//   * 端点差一点却不相等: 自研 astar 布的板有 4 处 (焊盘中心在 1/8 mm 栅格上, 走线端点在 0.01 mm
+//     栅格上), 两根线靠线宽重叠才连通.
+// downstream project 的三块板认证按"走线接缝 = 0"把关. SES 的解析在 pcbnew (C++) 那一侧, 碎片是 freerouting
+// 自己输出的; 本仓库能修的是"板数据进入生成器之前"这一关. [`Board::snap_trace_junctions`] 两个
+// 编译方向都做, 幂等:
+//   1. 删掉长度 < tol 的段;
+//   2. 同网上距离 < tol 的**线端点**并成一簇, 每簇并到一个锚点上. 只有"线端 ↔ 线端"才算接缝 —— 线端落在
+//      过孔铜盘 / 焊盘铜里 (哪怕不在圆心 / 中心) 连接本来就是可靠的, 不动. 锚点候选 = 簇内线端坐标 + 离簇
+//      < tol 的同网过孔圆心 / 焊盘中心; 逐个算代价: 挪完之后"原来精确、现在不精确"的线里, 另一端是过孔
+//      圆心的 (救不回来) 越少越好, 然后是不精确的条数、偏差角度总和; 再往后才轮到"是不是圆心 / 中心".
+//      端点只挪 0.003, 一段 0.1 mm 的短线却能歪 2.7° —— 规整的板不能被弄脏;
+//   3. 保方向平移: 因为挪端点而不再精确的线, 整段平移回去 —— 另一端沿垂直于线段的方向挪同一个分量, 以它
+//      为端点的相邻段跟着平移, 一直传到走线尽头. 焊盘里的端点可以挪, 但不许挪出焊盘. 碰到过孔圆心
+//      (过孔不动) / 端点要挪出焊盘 / 链太长: 这一条整链回退, 线带着微小偏差留下.
+// "精确"= 量化到 nm 后 dx = 0 或 dy = 0 或 |dx| = |dy| (容差 5 nm: 平移后的坐标是浮点加法). 不用"偏差
+// < 0.2° 算规整"的容差口径 —— 一段 2 mm 长的线偏 0.005 mm 只有 0.13°, 会被放过.
+// 坐标全部先量化到 nm 整数 (与 sexpr 生成 fmt_num 的口径一致), 结果确定、可复现.
+// 对拍基准是 downstream project 的 Python 版 (三块板实跑过, 同一算法):
+//   the Python prototype
+
+/// [`Board::snap_trace_junctions`] 的结果统计。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SnapReport {
+    /// 删掉的碎片段数
+    pub segments_removed: usize,
+    /// 并掉的端点簇数
+    pub clusters: usize,
+    /// 被挪动的线端数 (含保方向平移带动的)
+    pub endpoints_moved: usize,
+    /// 做了保方向平移的线数
+    pub straightened: usize,
+    /// 保方向平移救不回来、带着微小偏差留下的线数
+    pub leftover: usize,
+}
+
+/// "精确落在 45° 网格上"的容差 (nm).
+const GRID_EPS_NM: i64 = 5;
+/// 保方向平移一条链最多带动多少个线端.
+const STRAIGHTEN_MAX_CHAIN: usize = 80;
+
+type Nm = (i64, i64);
+
+fn to_nm(p: (f64, f64)) -> Nm {
+    ((p.0 * 1e6).round() as i64, (p.1 * 1e6).round() as i64)
+}
+
+fn nm_dist2(a: Nm, b: Nm) -> i64 {
+    let (dx, dy) = (a.0 - b.0, a.1 - b.1);
+    dx * dx + dy * dy
+}
+
+/// 这段线是否**精确**落在 45° 网格上.
+fn on_grid(a: (f64, f64), b: (f64, f64)) -> bool {
+    let (a, b) = (to_nm(a), to_nm(b));
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    dx.abs() <= GRID_EPS_NM || dy.abs() <= GRID_EPS_NM || (dx.abs() - dy.abs()).abs() <= GRID_EPS_NM
+}
+
+/// 这段线偏离最近的 0°/45°/90°/135° 线多少度.
+fn off_grid_deg(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    if dx.hypot(dy) < 1e-9 {
+        return 0.0;
+    }
+    let ang = dy.atan2(dx).to_degrees().rem_euclid(180.0);
+    (ang - (ang / 45.0).round() * 45.0).abs()
+}
+
+impl Footprint {
+    /// 焊盘中心的世界坐标.
+    pub fn pad_world_center(&self, pad: &Pad) -> (f64, f64) {
+        let (ox, oy) = self.pad_rotated_offset(pad);
+        (self.position.0 + ox, self.position.1 + oy)
+    }
+
+    /// 点 `p` 是否落在焊盘铜内. 矩形按 (封装转角 + 焊盘转角) 的真实朝向算; 正方形按外接圆算
+    /// (circle); 其余形状 (圆角矩形 / 椭圆 / custom) 当直角矩形 —— 比真实铜略松, 用在"端点可以挪"
+    /// 的判据上偏保守方向 (宁可不动).
+    pub fn pad_contains(&self, pad: &Pad, p: (f64, f64)) -> bool {
+        let (cx, cy) = self.pad_world_center(pad);
+        let theta = (self.position.2 + pad.position.2).to_radians();
+        let (dx, dy) = (p.0 - cx, p.1 - cy);
+        // 逆旋转, 与 pad_rotated_offset 的正旋转 (x·cos + y·sin, −x·sin + y·cos) 互逆
+        let (lx, ly) = (
+            dx * theta.cos() - dy * theta.sin(),
+            dx * theta.sin() + dy * theta.cos(),
+        );
+        let (hw, hh) = (pad.size.0 / 2.0, pad.size.1 / 2.0);
+        if (pad.size.0 - pad.size.1).abs() < 1e-9 {
+            lx.hypot(ly) <= hw + 1e-9
+        } else {
+            lx.abs() <= hw + 1e-9 && ly.abs() <= hh + 1e-9
+        }
+    }
+}
+
+impl Board {
+    /// 走线接缝清理, 见本节开头. `tol_mm` <= 0 时什么都不做.
+    pub fn snap_trace_junctions(&mut self, tol_mm: f64) -> SnapReport {
+        let mut rep = SnapReport::default();
+        if !(tol_mm > 0.0) || self.segments.is_empty() {
+            return rep;
+        }
+        let tol_nm = (tol_mm * 1e6).round().max(1.0) as i64;
+        rep.segments_removed += self.drop_tiny(tol_nm);
+        for _ in 0..30 {
+            // 不动点: 没有簇可并、也没有新出现的短段
+            let pass = self.snap_once(tol_nm);
+            rep.clusters += pass.clusters;
+            rep.endpoints_moved += pass.endpoints_moved;
+            rep.straightened += pass.straightened;
+            rep.leftover += pass.leftover;
+            let dropped = self.drop_tiny(tol_nm);
+            rep.segments_removed += dropped;
+            if pass.clusters == 0 && dropped == 0 {
+                return rep;
+            }
+        }
+        panic!("snap_trace_junctions: 30 轮还没收敛");
+    }
+
+    /// 删掉量化后长度 < tol_nm 的段, 返回删了几段.
+    fn drop_tiny(&mut self, tol_nm: i64) -> usize {
+        let before = self.segments.len();
+        self.segments
+            .retain(|s| nm_dist2(to_nm(s.start), to_nm(s.end)) >= tol_nm * tol_nm);
+        before - self.segments.len()
+    }
+
+    fn snap_once(&mut self, tol_nm: i64) -> SnapReport {
+        let mut rep = SnapReport::default();
+        // 每条线进入本轮时的两端 —— 保方向平移只认它 ("原来是否精确"、"原始方向")
+        let orig: Vec<((f64, f64), (f64, f64))> =
+            self.segments.iter().map(|s| (s.start, s.end)).collect();
+        // ---- 点表: 同网的线端点 (去重). 度数 = 以它为端点的线端数 ----
+        let mut deg: HashMap<(u32, Nm), usize> = HashMap::new();
+        for s in &self.segments {
+            *deg.entry((s.net, to_nm(s.start))).or_default() += 1;
+            *deg.entry((s.net, to_nm(s.end))).or_default() += 1;
+        }
+        // 锚点候选的补充: 同网过孔圆心 / 焊盘中心 (只有离簇 < tol 的才用得上)
+        let via_pts: Vec<(u32, Nm)> = self.vias.iter().map(|v| (v.net, to_nm(v.at))).collect();
+        let pad_pts: Vec<(u32, Nm)> = self
+            .footprints
+            .iter()
+            .flat_map(|fp| {
+                fp.pads.iter().filter_map(move |pad| {
+                    pad.net.map(|net| (net, to_nm(fp.pad_world_center(pad))))
+                })
+            })
+            .collect();
+        let mut pts: Vec<(u32, Nm)> = deg.keys().copied().collect();
+        pts.sort_unstable();
+        pts.dedup();
+        let n = pts.len();
+        // ---- 并查集 (bucket 限定邻域搜索): 同网、距离 < tol 的线端点并成一簇 ----
+        let mut parent: Vec<usize> = (0..n).collect();
+        fn find(parent: &mut [usize], mut x: usize) -> usize {
+            while parent[x] != x {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            x
+        }
+        let mut buckets: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+        for (i, (_, p)) in pts.iter().enumerate() {
+            buckets
+                .entry((p.0.div_euclid(tol_nm), p.1.div_euclid(tol_nm)))
+                .or_default()
+                .push(i);
+        }
+        for i in 0..n {
+            let (net_i, p_i) = pts[i];
+            let (bx, by) = (p_i.0.div_euclid(tol_nm), p_i.1.div_euclid(tol_nm));
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if let Some(group) = buckets.get(&(bx + dx, by + dy)) {
+                        for &j in group {
+                            if j > i
+                                && pts[j].0 == net_i
+                                && nm_dist2(p_i, pts[j].1) < tol_nm * tol_nm
+                            {
+                                let (ra, rb) = (find(&mut parent, i), find(&mut parent, j));
+                                if ra != rb {
+                                    parent[ra.max(rb)] = ra.min(rb);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut clusters: HashMap<usize, Vec<usize>> = HashMap::new();
+        for i in 0..n {
+            clusters.entry(find(&mut parent, i)).or_default().push(i);
+        }
+        // 以 p 为端点的同网线段: (段下标, 0 = start / 1 = end)
+        let ends_of = |board: &Board, net: u32, p: Nm| -> Vec<(usize, u8)> {
+            board
+                .segments
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.net == net && (to_nm(s.start) == p || to_nm(s.end) == p))
+                .map(|(i, s)| if to_nm(s.start) == p { (i, 0) } else { (i, 1) })
+                .collect()
+        };
+        let near = |c: Nm, coords: &[Nm]| coords.iter().any(|x| nm_dist2(c, *x) < tol_nm * tol_nm);
+        let mut absorbed: Vec<(usize, u8, (f64, f64), (f64, f64))> = Vec::new();
+        let mut members_by_root: Vec<&Vec<usize>> = clusters.values().collect();
+        members_by_root.sort(); // 确定性: 按成员下标排序
+        for members in members_by_root {
+            if members.len() < 2 {
+                continue;
+            }
+            let net = pts[members[0]].0;
+            let coords: Vec<Nm> = members.iter().map(|&m| pts[m].1).collect();
+            // ---- 选锚点 (见本节开头第 2 条) ----
+            let mut cands: Vec<Nm> = coords.clone();
+            for c in via_pts
+                .iter()
+                .chain(pad_pts.iter())
+                .filter(|(vn, _)| *vn == net)
+                .map(|(_, c)| *c)
+            {
+                if near(c, &coords) && !cands.contains(&c) {
+                    cands.push(c);
+                }
+            }
+            let mut best: Option<((usize, usize, i64, u8, i64), Nm)> = None;
+            for cand in &cands {
+                let cf = (cand.0 as f64 / 1e6, cand.1 as f64 / 1e6);
+                let (mut n_hard, mut n_off, mut dev_sum) = (0usize, 0usize, 0.0);
+                for q in &coords {
+                    if q == cand {
+                        continue;
+                    }
+                    let qf = (q.0 as f64 / 1e6, q.1 as f64 / 1e6);
+                    for (seg_i, side) in ends_of(self, net, *q) {
+                        let s = &self.segments[seg_i];
+                        let o = if side == 0 { s.end } else { s.start };
+                        if !on_grid(qf, o) || on_grid(cf, o) {
+                            continue;
+                        }
+                        n_off += 1;
+                        dev_sum += off_grid_deg(cf, o);
+                        if via_pts.contains(&(net, to_nm(o))) {
+                            n_hard += 1; // 另一端是过孔圆心: 过孔不动, 这条线救不回来
+                        }
+                    }
+                }
+                let centred = via_pts.contains(&(net, *cand)) || pad_pts.contains(&(net, *cand));
+                let key = (
+                    n_hard,
+                    n_off,
+                    (dev_sum * 1e4).round() as i64,
+                    if centred { 0 } else { 1 },
+                    -(*deg.get(&(net, *cand)).unwrap_or(&0) as i64),
+                );
+                let better = match &best {
+                    None => true,
+                    Some((bk, bc)) => key < *bk || (key == *bk && *cand < *bc),
+                };
+                if better {
+                    best = Some((key, *cand));
+                }
+            }
+            let Some((_, anchor)) = best else { continue };
+            rep.clusters += 1;
+            let af = (anchor.0 as f64 / 1e6, anchor.1 as f64 / 1e6);
+            for &q in &coords {
+                if q == anchor {
+                    continue;
+                }
+                for (seg_i, side) in ends_of(self, net, q) {
+                    let qf = (q.0 as f64 / 1e6, q.1 as f64 / 1e6);
+                    let ep = if side == 0 {
+                        &mut self.segments[seg_i].start
+                    } else {
+                        &mut self.segments[seg_i].end
+                    };
+                    *ep = af;
+                    rep.endpoints_moved += 1;
+                    absorbed.push((seg_i, side, qf, af));
+                }
+            }
+        }
+        // ---- 保方向平移 ----
+        let (fixed, moved, leftover) = self.straighten(absorbed, &orig);
+        rep.straightened += fixed;
+        rep.endpoints_moved += moved;
+        rep.leftover += leftover;
+        rep
+    }
+
+    /// 保方向平移. `absorbed` 是刚被并过的线端 (段下标, 哪一端, 原坐标, 新坐标); `orig` 是每条线进入本轮时的两端.
+    /// 一条线原来精确、现在不精确: 把它的另一端挪到"吸附端当前坐标 + 原始方向向量" —— 线段 = 原线平移 (< tol).
+    /// 以这一端为端点的同网线段那一端都跟着挪; 其中"原来精确、现在不精确"的继续往它们的另一端传, 一直到走线尽头.
+    /// 焊盘里的端点可以挪, 但不许挪出焊盘. 碰到过孔圆心 (过孔不动) / 端点要挪出焊盘 / 链太长: 这一条整链回退,
+    /// 线带着微小偏差留下. 返回 (修好的线数, 带动的线端数, 救不回来的线数).
+    ///
+    /// "原来精确"和"原始方向"**只认 orig**. 拿当前坐标算会出两种错 (analog-board 上各实锤一次): 一条线已被前面某条线的
+    /// 平移链顺带修好, 仍被当成"歪了"再平移一次, 把整条链拉回去; 另一端已被挪过, 一条被弄歪的线被当成
+    /// "本来就不精确"放过.
+    fn straighten(
+        &mut self,
+        absorbed: Vec<(usize, u8, (f64, f64), (f64, f64))>,
+        orig: &[((f64, f64), (f64, f64))],
+    ) -> (usize, usize, usize) {
+        let pads_by_net: HashMap<u32, Vec<(&Footprint, &Pad)>> = {
+            let mut m: HashMap<u32, Vec<(&Footprint, &Pad)>> = HashMap::new();
+            for fp in &self.footprints {
+                for pad in &fp.pads {
+                    if let Some(net) = pad.net {
+                        m.entry(net).or_default().push((fp, pad));
+                    }
+                }
+            }
+            m
+        };
+        let via_centers: Vec<(u32, (f64, f64))> = self.vias.iter().map(|v| (v.net, v.at)).collect();
+        // p 所在的焊盘 (同网, 点落在铜内)
+        let pad_at = |net: u32, p: (f64, f64)| -> Option<usize> {
+            pads_by_net
+                .get(&net)?
+                .iter()
+                .position(|(fp, pad)| fp.pad_contains(pad, p))
+        };
+        let same = |a: (f64, f64), b: (f64, f64)| a.0 == b.0 && a.1 == b.1;
+        // 以 p 为端点的同网线段 (当前坐标): (段下标, 哪一端, 另一端坐标)
+        let ends_at = |board: &Board, net: u32, p: (f64, f64)| -> Vec<(usize, u8, (f64, f64))> {
+            board
+                .segments
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.net == net && (same(s.start, p) || same(s.end, p)))
+                .map(|(i, s)| {
+                    if same(s.start, p) {
+                        (i, 0, s.end)
+                    } else {
+                        (i, 1, s.start)
+                    }
+                })
+                .collect()
+        };
+        // 量化到 nm (与 fmt_num 一致; 也与 Python 版对拍)
+        let q_nm = |v: f64| ((v * 1e6).round() / 1e6, 0.0).0;
+        let mut fixed = 0usize;
+        let mut moved_total = 0usize;
+        let mut leftover = 0usize;
+        for (seg_i, side, _q, _r) in absorbed {
+            let s = &self.segments[seg_i];
+            let (q0, o0) = if side == 0 {
+                (orig[seg_i].0, orig[seg_i].1)
+            } else {
+                (orig[seg_i].1, orig[seg_i].0)
+            };
+            let dbg = std::env::var_os("KICAD_JSON5_SNAP_DEBUG").is_some();
+            // 原来就不精确的 / 现在已经精确的 (可能已被前面某条线的平移链顺带修好): 不管
+            if !on_grid(q0, o0) || on_grid(s.start, s.end) {
+                if dbg {
+                    eprintln!(
+                        "snap debug: net {} seg {seg_i} side {side} was ({:.4},{:.4})-({:.4},{:.4}) now ({:.4},{:.4})-({:.4},{:.4}): skip (was off-grid {}, now on-grid {})",
+                        s.net, q0.0, q0.1, o0.0, o0.1, s.start.0, s.start.1, s.end.0, s.end.1,
+                        !on_grid(q0, o0), on_grid(s.start, s.end)
+                    );
+                }
+                continue;
+            }
+            let net = s.net;
+            let r_ = if side == 0 { s.start } else { s.end }; // 当前的两端
+            let o = if side == 0 { s.end } else { s.start };
+            let dp = (r_.0 + (o0.0 - q0.0) - o.0, r_.1 + (o0.1 - q0.1) - o.1);
+            // 先进先出 (与 Python 版一致): 链有分叉时, 处理顺序会影响链太长 / 碰到过孔的判定
+            let mut todo: std::collections::VecDeque<((f64, f64), (f64, f64))> =
+                std::collections::VecDeque::from([(o, dp)]);
+            let mut trail: Vec<(usize, u8, (f64, f64))> = Vec::new();
+            let mut seen: std::collections::HashSet<(Nm, u64, u64)> = Default::default();
+            let mut ok = true;
+            while let Some((x, d)) = todo.pop_front() {
+                if d.0.hypot(d.1) < 1e-9 {
+                    continue;
+                }
+                if !seen.insert((to_nm(x), d.0.to_bits(), d.1.to_bits())) {
+                    continue;
+                }
+                let x2 = (q_nm(x.0 + d.0), q_nm(x.1 + d.1));
+                let pad0 = pad_at(net, x);
+                let is_via = via_centers
+                    .iter()
+                    .any(|(vn, vc)| *vn == net && same(*vc, x));
+                let leaves_pad = pad0.is_some_and(|pi| {
+                    let (fp, pad) = pads_by_net[&net][pi];
+                    !fp.pad_contains(pad, x2)
+                });
+                if is_via || leaves_pad || trail.len() > STRAIGHTEN_MAX_CHAIN {
+                    if std::env::var_os("KICAD_JSON5_SNAP_DEBUG").is_some() {
+                        eprintln!(
+                            "snap debug:   roll back at ({:.4},{:.4}) -> ({:.4},{:.4}): via {} leaves_pad {} trail {}",
+                            x.0, x.1, x2.0, x2.1, is_via, leaves_pad, trail.len()
+                        );
+                    }
+                    ok = false;
+                    break;
+                }
+                for (s2, e2, o2) in ends_at(self, net, x) {
+                    trail.push((s2, e2, x));
+                    if e2 == 0 {
+                        self.segments[s2].start = x2;
+                    } else {
+                        self.segments[s2].end = x2;
+                    }
+                    let (x0, o20) = if e2 == 0 {
+                        (orig[s2].0, orig[s2].1)
+                    } else {
+                        (orig[s2].1, orig[s2].0)
+                    };
+                    // 这一段原来精确、现在不精确 → 另一端按原始方向跟着平移
+                    if on_grid(x0, o20) && !on_grid(x2, o2) {
+                        todo.push_back((
+                            o2,
+                            (x2.0 + (o20.0 - x0.0) - o2.0, x2.1 + (o20.1 - x0.1) - o2.1),
+                        ));
+                    }
+                }
+            }
+            if dbg {
+                eprintln!(
+                    "snap debug: net {net} seg {seg_i} side {side} was ({:.4},{:.4})-({:.4},{:.4}) now ({:.4},{:.4})-({:.4},{:.4}): {} {}",
+                    q0.0, q0.1, o0.0, o0.1, self.segments[seg_i].start.0, self.segments[seg_i].start.1,
+                    self.segments[seg_i].end.0, self.segments[seg_i].end.1,
+                    if ok { "slid" } else { "rolled back" }, trail.len()
+                );
+            }
+            if ok {
+                fixed += 1;
+                moved_total += trail.len();
+            } else {
+                leftover += 1;
+                for (s2, e2, x) in trail.into_iter().rev() {
+                    if e2 == 0 {
+                        self.segments[s2].start = x;
+                    } else {
+                        self.segments[s2].end = x;
+                    }
+                }
+            }
+        }
+        (fixed, moved_total, leftover)
+    }
+}

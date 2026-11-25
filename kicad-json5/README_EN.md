@@ -44,6 +44,7 @@ kicad-json5 schematic.kicad_sch
 | `--debug-ast` | Print AST for debugging |
 | `--power-flags` | Auto-insert PWR_FLAG when generating S-expressions |
 | `--dialect <D>` | `.kicad_pcb` output dialect: `official` (default, loads directly in stock kicad-cli) / `huaqiu` (HQ fork compatible) / `auto` (content-detected, round-trip preserving) |
+| `--snap-tol <MM>` | Trace-junction snapping tolerance (default `0.01`, `0` disables): drops fragment segments shorter than it, welds same-net trace ends closer than it onto one coordinate (via centre / pad centre preferred, keeping traces on the 0°/45°/90° grid where possible), and slides traces knocked off the grid back together with their neighbours. Applied in both directions, idempotent |
 | `-v, --verbose` | Verbose output |
 
 ### Examples

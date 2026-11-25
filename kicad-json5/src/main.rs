@@ -102,6 +102,15 @@ struct Args {
     /// Existing hand-written project files are never overwritten.
     #[arg(long, default_value_t = false)]
     no_pro: bool,
+
+    /// Snap same-net trace endpoints closer than this tolerance (mm) onto one
+    /// coordinate and delete the fragment segments shorter than it. Routers leave
+    /// these at multi-trace junctions (freerouting: 0.0001–0.01 mm fragments); they
+    /// are zero-length draws in the gerber and DRC does not report them. Applied to
+    /// the parsed board in both compile directions; idempotent; 0 disables.
+    /// See the "Trace junction snapping" section in `ir/board.rs`.
+    #[arg(long, default_value_t = 0.01)]
+    snap_tol: f64,
 }
 
 /// Board detection must tolerate both JSON5 unquoted keys (`segments:`) and
@@ -213,6 +222,15 @@ fn run_pcb(args: &Args, source: &str) -> Result<(), Box<dyn std::error::Error>> 
     // 方言同时驱动 net 引用形态: Official 写顶层 net 表 + 规范引用
     // (stock kicad-cli 可加载); Huaqiu 内联 net 名省表 (HQ fork 要求)。
     let mut board = board;
+    // 走线接缝清理: 板数据进入生成器之前做一次, 两个方向都走 (freerouting 回导出的板转成 json5
+    // 真源时是干净的; 带碎片的旧真源编译时顺手清掉), 幂等. 静默 —— 编译器成功时不出声.
+    let snap = board.snap_trace_junctions(args.snap_tol);
+    if args.verbose && snap != Default::default() {
+        eprintln!(
+            "snap-traces(tol={} mm): {} fragment segments removed, {} clusters, {} endpoints moved, {} traces slid",
+            args.snap_tol, snap.segments_removed, snap.clusters, snap.endpoints_moved, snap.straightened
+        );
+    }
     let mut dialect = kicad_json5::dialect::VendorDialect::Official;
     if matches!(output_ext, Some("kicad_pcb") | None | Some("sexpr")) {
         dialect = match args.dialect.as_str() {

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Trace junction snapping** (`Board::snap_trace_junctions`, CLI `--snap-tol <MM>`,
+  default `0.01`, `0` disables). Routers leave two kinds of seams in the traces
+  that DRC does not report: fragment segments shorter than 10 µm at multi-trace
+  junctions (freerouting: 251 fragments on a 1899-segment board), and trace ends
+  a few nm apart but not equal (own astar router: pad centres on a 1/8 mm grid,
+  trace ends on a 0.01 mm grid). The board is now cleaned before it reaches the
+  generators, in both compile directions, idempotently: fragments shorter than the
+  tolerance are dropped; same-net trace ends closer than the tolerance are welded
+  onto one anchor (via centre / pad centre preferred, chosen so that the fewest
+  traces leave the 0°/45°/90° grid); traces knocked off the grid are slid back
+  together with their neighbours. SES parsing lives in pcbnew, so this is the
+  one place in this repo where the seams can be caught.
+  Cross-checked against the Python implementation on three real boards
+  (identical segment arrays). Tests: `tests/board_snap.rs`.
+
 ### Changed
 - **Board S-expression emission now defaults to the Official KiCad dialect**
   and is loadable by stock `kicad-cli` (verified against 10.0.6): a top-level

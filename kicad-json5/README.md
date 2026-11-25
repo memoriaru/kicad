@@ -44,7 +44,8 @@ kicad-json5 schematic.kicad_sch
 | `--debug-ast` | 打印 AST 用于调试 |
 | `--power-flags` | JSON5→Sexpr 时自动插入 PWR_FLAG |
 | `--dialect <D>` | `.kicad_pcb` 输出方言：`official`（默认, stock kicad-cli 可直接加载）/ `huaqiu`（华秋 fork 兼容）/ `auto`（按输入内容探测, 往返保真） |
-| `-v, --verbose` | 详细输出 |
+| `--snap-tol <MM>` | 走线接缝清理的容差（默认 `0.01`，`0` 关闭）：删掉比它短的碎片段；把同网上距离比它近的线端点并到同一个坐标（过孔圆心 / 焊盘中心优先，并保证尽量不把线弄出 0°/45°/90° 网格）；被弄出网格的线连同相邻段一起平移回去。两个转换方向都做，幂等 |
+| `-v, --verbose` | 详细输出（清理有动作时打印统计） |
 
 ### 示例
 
