@@ -1,5 +1,5 @@
 //! Routing-quality audits: junction angles, degenerate overlaps,
-//! corner mitering. Logic ported from the battery-board hand scripts.
+//! corner mitering.
 
 use kicad_json5::ir::board::{Board, Segment};
 use std::collections::BTreeMap;
@@ -37,13 +37,7 @@ fn vertex_angle(oa: (f64, f64), p: (f64, f64), ob: (f64, f64)) -> f64 {
 }
 
 fn seg_dist_pt(px: f64, py: f64, s: (f64, f64), e: (f64, f64)) -> f64 {
-    let (dx, dy) = (e.0 - s.0, e.1 - s.1);
-    let l2 = dx * dx + dy * dy;
-    if l2 == 0.0 {
-        return (px - s.0).hypot(py - s.1);
-    }
-    let t = (((px - s.0) * dx + (py - s.1) * dy) / l2).clamp(0.0, 1.0);
-    (px - (s.0 + t * dx)).hypot(py - (s.1 + t * dy))
+    crate::drc::point_to_segment_dist((px, py), s, e)
 }
 
 fn proj_t(p: (f64, f64), s: (f64, f64), e: (f64, f64)) -> f64 {
@@ -416,26 +410,9 @@ pub struct ViaInfo {
 }
 
 fn point_in_polys(p: (f64, f64), polys: &[Vec<(f64, f64)>]) -> bool {
-    for pts in polys {
-        let n = pts.len();
-        if n < 3 {
-            continue;
-        }
-        let mut inside = false;
-        let mut j = n - 1;
-        for i in 0..n {
-            let (xi, yi) = pts[i];
-            let (xj, yj) = pts[j];
-            if (yi > p.1) != (yj > p.1) && p.0 < (xj - xi) * (p.1 - yi) / (yj - yi) + xi {
-                inside = !inside;
-            }
-            j = i;
-        }
-        if inside {
-            return true;
-        }
-    }
-    false
+    polys
+        .iter()
+        .any(|pts| crate::stitching::point_in_poly(p, pts))
 }
 
 /// Classify every via by its layer-side connectivity:

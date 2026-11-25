@@ -51,7 +51,7 @@ kicad-json5 schematic.kicad_sch
 
 ```bash
 # JSON5 → KiCad with auto PWR_FLAG and NC markers
-kicad-json5 carrier-board.json5 -o carrier-board.kicad_sch --power-flags
+kicad-json5 demo-board.json5 -o demo-board.kicad_sch --power-flags
 
 # Extract circuit topology
 kicad-json5 schematic.kicad_sch -f topology -o topology.json
@@ -189,7 +189,7 @@ kicad-json5/
 - `clap` — CLI argument parsing
 - `serde` / `serde_json` / `serde_json5` — Serialization
 - `uuid` — UUID generation
-- `thiserror` / `anyhow` — Error handling
+- `thiserror` — Error handling
 
 ## License
 

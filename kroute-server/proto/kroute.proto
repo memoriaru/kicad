@@ -69,7 +69,7 @@ message SubmitReq {
   Backend backend = 1;
   // .kicad_pcb 文件内容
   bytes board = 2;
-  // 板文件名（如 demo-board-board.kicad_pcb），用于服务端留档
+  // 板文件名（如 demo-board.kicad_pcb），用于服务端留档
   string board_name = 3;
   Strategy strategy = 4;
   // 参与幂等哈希的备注：同一块板不同尝试（seed/顺序/参数）用它区分

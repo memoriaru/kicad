@@ -1,18 +1,15 @@
-//! P2 制造/工艺规则件：过孔排布割平面 + 20H 平面内缩 + AC 耦合电容焊盘挖空
-//! 
+//! 制造 / 工艺规则审计：过孔排布割平面、20H 平面内缩、AC 耦合电容焊盘挖空建议。
 //!
 //! 判据来源：
-//! - 布线经验（P5 扇出："BGA 格点=间距一半"“打孔太密=割断电源/地平面，
-//!   动手术切一刀缝不起来——隔开打”；"一排齐孔"归因同 的回流）
-//! - 回流设计经验（P18：20H 规则=电源层比地层内缩 20 倍层间距，电源辐射
-//!   全被地吸收）
-//! - 接口设计经验（P20：隔直电容焊盘下方铜层要**挖空**——焊盘铜+回流
-//!   路径突变造成阻抗不连续）
+//! - BGA 扇出格点 = 引脚间距的一半；打孔太密 = 割断电源 / 地平面（"动手术切一刀缝不起来 —— 隔开打"），
+//!   "一排齐孔"的归因口径同 `reflow_audit`。
+//! - 20H 规则：电源层比地层内缩 20 倍层间距，电源辐射全被地吸收。
+//! - 差分对的隔直（AC 耦合）电容焊盘下方铜层要**挖空** —— 焊盘铜 + 回流路径突变造成阻抗不连续。
 
 use kicad_json5::ir::board::Board;
 
 use crate::current_carry::{is_ground, net_voltage};
-use crate::stitching::{copper_axis, is_high_speed, net_display, StitchConfig};
+use crate::stitching::{copper_axis, is_high_speed, StitchConfig};
 
 // ---------------------------------------------------------------------------
 // 同排齐孔检测（割平面）
@@ -31,7 +28,7 @@ pub struct ViaFence {
 }
 
 /// 检测同排齐孔：≥min_count 个 via 共线（同 x 或同 y，容差 tol_mm）即报。
-/// 口径："为好看斜着打一排=人为割断平面"“地孔要错开打”。
+/// "为好看斜着打一排 = 人为割断平面"，"地孔要错开打"。
 pub fn detect_via_fences(board: &Board, min_count: usize, tol_mm: f64) -> Vec<ViaFence> {
     let mut out = Vec::new();
     let mut vias: Vec<&kicad_json5::ir::board::Via> = board.vias.iter().collect();
@@ -83,7 +80,7 @@ pub fn detect_via_fences(board: &Board, min_count: usize, tol_mm: f64) -> Vec<Vi
 }
 
 fn fence_layers(run: &[&kicad_json5::ir::board::Via]) -> Vec<String> {
-    let axis = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "B.Cu"];
+    let axis = crate::stitching::SIX_LAYER_ORDER;
     let mut lo = usize::MAX;
     let mut hi = 0usize;
     for v in run {
@@ -104,7 +101,7 @@ fn fence_layers(run: &[&kicad_json5::ir::board::Via]) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// BGA 扇出格点（口径：格点=引脚间距/2）
+// BGA 扇出格点（格点=引脚间距/2）
 // ---------------------------------------------------------------------------
 
 /// 扇出孔格点 = pitch/2（0.8mm 间距 BGA → 0.4mm 格点；0.5mm → 0.25mm）。
@@ -352,11 +349,13 @@ mod tests {
             .iter()
             .all(|(x, _)| ((x - 0.125) / 0.25 - ((x - 0.125) / 0.25).round()).abs() < 1e-9));
 
-        let mut b = Board::default();
-        b.nets = vec![NetDef {
-            id: 0,
-            name: "GND".into(),
-        }];
+        let mut b = Board {
+            nets: vec![NetDef {
+                id: 0,
+                name: "GND".into(),
+            }],
+            ..Default::default()
+        };
         // 同 y 横排 6 孔（pitch 0.5）——齐排
         for k in 0..6 {
             b.vias.push(Via {
@@ -388,17 +387,19 @@ mod tests {
     /// 验收口径：2.0mm 层距 ⇒ 内缩 40mm 边界检测正确。
     #[test]
     fn test_20h() {
-        let mut b = Board::default();
-        b.nets = vec![
-            NetDef {
-                id: 0,
-                name: "GND".into(),
-            },
-            NetDef {
-                id: 1,
-                name: "5V".into(),
-            },
-        ];
+        let mut b = Board {
+            nets: vec![
+                NetDef {
+                    id: 0,
+                    name: "GND".into(),
+                },
+                NetDef {
+                    id: 1,
+                    name: "5V".into(),
+                },
+            ],
+            ..Default::default()
+        };
         // 地 100×100 @In2, 电源 100×100 @In3（零内缩）⇒ 违规 over=40
         b.zones
             .push(mkzone("GND", "In2.Cu", 0.0, 0.0, 100.0, 100.0));
@@ -420,25 +421,27 @@ mod tests {
     #[test]
     fn test_ac_cap_void() {
         let cfg = StitchConfig::default();
-        let mut b = Board::default();
-        b.nets = vec![
-            NetDef {
-                id: 0,
-                name: "GND".into(),
-            },
-            NetDef {
-                id: 1,
-                name: "USB_DP".into(),
-            },
-            NetDef {
-                id: 2,
-                name: "USB_DM".into(),
-            },
-            NetDef {
-                id: 3,
-                name: "SPI_CS".into(),
-            },
-        ];
+        let mut b = Board {
+            nets: vec![
+                NetDef {
+                    id: 0,
+                    name: "GND".into(),
+                },
+                NetDef {
+                    id: 1,
+                    name: "USB_DP".into(),
+                },
+                NetDef {
+                    id: 2,
+                    name: "USB_DM".into(),
+                },
+                NetDef {
+                    id: 3,
+                    name: "SPI_CS".into(),
+                },
+            ],
+            ..Default::default()
+        };
         let mut cap = Footprint {
             lib_id: "Device:C".into(),
             reference: "C9".into(),

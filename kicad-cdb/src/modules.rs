@@ -1,4 +1,4 @@
-//! 模块树（P1）：analog-board-modules.json5 的加载、扁平化与器件 bbox。
+//! 模块树：modules.json5 的加载、扁平化与器件 bbox。
 //!
 //! 模块树是布局操作的语义层地基（ModuPlace 式）：LLM 生成初稿 + 人审定稿，
 //! 本模块只做机械加载与几何计算，不解释语义。
@@ -61,7 +61,6 @@ pub fn module_bbox(
     board: &kicad_json5::ir::board::Board,
     devices: &[String],
 ) -> Option<(f64, f64, f64, f64)> {
-    use kicad_json5::ir::board::Board as B;
     let want: std::collections::HashSet<&str> = devices.iter().map(|s| s.as_str()).collect();
     let mut mm = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     let mut any = false;
@@ -89,7 +88,6 @@ pub fn module_bbox(
             any = true;
         }
     }
-    let _ = B::default; // 防未使用告警（无实际作用时移除）
     if any {
         Some(mm)
     } else {

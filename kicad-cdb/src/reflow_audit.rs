@@ -1,17 +1,18 @@
-//! 回流路径连续性审计 + 立体包地完整性
+//! 回流路径连续性审计 + 立体包地完整性。
 //!
-//! 判据来源：回流设计经验——
-//!   - 回流沿阻抗最小路径=高频沿信号线正下方；破坏参考平面=回流绕圈=面积暴增
-//!   - 归因三类：挖槽、**一排齐孔**（为好看斜打一排=人为割断平面）、平面分割
-//!   - 孤岛地铜皮高频有害→挖空删除
-//!   - 包地判据（布线经验）："立体包地或别包"——同层两侧+纵向相邻层都是地
-//!     且**必须打孔**；不打孔的包地线高频自身呈电感=天线（地弹）
+//! 判据来源：
+//!   - 回流沿阻抗最小路径 = 高频沿信号线正下方；破坏参考平面 = 回流绕圈 = 环路面积暴增
+//!   - 归因三类：挖槽、**一排齐孔**（为好看斜打一排 = 人为割断平面）、平面分割
+//!   - 孤岛地铜皮高频有害 → 挖空删除
+//!   - 包地判据："立体包地或别包" —— 同层两侧 + 纵向相邻层都是地，且**必须打孔**；
+//!     不打孔的包地线高频自身呈电感 = 天线（地弹）
 //!
-//! 三层分职：本模块=确定性判据（几何采样+连通性）；高速网语义复用 stitching 的
-//! 口径（net 名模式，可覆盖）。KiCad DRC 不查这些——它只看间距与连接。
+//! 三层分职：本模块 = 确定性判据（几何采样 + 连通性）；高速网语义复用 stitching 的
+//! 口径（net 名模式，可覆盖）。KiCad DRC 不查这些 —— 它只看间距与连接。
 
 use kicad_json5::ir::board::Board;
 
+use crate::current_carry::{is_ground, net_voltage};
 use crate::stitching::{copper_axis, is_high_speed, net_display, point_in_poly, StitchConfig};
 
 /// 投影带断点。
@@ -30,7 +31,7 @@ pub enum BreakCause {
     NoPlane,
     /// zone outline 覆盖但填充缺失（挖槽/孤岛删除后残留）。
     SlotOrIsland,
-    /// 断点 1mm 内 ≥3 过孔 = 齐排孔割断（口径"一排齐孔"）。
+    /// 断点 1mm 内 ≥3 过孔 = 齐排孔割断（"一排齐孔"）。
     ViaFence { nearby: usize },
 }
 
@@ -53,7 +54,7 @@ pub struct GuardTrace {
 pub enum GuardVerdict {
     /// 立体包地：打孔足 + 纵向是地。
     Ok3D { via_rate_mm: f64 },
-    /// 同层包了但没打孔 = 天线（口径"只要求包地不要求打孔的主管=水货"）。
+    /// 同层包了但没打孔 = 天线（只要求包地不要求打孔 = 没包）。
     AntennaNoVias,
     /// 打了孔但纵向邻层非地——半立体。
     NoVerticalGround,
@@ -189,16 +190,13 @@ pub fn audit_guards(board: &Board, cfg: &StitchConfig) -> Vec<GuardTrace> {
     let gnd_segs: Vec<_> = board
         .segments
         .iter()
-        .filter(|s| {
-            let n = net_display(board, s.net);
-            n == "GND" || n.ends_with("GND") || n.starts_with("GND")
-        })
+        .filter(|s| is_ground(&net_display(board, s.net)))
         .collect();
     for seg in &board.segments {
         let net = net_display(board, seg.net);
         if net.is_empty()
-            || crate::current_carry::is_ground(&net)
-            || crate::current_carry::net_voltage(&net).is_some()
+            || is_ground(&net)
+            || net_voltage(&net).is_some()
             || !is_high_speed(&net, cfg)
         {
             continue; // 包地审计的"被包方"必须是信号网(GND 自身在 --all 下会自我匹配, 测试实锤)
@@ -230,11 +228,7 @@ pub fn audit_guards(board: &Board, cfg: &StitchConfig) -> Vec<GuardTrace> {
             let stitch = board
                 .vias
                 .iter()
-                .filter(|v| {
-                    let n = net_display(board, v.net);
-                    (n == "GND" || n.ends_with("GND") || n.starts_with("GND"))
-                        && dist_pt_seg((**g).clone(), v.at) <= 0.4
-                })
+                .filter(|v| is_ground(&net_display(board, v.net)) && dist_pt_seg(g, v.at) <= 0.4)
                 .count();
             // 纵向邻层是否地
             let idx = axis.iter().position(|l| *l == seg.layer);
@@ -274,24 +268,16 @@ pub fn audit_guards(board: &Board, cfg: &StitchConfig) -> Vec<GuardTrace> {
     out
 }
 
-fn dist_pt_seg(s: kicad_json5::ir::board::Segment, p: (f64, f64)) -> f64 {
-    let dx = s.end.0 - s.start.0;
-    let dy = s.end.1 - s.start.1;
-    let l2 = dx * dx + dy * dy;
-    let t = if l2 == 0.0 {
-        0.0
-    } else {
-        (((p.0 - s.start.0) * dx + (p.1 - s.start.1) * dy) / l2).clamp(0.0, 1.0)
-    };
-    (s.start.0 + t * dx - p.0).hypot(s.start.1 + t * dy - p.1)
+fn dist_pt_seg(s: &kicad_json5::ir::board::Segment, p: (f64, f64)) -> f64 {
+    crate::drc::point_to_segment_dist(p, s.start, s.end)
 }
 
 /// 孤岛地检测（轻量版）：zone 填充多边形中面积小于阈值且与其它填充不相邻者。
-/// 口径"孤岛地铜皮高频有害→挖空删除"。
+/// 孤岛地铜皮高频有害 → 挖空删除。
 pub fn find_ground_islands(board: &Board, min_area_mm2: f64) -> Vec<(String, (f64, f64), f64)> {
     let mut out = Vec::new();
     for z in &board.zones {
-        if !(z.net_name == "GND" || z.net_name.ends_with("GND") || z.net_name.starts_with("GND")) {
+        if !is_ground(&z.net_name) {
             continue;
         }
         for fp in &z.filled_polygons {
@@ -416,17 +402,19 @@ mod tests {
             ..Default::default()
         };
         // B.Cu 全 GND 填充 x∈[0,20]；x∈[20,40] 只有 outline 无填充（挖槽区）
-        let mut b = Board::default();
-        b.nets = vec![
-            NetDef {
-                id: 0,
-                name: "GND".into(),
-            },
-            NetDef {
-                id: 1,
-                name: "CLK_X".into(),
-            },
-        ];
+        let mut b = Board {
+            nets: vec![
+                NetDef {
+                    id: 0,
+                    name: "GND".into(),
+                },
+                NetDef {
+                    id: 1,
+                    name: "CLK_X".into(),
+                },
+            ],
+            ..Default::default()
+        };
         b.zones.push(zone_gnd("B.Cu", 0.0, 20.0));
         b.zones.push(Zone {
             outline: vec![(20.0, 0.0), (40.0, 0.0), (40.0, 40.0), (20.0, 40.0)],
@@ -481,17 +469,19 @@ mod tests {
             all_nets: true,
             ..Default::default()
         };
-        let mut b = Board::default();
-        b.nets = vec![
-            NetDef {
-                id: 0,
-                name: "GND".into(),
-            },
-            NetDef {
-                id: 1,
-                name: "CLK_X".into(),
-            },
-        ];
+        let mut b = Board {
+            nets: vec![
+                NetDef {
+                    id: 0,
+                    name: "GND".into(),
+                },
+                NetDef {
+                    id: 1,
+                    name: "CLK_X".into(),
+                },
+            ],
+            ..Default::default()
+        };
         // 高速线 + 平行 GND guard 距 1mm，长 10mm
         b.segments.push(Segment {
             start: (0.0, 10.0),
@@ -535,11 +525,13 @@ mod tests {
 
     #[test]
     fn test_ground_islands() {
-        let mut b = Board::default();
-        b.nets = vec![NetDef {
-            id: 0,
-            name: "GND".into(),
-        }];
+        let mut b = Board {
+            nets: vec![NetDef {
+                id: 0,
+                name: "GND".into(),
+            }],
+            ..Default::default()
+        };
         let mut z = zone_gnd("B.Cu", 0.0, 40.0);
         z.filled_polygons
             .push(kicad_json5::ir::board::FilledPolygon {

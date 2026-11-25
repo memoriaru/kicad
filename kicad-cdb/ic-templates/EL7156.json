@@ -1,7 +1,7 @@
 {
   "name": "EL7156",
   "type": "ic-core",
-  "description": "EL7156 高速时钟驱动器 (SOIC-8)，用于 sensor 时钟信号驱动",
+  "description": "EL7156 高速时钟驱动器 (SOIC-8)，三通道，用于时钟脉冲驱动",
   "ic": {
     "mpn": "EL7156",
     "manufacturer": "Renesas/Intersil",
@@ -65,5 +65,5 @@
     "c_vplus": { "x": 50,  "y": -5 },
     "c_vminus":{ "x": 50,  "y": 5 },
     "r_out":   { "x": 15,  "y": 0 }
-  },
+  }
 }

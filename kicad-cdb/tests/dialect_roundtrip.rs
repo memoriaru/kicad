@@ -1,12 +1,12 @@
 //! Dialect-board regression guard.
 //!
-//! The sensor boards are KiCad-10 dialect files: pads/segments carry inline
+//! The reference boards are KiCad-10 dialect files: pads/segments carry inline
 //! `(net "NAME")` and there is NO numeric net table. Guards fixed here:
 //! 1. Parsing a dialect board synthesizes a net table and resolves pad nets.
 //! 2. Re-generating keeps every segment/via/pad on the SAME net name.
 //! 3. Generated vias must never carry an empty net (`(net "")`) — an unnetted
 //!    via reads as a floating barrel and DRC shorts it against anything it
-//!    touches (measured: 121 shorting errors on the analog-board board).
+//!    touches (measured: 121 shorting errors on a real board).
 
 use kicad_json5::codegen::BoardSexprGenerator;
 use kicad_json5::parse_board;
@@ -177,7 +177,7 @@ fn dialect_roundtrip_preserves_net_names() {
 }
 
 /// An unnetted via (`(net "")`) is a floating barrel: DRC shorts it against
-/// everything it touches (measured: 121 shorting errors on the analog-board board).
+/// everything it touches (measured: 121 shorting errors on a real board).
 #[test]
 fn generated_vias_carry_net_names() {
     let mut board = parse_board(DIALECT_BOARD).unwrap();

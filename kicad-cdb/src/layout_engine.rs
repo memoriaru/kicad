@@ -401,13 +401,22 @@ fn extract_footprint_dims(lib_upper: &str) -> Option<(f64, f64)> {
     None
 }
 
+/// 60 脚 leaf-blade CERDIP（两排各 30 片刀片引脚）按封装族名认：库名里带 `CERDIP-60` /
+/// `LEAF-BLADE` / `LEAF_BLADE`，或封装名以 `_LEAF` 结尾（`<型号>_Leaf` 这种写法）.
+fn is_leaf_blade_cerdip(lib_upper: &str) -> bool {
+    lib_upper.contains("CERDIP-60")
+        || lib_upper.contains("LEAF-BLADE")
+        || lib_upper.contains("LEAF_BLADE")
+        || lib_upper.contains("_LEAF")
+}
+
 pub fn infer_body_size(lib_id: &str, pin_count: usize) -> (f64, f64) {
     let lib = lib_id.to_uppercase();
 
-    // CERDIP-60 sensor (CERDIP-60 leaf-blade variant): two rows of 30 blades,
+    // Leaf-blade CERDIP-60: two rows of 30 blades,
     // 51.0mm row spacing (body width, spec 51.00±0.51), 1.778mm pitch within
     // a row (span 51.56mm). SMD leaf pads extend OUTWARD — see infer_pad_params.
-    if lib.contains("CERDIP-60") || lib.contains("CERDIP60") || lib.contains("CERDIP-60") {
+    if is_leaf_blade_cerdip(&lib) {
         return (58.0, 66.0);
     }
 
@@ -718,10 +727,10 @@ pub fn build_pin_offsets(
         return result;
     }
 
-    // CERDIP-60 sensor leaf-blade package: 30+30 blades, 51.0mm row spacing,
+    // Leaf-blade CERDIP-60 package: 30+30 blades, 51.0mm row spacing,
     // 1.778mm pitch per row. Pin 1-30 down the LEFT column, 31-60 UP the
     // right column (DIP counterclockwise, pin60=VSUB top-right next to pin1).
-    if lib.contains("CERDIP-60") || lib.contains("CERDIP60") || lib.contains("CERDIP-60") {
+    if is_leaf_blade_cerdip(&lib) {
         let pitch = 1.778;
         let row_span = 29.0 * pitch; // 51.562mm, matches spec span 51.56±0.15
         let col_x = 25.5 + 2.0; // body half-width + pad center offset outward
@@ -1464,8 +1473,8 @@ fn detect_flow_chain(boxes: &[LayoutBox]) -> Option<Vec<String>> {
             || u.ends_with("_NODE")
     };
 
-    // Score-based endpoint pick — a connector may carry both input and
-    // output rails (J2 passes VBAT_SW through to the sensor board), so a hard
+    // Score-based endpoint pick — a connector may carry both input and output
+    // rails (e.g. a pass-through connector feeding the next board), so a hard
     // "has input ⇒ not output" rule misclassifies. Pick by net-type balance.
     let mut best_in: Option<(i32, i32, String, Vec<String>)> = None;
     let mut best_out: Option<(i32, i32, String, Vec<String>)> = None;
@@ -1555,10 +1564,10 @@ fn detect_flow_chain(boxes: &[LayoutBox]) -> Option<Vec<String>> {
     };
 
     // Preferred: route through a conversion IC so the chain doesn't take a
-    // shorter bypass branch (battery: U1 buck path, not the Q2 switch branch).
+    // shorter bypass branch (the regulator path, not the switch branch).
     // Candidates tried in priority order; among valid two-leg chains the one
-    // exiting into the most-connected rail wins (5V_BUCK with its caps beats
-    // 3V3_STBY), breaking ties by longer path.
+    // exiting into the most-connected rail wins (the main switched rail with its
+    // caps beats a lightly loaded standby rail), breaking ties by longer path.
     let rail_pads = |net: &str| -> usize {
         comp_nets
             .iter()
@@ -1666,8 +1675,8 @@ struct IcInfo {
 }
 
 fn infer_connector_edge(nets: &HashSet<String>) -> AnchorType {
-    // Same net patterns as the flow detector, scored — a connector can
-    // carry both directions (J2 passes VBAT_SW through next to 5V/3V3 outs),
+    // Same net patterns as the flow detector, scored — a connector can carry
+    // both directions (a pass-through connector feeds the next board),
     // the dominant side wins the edge.
     let is_input = |u: &str| {
         u.contains("VIN")
@@ -5292,10 +5301,10 @@ pub struct PadParams {
 pub fn infer_pad_params(lib_id: &str, pin_count: usize) -> PadParams {
     let lib = lib_id.to_uppercase();
 
-    // CERDIP-60 sensor leaf blades: 0.46mm-wide blades soldered directly,
+    // Leaf-blade CERDIP-60 blades: 0.46mm-wide blades soldered directly,
     // 1.5mm-wide pad absorbs ±0.5mm row-spacing tolerance, 4.0mm long
     // extending outward from the ceramic body edge.
-    if lib.contains("CERDIP-60") || lib.contains("CERDIP60") || lib.contains("CERDIP-60") {
+    if is_leaf_blade_cerdip(&lib) {
         return PadParams {
             size: (4.0, 1.5),
             pad_type: PadType::Smd,
@@ -5671,8 +5680,7 @@ pub fn run_sa_seeds(
 }
 
 /// 从板量测每个 footprint 的真实物理包围盒（fp 本地系 pad 外扩 + margin）。
-/// SA 盒尺寸用实测值替代启发式估计——启发式偏小是回填后 footprint 物理重叠
-/// （reference-board 未布线已含 shorting 144）的根因。
+/// SA 盒尺寸用实测值替代启发式估计——启发式偏小是回填后 footprint 物理重叠的根因。
 pub fn measure_footprint_extents(
     board: &kicad_json5::Board,
     margin_mm: f64,

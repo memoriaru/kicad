@@ -2,6 +2,10 @@
 //!
 //! A 1:1 port of KiCanvas JS schematic renderer to Rust.
 //! Supports SVG export and WASM Canvas rendering.
+//!
+//! `render_core` / `bridge` / `constants` 里有一部分 API 当前的 SVG / PDF 输出路径不调用
+//! (多数是上游的交互、选择、命中测试用的). 它们是按 1:1 移植刻意保留的, 留给网页查看器 ——
+//! **不要当死代码清理**.
 
 pub mod bridge;
 pub mod constants;

@@ -16,7 +16,6 @@ path = "src/main.rs"
 [dependencies]
 kicad-cdb = { path = "../kicad-cdb" }
 kicad-json5 = { path = "../kicad-json5" }
-kicad-symgen = { path = "../kicad-symgen" }
 kicad-render = { path = "../kicad-render" }
 # v35-flow：复用 kroute-server 的 tonic proto 客户端（LayoutOptimize / RouteGridBatch）。
 # default-features=false 关掉其 gpu 引擎档（wgpu）——客户端不做波前求解，别拖编译。

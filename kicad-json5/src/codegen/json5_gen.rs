@@ -166,7 +166,7 @@ impl Json5Generator {
         }
 
         // 原理图级文字与折线 (分区标题 / 分区框): 正向 json5 解析一直支持这两个键, 此前这里不导出,
-        // 往返一次分区框和标题就没了 (两块板实测各 4 段文字 + 4 条折线, 2026-11-24)
+        // 往返一次分区框和标题就没了 (实测各 4 段文字 + 4 条折线, 2026-11-24)
         if !schematic.text_items.is_empty() {
             self.write_texts(&mut output, schematic);
         }
@@ -391,7 +391,7 @@ impl Json5Generator {
         // would otherwise re-place pins and mis-attach global labels.
         //
         // 这里必须连非 pin 图形 (符号体矩形/折线) 一起导出: 正向解析早就支持 rect / polyline,
-        // 此前只导 pin, 往返一次所有符号的"体"就没了 两块板分别 8 个 / 18 个符号实测, 2026-11-24).
+        // 此前只导 pin, 往返一次所有符号的"体"就没了 (两块板分别 8 个 / 18 个符号, 2026-11-24).
         // 键名与 parser/json5_parser.rs 的 graphics 约定一致:
         //   pin     { type, number, name, pin_type, shape, at, length }
         //   rect    { type: "rect", at: [x0, y0], size: [dx, dy], stroke_width, stroke_type, fill }
@@ -405,7 +405,7 @@ impl Json5Generator {
                     | crate::ir::GraphicElement::Polyline(_)
             )
         };
-        if symbol.graphics.iter().any(|g| exportable(g)) {
+        if symbol.graphics.iter().any(exportable) {
             output.push_str(&format!("{}graphics: [\n", self.indent(3)));
             for g in &symbol.graphics {
                 match g {
@@ -587,10 +587,11 @@ impl Json5Generator {
             output.push_str(&format!("{}],\n", self.indent(3)));
         }
 
-        // Properties
+        // Properties. `component.properties` 是 HashMap: 直接遍历的话每次运行的输出顺序都不一样
+        // (反向编译因此不确定), 所以按固定顺序发射.
         if !component.properties.is_empty() {
             output.push_str(&format!("{}properties: {{\n", self.indent(3)));
-            for (key, value) in &component.properties {
+            for (key, value) in Self::sorted_properties(&component.properties) {
                 output.push_str(&format!(
                     "{}\"{}\": \"{}\",\n",
                     self.indent(4),
@@ -773,6 +774,23 @@ impl Json5Generator {
         output.push_str(&format!("{}}},\n", self.indent(2)));
     }
 
+    /// 属性的确定性输出顺序: KiCad 的惯用几项在前, 其余按键名排.
+    fn sorted_properties(
+        properties: &std::collections::HashMap<String, String>,
+    ) -> Vec<(&String, &String)> {
+        const FIRST: [&str; 5] = [
+            "Reference",
+            "Value",
+            "Footprint",
+            "Datasheet",
+            "Description",
+        ];
+        let rank = |k: &String| FIRST.iter().position(|f| f == k).unwrap_or(FIRST.len());
+        let mut items: Vec<(&String, &String)> = properties.iter().collect();
+        items.sort_by(|(ka, _), (kb, _)| rank(ka).cmp(&rank(kb)).then_with(|| ka.cmp(kb)));
+        items
+    }
+
     /// Escape special characters in a string
     fn escape_string(&self, s: &str) -> String {
         s.replace('\\', "\\\\")
@@ -786,5 +804,65 @@ impl Json5Generator {
 impl Default for Json5Generator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn props() -> HashMap<String, String> {
+        [
+            ("Value", "10k"),
+            ("Footprint", "Resistor_SMD:R_0805"),
+            ("Zeta", "z"),
+            ("Reference", "R1"),
+            ("Alpha", "a"),
+            ("Datasheet", "~"),
+            ("Description", "resistor"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+    }
+
+    /// 属性按固定顺序发射, 与 HashMap 的遍历顺序无关.
+    #[test]
+    fn properties_are_emitted_in_a_fixed_order() {
+        let p = props();
+        let keys: Vec<&str> = Json5Generator::sorted_properties(&p)
+            .into_iter()
+            .map(|(k, _)| k.as_str())
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "Reference",
+                "Value",
+                "Footprint",
+                "Datasheet",
+                "Description",
+                "Alpha",
+                "Zeta",
+            ]
+        );
+    }
+
+    /// 同样的原理图生成两次必须逐字节相同 (原理图反向编译曾经因为直接遍历 HashMap 而每次不一样).
+    #[test]
+    fn generating_the_same_schematic_twice_gives_the_same_text() {
+        let build = || {
+            let mut c = SymbolInstance::new("Device:R", "R1");
+            c.properties = props();
+            let mut sch = Schematic::default();
+            sch.components.push(c);
+            sch
+        };
+        let a = Json5Generator::new().generate(&build()).unwrap();
+        let b = Json5Generator::new().generate(&build()).unwrap();
+        assert_eq!(a, b);
+        let pos = |key: &str| a.find(&format!("\"{key}\":")).unwrap();
+        assert!(pos("Reference") < pos("Value") && pos("Value") < pos("Footprint"));
     }
 }

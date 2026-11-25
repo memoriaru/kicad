@@ -51,7 +51,7 @@ kicad-json5 schematic.kicad_sch
 
 ```bash
 # JSON5 → KiCad，自动插入 PWR_FLAG 和 NC 标记
-kicad-json5 carrier-board.json5 -o carrier-board.kicad_sch --power-flags
+kicad-json5 demo-board.json5 -o demo-board.kicad_sch --power-flags
 
 # 提取电路拓扑
 kicad-json5 schematic.kicad_sch -f topology -o topology.json
@@ -189,7 +189,7 @@ kicad-json5/
 - `clap` — CLI 参数解析
 - `serde` / `serde_json` / `serde_json5` — 序列化
 - `uuid` — UUID 生成
-- `thiserror` / `anyhow` — 错误处理
+- `thiserror` — 错误处理
 
 ## License
 

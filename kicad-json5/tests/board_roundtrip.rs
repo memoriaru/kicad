@@ -209,8 +209,8 @@ fn test_board_sexpr_roundtrip() {
         "referenced net id set (electrical connectivity)"
     );
     // Official dialect (default) emits the top-level net table, so every net
-    // — including the unnamed net-0 placeholder and dangling ones like
-    // GATE_Q3 — survives. (The HQ inline-name dialect drops them.)
+    // — including the unnamed net-0 placeholder and dangling ones —
+    // survive. (The HQ inline-name dialect drops them.)
     assert_eq!(
         board.nets.len(),
         board2.nets.len(),

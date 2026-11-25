@@ -18,6 +18,7 @@ pub mod constraint;
 pub mod csv_import;
 pub mod current_carry;
 pub mod db;
+pub mod db_path;
 pub mod design;
 pub mod design_iteration;
 pub mod design_review;
@@ -58,6 +59,7 @@ pub mod skill_match;
 pub mod skills;
 pub mod stitching;
 pub mod symgen;
+mod template_store;
 pub mod topology;
 
 pub use db::ComponentDb;

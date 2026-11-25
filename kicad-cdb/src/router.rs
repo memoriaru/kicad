@@ -53,10 +53,10 @@ const VIA_COST: f64 = 2.0;
 /// it pass). Parent direction is normalized to a unit step first (K4
 /// cardinal jumps record multi-cell vectors that are still straight travel).
 ///
-/// Default is 0 (no penalty): 2026-11-07 A/B on battery/sensor/analog-board regression
-/// boards showed the full-vector penalty monotonically WORSENS DRC quality
-/// (battery violations 119→174→256 at tc=0/0.3/1.0) and analog-board completion
-/// (52→51→50/54) while inflating via count (4→20 on battery) — the grid
+/// Default is 0 (no penalty): an A/B on a three-board regression set showed
+/// the full-vector penalty monotonically WORSENS DRC quality (violations
+/// 119→174→256 at tc=0/0.3/1.0 on one board; completion 52→51→50/54 on
+/// another) while inflating via count (4→20) — the grid
 /// penalty ecosystem (congestion/proximity/CLR walls) is tuned around free
 /// diagonal zigzag, and blocking it stiffens routes against those walls.
 /// Revisit together with a potential-field guide, not standalone.
@@ -2180,7 +2180,7 @@ pub fn auto_route_signal_nets_with_config(
     // CLI clearance override (constant for the whole run) or the default
     let base_clearance = directives.clearance_override.unwrap_or(DEFAULT_CLEARANCE);
 
-    // Perf budget (follow-up): gen-pcb must finish in ~90s on battery-class
+    // Perf budget (follow-up): gen-pcb must finish in ~90s on small power
     // boards, not 4.5min. Cap: 60s ≤100 nets, 180s beyond. ROUTER_BUDGET_SECS overrides.
     let routing_budget_secs: f64 = std::env::var("ROUTER_BUDGET_SECS")
         .ok()
@@ -2317,7 +2317,7 @@ pub fn auto_route_signal_nets_with_config(
     // Zone-aware power filtering. A power/GND net is only excluded from
     // routing when a copper zone actually covers it — otherwise nobody would
     // ever connect it (reroute on a board without zones left every rail
-    // unconnected: analog-board 499 / battery 40 unconnected). Nets not covered by a
+    // unconnected: 499 rails on a dense board, 40 on a small one). Nets not covered by a
     // zone route like ordinary signals.
     let zoned: HashSet<u32> = board.zones.iter().map(|z| z.net).collect();
     let power_total = power_nets.len();
@@ -3715,8 +3715,8 @@ pub fn auto_route_signal_nets_with_config(
             .collect();
 
         // Perf: freeze nets that failed repeatedly — ripping them up again
-        // burns 20s/round of 300k-iter A* with zero success (battery: FB_NODE /
-        // VBAT_PROT failed identically every round). Deterministic counter.
+        // burns 20s/round of 300k-iter A* with zero success (two nets
+        // failed identically every round). Deterministic counter.
         let frozen: HashSet<u32> = failed_ids
             .iter()
             .copied()
@@ -4181,7 +4181,7 @@ pub fn auto_route_signal_nets_with_config(
     }
 
     // 6c. Aggressive desperation: only for small/medium boards with few failures
-    let aggressive_rounds = 1; // perf: desperation rounds were 96s for +0 nets on battery
+    let aggressive_rounds = 1; // perf: desperation rounds were 96s for +0 nets
     let pre_aggressive_snapshot = (board.segments.clone(), board.vias.clone());
     let pre_aggressive_routed = result.routed_nets;
     let mut aggressive_best = result.routed_nets;
@@ -4818,7 +4818,7 @@ pub fn auto_route_signal_nets_with_config(
     // 8. DRC feedback loop: detect and fix trace-to-trace / trace-to-pad shorts
     // TEMP diag: DRC feedback loop disabled — its rip-up/revert pass is
     // the prime suspect for severed segment chains (0.75-1.0mm gaps between
-    // grid-aligned segments, a long clock net: 30 segments in 23 components)
+    // grid-aligned segments; one long clock net split into 30 segments across 23 components)
     if std::env::var("ROUTER_NO_FEEDBACK").is_err() {
         drc_feedback_loop(
             board,
@@ -5617,7 +5617,7 @@ fn drc_feedback_loop(
                             // same-net neighbor (pad/via/segment) must land on a
                             // neighbor after the move, or the chain is severed.
                             // map_or(true) here let nudges silently disconnect
-                            // segments (a long clock net: 33 segments → 21 components).
+                            // segments (a 33-segment net fell into 21 components).
                             let new_start_ok = ep_peers
                                 .get(&(snap_key(new_start.0, new_start.1), net))
                                 .is_some_and(|p| p.iter().any(|&x| x != try_idx));
@@ -6088,7 +6088,7 @@ fn build_segment_spatial_hash(
 /// KiCad connectivity requires segment endpoints to EXACTLY meet pads, vias or
 /// neighbouring segment endpoints. Any nudge — even 0.02mm — that moves a
 /// connected endpoint away from its neighbour severs the chain (measured:
-/// a long clock net fell apart into 21+ components after a few P&S rounds; a nudged
+/// a long net fell apart into 21+ components after a few P&S rounds; a nudged
 /// segment's y went 20.5 → 20.556545). The old snap-eps connectivity check
 /// (0.15mm) waved every small move through.
 ///
@@ -7674,14 +7674,11 @@ pub fn classify_footprint_role(fp: &Footprint) -> PadRole {
     PadRole::Generic
 }
 
-/// Identify bus groups for coordinated routing: DDR3, SerDes, PCIe, USB3, SPI, etc.
-/// Each group carries intra-group skew tolerance and optional inter-group skew constraints.
-///
-// 注入口：constraint.rs 声明驱动的分组（模板/手写 json5）可覆盖内置模式表——
-// thread_local 存在则直接返回（set_bus_groups_override 注入；空=恢复内置）。
+// 声明驱动的注入口：constraint.rs 声明的分组（模板 / 手写 json5）可覆盖内置模式表 ——
+// 这里有值时 identify_bus_groups 直接返回它（set_bus_groups_override 注入；空 = 恢复内置）。
 thread_local! {
     static BUS_GROUPS_OVERRIDE: std::cell::RefCell<Option<Vec<BusGroup>>> =
-        std::cell::RefCell::new(None);
+        const { std::cell::RefCell::new(None) };
 }
 
 /// 声明驱动 bus group 注入（一源三吃的 router 消费端）。
@@ -7704,6 +7701,9 @@ pub fn set_bus_groups_override(specs: Vec<crate::constraint::BusGroupSpec>) {
     });
 }
 
+/// Identify bus groups for coordinated routing: DDR3, SerDes, PCIe, USB3, SPI, etc.
+/// Each group carries intra-group skew tolerance and optional inter-group skew constraints.
+/// 经 [`set_bus_groups_override`] 注入的声明式分组优先于内置模式表。
 fn identify_bus_groups(board: &Board) -> Vec<BusGroup> {
     if let Some(g) = BUS_GROUPS_OVERRIDE.with(|c| c.borrow().clone()) {
         return g;

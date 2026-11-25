@@ -515,7 +515,7 @@ fn sort_anchors_by_power(
             AnchorKind::Connector => {
                 // Connectors: use min rank (placed at edges based on supply position)
                 // J1 connects VBAT_IN (rank 0) → leftmost
-                // J2 connects VBAT_SW/5V_BUCK/3V3_STBY → needs special handling
+                // J2 connects the input rail and the output rails → needs special handling
                 // Use min rank: input connectors will naturally be leftmost
                 // Output connectors will be mid-right
                 power_ranks.iter().min().copied().unwrap_or(usize::MAX)

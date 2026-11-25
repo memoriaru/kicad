@@ -1,6 +1,6 @@
 //! 立项候选 → audit-loop：热回路 / 回流收敛 / 敷铜切割 定量审计。
 //!
-//! 方法来自 battery 板手算验证：
+//! 方法先在一块电源板上手算验证过：
 //! 1. 识别 buck 拓扑（SW+BST 双特征的 IC）→ 输入电容/电感/输出电容
 //! 2. 沿铜 BFS 求热回路各段路径长度（含 T 型 junction 连通）
 //! 3. 每个 SMD GND pad → 最近 GND 过孔收敛距离（THT 直落 B.Cu pour 豁免）
@@ -129,7 +129,7 @@ fn find_buck<'a>(board: &'a Board, id2name: &HashMap<u32, String>) -> Option<&'a
 }
 
 /// Copper-graph BFS with T-junction awareness: a segment endpoint landing on
-/// the MIDDLE of another segment is a connection (battery C3.1 case).
+/// the MIDDLE of another segment is a connection (a pad landing mid-segment).
 struct CopperGraph {
     adj: HashMap<(i64, i64), Vec<((i64, i64), f64)>>,
     nodes: Vec<(f64, f64)>,
@@ -506,7 +506,7 @@ pub fn audit_loop(board: &Board) -> LoopAuditReport {
     if !gnd_vias.is_empty() {
         let pads = collect_pads(board, &id2name);
         // pads with a GND segment endpoint inside their copper are trace-fed —
-        // the via-distance criterion doesn't apply (battery TP2 case)
+        // the via-distance criterion doesn't apply (test points)
         let trace_connected = |p: &CompPad| -> bool {
             board.segments.iter().any(|s| {
                 gnd_ids.contains(&s.net)
@@ -758,7 +758,7 @@ mod loop_audit_tests {
     #[test]
     fn test_copper_graph_pad_junction() {
         // stub ends inside a pad whose other side feeds a rail — the pad is
-        // the junction (battery C2 case)
+        // the junction
         let mut board = Board::new();
         let n = board.add_net("VIN");
         board.segments.push(kicad_json5::ir::board::Segment {

@@ -1,13 +1,12 @@
-//! 载流→线宽/过孔数规则引擎
+//! 载流 → 线宽 / 过孔数规则引擎。
 //!
-//! 判据来源：
-//! - 布局标准序（电源三参数必答：输入从哪来/输出到哪去/每路载流多大；PMU/DC-DC
-//!   输出保底 6 过孔，3A/4A+ 再加；线宽与过孔数量同步加宽）
-//! - 一个公开案例（它的天花板=没有载流层）
-//! 验收锚点（设计审查清单，1oz 外层 30°C 温升工程表）：
+//! 判据来源：电源三参数必答（输入从哪来 / 输出到哪去 / 每路载流多大）；PMU / DC-DC
+//! 输出保底 6 过孔，3A / 4A+ 再加；线宽与过孔数量同步加宽。
+//!
+//! 验收锚点（1oz 外层 30°C 温升工程表）：
 //!   0.25mm≈0.9A / 0.5mm≈1.6A / 0.8mm≈2.5A
-//!   —— battery 板 5V 主干 0.25mm 只扛 0.9A（对 3A buck 不足，人工修复 1.0/0.8mm）
-//!      正是这套判据要自动复算的案例（现为 merged-power-board 合板电源真源 + battery 只参考）。
+//!   —— 实板回归案：一块电源板的 5V 主干 0.25mm 只扛 0.9A（对 3A buck 不足，人工修复
+//!      1.0 / 0.8mm），正是这套判据要自动复算的案例。
 //!
 //! 三层分职（哲学纲领）：本模块=确定性引擎（判据层）；电流需求（语义层）来自
 //! VRM 铭牌表 + 人工 override —— 板上没有的东西不臆造，缺数据就报 "need_override"。
@@ -26,7 +25,7 @@ use kicad_json5::ir::board::Board;
 // 模型层：载流
 // ---------------------------------------------------------------------------
 
-/// 工程锚点表（1oz 外层 30°C）：设计审查清单 §3 的人工表。
+/// 工程锚点表（1oz 外层 30°C）：工程手册里的人工表。
 /// 对数插值连续化；表外区间用两端斜率外推（只往保守方向用）。
 const ANCHOR_1OZ_30C_EXT: [(f64, f64); 4] = [(0.25, 0.9), (0.5, 1.6), (0.8, 2.5), (1.3, 4.0)];
 
@@ -167,7 +166,7 @@ fn vrm_catalog() -> Vec<(&'static str, VrmRole, f64)> {
         ("az1117", VrmRole::Ldo, 1.0),
         ("xc6206", VrmRole::Ldo, 0.25),
         ("me6211", VrmRole::Ldo, 0.5),
-        // 负压 LDO（analog-board 板 U50 LT1964 = -9V 轨实锤）与反相/多拓扑 DC-DC
+        // 负压 LDO 与反相 / 多拓扑 DC-DC
         ("lt1964", VrmRole::Ldo, 0.2),
         ("lt3092", VrmRole::Ldo, 0.2),
         ("lt3093", VrmRole::Ldo, 0.2),
@@ -196,7 +195,7 @@ pub fn net_voltage(name: &str) -> Option<f64> {
     }
     let sign = |v: f64| if neg { -v } else { v };
     let tail = &rest[1..]; // V 之后
-                           // "整数V整数" 形态（尾段以数字开头，允许 _STBY 等后缀）：3V3 / 3V3_STBY → 3.3
+                           // "整数V整数" 形态（尾段以数字开头，允许后缀）：3V3 / 3V3_AUX → 3.3
     if !head.contains('.') {
         let frac: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !frac.is_empty() {
@@ -210,11 +209,11 @@ pub fn net_voltage(name: &str) -> Option<f64> {
 /// 地网判定（GND/AGND/DGND/PGND/GND_x/…）。
 pub fn is_ground(name: &str) -> bool {
     let n = name.to_uppercase();
-    n == "GND" || n.starts_with("GND") || n.ends_with("GND") || n == "Earth"
+    n.starts_with("GND") || n.ends_with("GND") || n == "EARTH"
 }
 
 /// 芯片内部轨/基准网判定——VRM pads 上不算输入输出候选（VCC/VDD/VREF 前缀）。
-/// 实锤案：TPS61088 pin1 VCC_AUX = 内部 LDO 输出（挂去耦），被首版误判成 boost 输入。
+/// 例：升压芯片的 VCC 脚是内部 LDO 输出（挂去耦），不排除的话会被误判成 boost 的输入。
 pub fn is_internal_rail(name: &str) -> bool {
     let u = name.trim().to_uppercase();
     ["VCC", "VDD", "VREF", "VINT", "VLDO"]
@@ -299,9 +298,10 @@ pub struct CurrentOverrides {
 ///   1. VBAT/VIN/VBUS/VSYS 前缀的**源轨**当输入；输出 = 其余里 |V| 最高的已知电压网
 ///   2. 未知电压网（母线，None）当输入；输出同上
 ///   3. 全部已知：buck/ldo 高|V|→低|V|、boost 低|V|→高|V|（**绝对值**——负压 LDO
-///      输入是绝对值更大的轨，analog-board U50 LT1964 pin1(-9V)=IN→pin5(-6V)=OUT 实锤案）
+///      的输入是绝对值更大的轨：−9V = IN → −6V = OUT 的实锤案）
+///
 /// 输出位只从已知电压网里选——None 网（CT/SENSE 类）不能因排序键退化抢占输出位
-/// （U31 输出曾被 CT 顶掉的回归案）。
+/// （定时 / 检测类网顶掉输出位的回归案）。
 pub fn pick_direction(
     role: VrmRole,
     pnets: &[(String, Option<f64>)],
@@ -343,8 +343,8 @@ pub fn pick_direction(
 }
 
 /// 从 Board 抽电源树（VRM 节点 + 网归属）。
-/// 电源网 = net_voltage() 可解析的网 ∪ VRM pads 上出现的非地网（VBAT_SW 这类
-/// 电池/母线名解析不出电压，但它们是 VRM 的真实输入——merged-power-board 首跑实证：
+/// 电源网 = net_voltage() 可解析的网 ∪ VRM pads 上出现的非地网电池 / 母线
+/// 形态的名字解析不出电压，但它们是 VRM 的真实输入 —— 实板首跑实证：
 /// 只认可解析网会把 boost/buck 全跳过）。
 pub fn extract_power_tree(board: &Board, ov: &CurrentOverrides) -> Vec<VrmNode> {
     let mut catalog = vrm_catalog();
@@ -360,9 +360,9 @@ pub fn extract_power_tree(board: &Board, ov: &CurrentOverrides) -> Vec<VrmNode> 
             Some((_, r, i)) => (*r, *i),
             None => continue,
         };
-        // 该器件 pad 上的电源候选网：可解析电压网 ∪ 电池/母线形态网（VBAT_SW 等解析
-        // 不出电压但是真实输入）；三类排除——SW/BOOT/FB/EN 等信号网、VCC/VDD/VREF 等
-        // 芯片内部轨（TPS61088 pin1 VCC_AUX=内部 LDO 输出，首版误判输入的实锤案）。
+        // 该器件 pad 上的电源候选网：可解析电压网 ∪ 电池 / 母线形态网（这类名字解析
+        // 不出电压但是真实输入）；三类排除 —— SW/BOOT/FB/EN 等信号网、VCC/VDD/VREF 等
+        // 芯片内部轨（升压芯片的 VCC 脚是内部 LDO 输出，首版把它误判成了输入）。
         let mut pnets: Vec<(String, Option<f64>)> = Vec::new();
         for p in &fp.pads {
             if let Some(n) = &p.net_name {
@@ -405,7 +405,7 @@ pub fn audit_current_carry(
     let vrm_refs: Vec<&str> = vrms.iter().map(|v| v.refdes.as_str()).collect();
 
     for seg in &board.segments {
-        let name = net_display(board, seg.net);
+        let name = net_label(board, seg.net);
         let e = nets
             .entry(name)
             .or_insert((f64::INFINITY, 0, 0, f64::INFINITY));
@@ -413,7 +413,7 @@ pub fn audit_current_carry(
         e.1 += 1;
     }
     for via in &board.vias {
-        let name = net_display(board, via.net);
+        let name = net_label(board, via.net);
         let e = nets
             .entry(name)
             .or_insert((f64::INFINITY, 0, 0, f64::INFINITY));
@@ -532,13 +532,13 @@ pub fn audit_current_carry(
     out
 }
 
-fn net_display(board: &Board, id: u32) -> String {
-    board
-        .nets
-        .iter()
-        .find(|n| n.id == id)
-        .map(|n| n.name.clone())
-        .unwrap_or_else(|| format!("net#{}", id))
+fn net_label(board: &Board, id: u32) -> String {
+    let name = crate::stitching::net_display(board, id);
+    if name.is_empty() {
+        format!("net#{id}")
+    } else {
+        name
+    }
 }
 
 /// 文本报告（人读版）：逐网一行 + PMU 过孔建议。
@@ -688,7 +688,7 @@ mod tests {
         }
     }
 
-    /// 验收锚点 2：battery 5V 主干案例复算——0.25mm 扛 ~0.9A，
+    /// 验收锚点 2：5V 主干回归案复算 —— 0.25mm 扛 ~0.9A，
     /// 3A 需求反解线宽应落在人工修复档（0.8-1.0mm）。
     #[test]
     fn test_battery_5v_trunk_case() {
@@ -745,25 +745,24 @@ mod tests {
         assert_eq!(min_via_count(1.0, 0.3, false), 2);
     }
 
-    /// 方向判定五类真板实锤案（merged-power-board B_U3 / analog-board U50 / analog-board U31 / battery SY8120 /
-    /// analog-board VCC_AUX）全部锁死——这是抽取器启发式的回归门。
+    /// 方向判定五类真板实锤案全部锁死 —— 这是抽取器启发式的回归门。
     #[test]
     fn test_pick_direction_five_real_cases() {
         let n = |s: &str| (s.to_string(), net_voltage(s));
-        // ① boost + 源轨优先 + 内部轨已在上游排除：TPS61088 候选=电池(None)+12V_AUX
-        let (vi, _, vo, _) = pick_direction(VrmRole::Boost, &[n("VBAT_SW"), n("12V_AUX")]);
-        assert_eq!((vi.as_str(), vo.as_str()), ("VBAT_SW", "12V_AUX"));
-        // ② 负压 LDO 绝对值排序：LT1964 -9V(IN)→-6V(OUT)
+        // ① boost + 源轨优先：升压芯片的候选 = 电池 (None) + 12V 输出
+        let (vi, _, vo, _) = pick_direction(VrmRole::Boost, &[n("VBAT"), n("12V")]);
+        assert_eq!((vi.as_str(), vo.as_str()), ("VBAT", "12V"));
+        // ② 负压 LDO 绝对值排序：-9V (IN) → -6V (OUT)
         let (vi, _, vo, _) = pick_direction(VrmRole::Ldo, &[n("-9V"), n("-6V")]);
         assert_eq!((vi.as_str(), vo.as_str()), ("-9V", "-6V"));
         // ③ 反相 DC-DC + CT/SENSE 信号网混入时输出位不被 None 网抢占：
-        //    MC34063 候选=VBAT(None)+CT(None)+-9V(known)
-        let (vi, _, vo, _) = pick_direction(VrmRole::Buck, &[n("VBAT_SW"), n("CT"), n("-9V")]);
-        assert_eq!((vi.as_str(), vo.as_str()), ("VBAT_SW", "-9V"));
-        // ④ 全已知 buck 高|V|→低|V|：SY8120 12V→5V
+        //    候选 = VBAT (None) + CT (None) + -9V (known)
+        let (vi, _, vo, _) = pick_direction(VrmRole::Buck, &[n("VBAT"), n("CT"), n("-9V")]);
+        assert_eq!((vi.as_str(), vo.as_str()), ("VBAT", "-9V"));
+        // ④ 全已知 buck 高 |V| → 低 |V|：12V → 5V
         let (vi, _, vo, _) = pick_direction(VrmRole::Buck, &[n("12V"), n("5V")]);
         assert_eq!((vi.as_str(), vo.as_str()), ("12V", "5V"));
-        // ⑤ LDO 阶梯 + 未知母线：RT9193 候选=+15V、+13V 全已知
+        // ⑤ LDO 阶梯：+15V、+13V 全已知
         let (vi, _, vo, _) = pick_direction(VrmRole::Ldo, &[n("+15V"), n("+13V")]);
         assert_eq!((vi.as_str(), vo.as_str()), ("+15V", "+13V"));
     }
@@ -793,7 +792,7 @@ mod tests {
             "0.25mm 扛 0.9A 应压线通过, i_max={:?}",
             ok.outputs.get("i_max")
         );
-        // battery 5V 主干案例：0.25mm 需 3A → fail
+        // 5V 主干回归案：0.25mm 需 3A → fail
         let bad = db
             .apply_rule(
                 &rule,
@@ -814,7 +813,7 @@ mod tests {
         assert_eq!(net_voltage("+13V"), Some(13.0));
         assert_eq!(net_voltage("12V_AUX"), Some(12.0));
         assert_eq!(net_voltage("13.5V"), Some(13.5));
-        assert_eq!(net_voltage("VBAT_SW"), None); // 前缀非数字
+        assert_eq!(net_voltage("VBAT"), None); // 前缀非数字
         assert_eq!(net_voltage("GND"), None);
         assert_eq!(net_voltage("DGND"), None);
         assert!(is_ground("AGND") && is_ground("GND1") && !is_ground("5V"));

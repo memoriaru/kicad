@@ -14,7 +14,6 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls"], default-features = false }
 json5 = "1"
 kicad-json5 = { path = "../kicad-json5" }
@@ -27,6 +26,7 @@ rayon = "1.10"
 wgpu = { version = "23", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
 pollster = { version = "0.4", optional = true }
+tempfile = "3"
 
 [features]
 default = []
@@ -34,8 +34,5 @@ gpu-router = ["wgpu", "bytemuck", "pollster"]
 
 [dev-dependencies]
 pretty_assertions = "1"
-tempfile = "3"
 kicad-render = { path = "../kicad-render" }
 
-[dependencies.tempfile]
-version = "3"

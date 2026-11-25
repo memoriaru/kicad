@@ -112,7 +112,7 @@ thread_local! {
     /// 原理图侧 uuid 序列计数器: 同一输入 ⇒ 逐字节相同的输出 (与 BoardSexprGenerator 的
     /// 确定性计数器同一宗旨; 那边是实例字段, 这边的发射点全是无状态关联函数, 故挂线程局部).
     /// 旧实现每次调用 Uuid::new_v4() —— 真源里没写 uuid 的项 (属性/图元/页) 每次编译现掷随机数,
-    /// 同一真源编译两次产物差上千行全是 uuid (merged-power-board 实测 1496 行, 2026-11-24).
+    /// 同一真源编译两次产物差上千行全是 uuid (实测 1496 行, 2026-11-24).
     static SCH_UUID_COUNTER: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
@@ -753,7 +753,7 @@ mod tests {
     #[test]
     fn test_json5_texts_polylines_emitted() {
         // 回归锁(2026-11-12 原理图分区框): json5 顶层 texts/polylines 旧版无解析
-        // (IR TextItem/Polyline 是死字段, G8 分区虚线框只有 kdesign Python 链能发),
+        // (IR TextItem/Polyline 是死字段, 分区虚线框此前只有 kdesign Python 链能发),
         // 补 parser+发射双链后顶层文本/虚线框可用.
         let src = r#"{
             nets: [],

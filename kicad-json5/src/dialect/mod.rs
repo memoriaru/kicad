@@ -122,8 +122,8 @@ mod tests {
 /// | # | 差异点 | 官方 | 华秋 fork | 状态 |
 /// |---|--------|------|-----------|------|
 /// | V1 | net 引用 | `(net 1 "GND")` 编号+名 | pad/seg/via/zone 曾见 name-only `(net "GND")`，载入要求**有名** | 读端 normalize_net_name_refs 归一；写端双参 ✓ |
-/// | V2 | connect_pads token | 宽容 | 拒收裸 `thermal`（"应为 yes, no, or clearance"，09-18 analog-board 板实测） | 生成端空串=省略形态 ✓ |
-/// | V3 | paper | "User" W H 合法 | 拒载非标 paper（电池板 09-13 实测 → 兜底 A4） | 本模块 emit 整备 |
+/// | V2 | connect_pads token | 宽容 | 拒收裸 `thermal`（"应为 yes, no, or clearance"，实测） | 生成端空串=省略形态 ✓ |
+/// | V3 | paper | "User" W H 合法 | 拒载非标 paper（实测 → 兜底 A4） | 本模块 emit 整备 |
 /// | V4 | 丝印层名 | KiCad 10 新名 `F.Silkscreen` | 板内只认旧名 `F.SilkS`（新名报未定义层；且 CLI gerber 导出旧名也静默跳过——绘制器缺陷另案） | 本模块 emit 映射 |
 /// | V5 | 版本头 | 20240108(K8)/20231120… | 20260206（fork 10 定制） | 仅探测特征，不改写 |
 ///

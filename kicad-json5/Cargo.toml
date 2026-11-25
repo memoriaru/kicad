@@ -16,7 +16,6 @@ clap = { version = "4", features = ["derive"] }
 
 # 错误处理
 thiserror = "1"
-anyhow = "1"
 
 # 序列化
 serde = { version = "1", features = ["derive"] }
@@ -26,5 +25,3 @@ serde_json5 = "0.2"
 # UUID 解析
 uuid = { version = "1", features = ["v4", "serde"] }
 
-[dev-dependencies]
-pretty_assertions = "1"

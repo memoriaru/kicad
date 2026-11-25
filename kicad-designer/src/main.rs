@@ -436,7 +436,7 @@ enum Commands {
         /// PCB file
         #[arg(long)]
         input: String,
-        /// Required current per rail, e.g. --rail "5V_BUCK=1A" (repeatable)
+        /// Required current per rail, e.g. --rail "5V=1A" (repeatable)
         #[arg(long = "rail")]
         rails: Vec<String>,
     },
@@ -855,6 +855,9 @@ enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // 库里自己开连接的辅助函数 (模板加载) 按这个路径找库, 与下面的 --db 是同一个.
+    kicad_cdb::db_path::set_active_db_path(&cli.db);
 
     if cli.db == ":memory:" {
         eprintln!("Note: using in-memory database, data will not persist");

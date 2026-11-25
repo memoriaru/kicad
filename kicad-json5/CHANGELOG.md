@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the board's `rules`, the net class, or `min_clearance` passed by the caller;
   `kicad-json5` reads the sibling `.kicad_pro` for it) from foreign copper —
   same-layer traces, vias, same-layer pads (rounded rectangles by their
-  rounding). On analog-board a 0.001 mm slide took NET_A / NET_B from 0.125
-  to 0.124.
+  rounding). On a real board a 0.001 mm slide took the clearance between two
+  neighbouring nets from 0.125 to 0.124.
   Cross-checked against the Python implementation on three real boards
 
 ### Changed

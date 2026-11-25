@@ -219,7 +219,7 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
 
     // nets — net 0（"无网络"占位）不导出: KiCad 保存的板首行恒有 (net 0 ""), 真源约定不列它.
     // 导出它会让"反向→再编译"多出一行, 并把按发射顺序分配的确定性 uuid 整体错位
-    // (merged-power-board 实测: 往返产物 3294 行差异全是 uuid 平移, 2026-11-24)
+    // (实测: 往返产物 3294 行差异全是 uuid 平移, 2026-11-24)
     s.push_str("  nets: [\n");
     for net in &board.nets {
         if net.id == 0 && net.name.is_empty() {
@@ -859,7 +859,7 @@ mod tests {
 
         assert_eq!(parsed.version, board.version);
         // net 0 ("无网络"占位) 不往返: 真源约定不列它, 导出它会让"反向→再编译"多一行并把
-        // 按发射顺序分配的确定性 uuid 整体错位 (merged-power-board 实测 3294 行差异, 2026-11-24)
+        // 按发射顺序分配的确定性 uuid 整体错位 (实测 3294 行差异, 2026-11-24)
         assert_eq!(parsed.nets.len(), 2); // "VIN" + "GND"
         assert!(parsed.nets.iter().all(|n| n.id != 0));
         assert_eq!(parsed.footprints.len(), 1);
@@ -1072,7 +1072,7 @@ mod tests {
         assert_eq!(parsed.vias[0].layers.len(), 2);
     }
 
-    /// via_type 三链路保真(回流 an earlier change): json5↔IR↔sexpr 的 blind/micro 不丢。
+    /// via_type 三链路保真: json5 ↔ IR ↔ sexpr 的 blind / micro 不丢。
     /// 起因=历史快照(p3b~p21b)带 via_type:"blind", 缺字段时反向编译静默把盲孔变通孔。
     #[test]
     fn test_via_type_roundtrip_all_three_paths() {

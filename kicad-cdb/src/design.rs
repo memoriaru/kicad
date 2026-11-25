@@ -1283,7 +1283,7 @@ pub fn generate_copper_zones(
 
     // 2. Power zones — at most ONE per layer. Multiple full-outline power
     //    zones stacked on the same layer are an instant short the moment zones
-    //    refill (battery board: 5V/3V3/VBAT zones all on F.Cu). The rail with the
+    //    refill (several full-board rails poured on the same layer). The rail with the
     //    most pads wins the pour; the rest ship as wide traces (net classes).
     let power_nets: Vec<(u32, String)> = board
         .nets
@@ -2017,7 +2017,7 @@ pub fn schematic_to_board_with_config_fixed_skip_route(
 
     // 7. Trim board outline to actual content bounding box.
     // Fixed-size mode: the outline is the user's contract — trimming would
-    // silently shrink it to the content bbox (see analog-board 50x40 → 87x61 regression
+    // silently shrink it to the content bbox (see a 50x40 → 87x61 regression
     // via the growth path, and the symmetric shrink path here).
     if fixed_board_size.is_none() {
         trim_board_outline(&mut board);

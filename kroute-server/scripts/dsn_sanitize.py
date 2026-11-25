@@ -22,7 +22,7 @@ txt, n2 = re.subn(r'\(PN ([^")\s]+)\)',
 open(path, 'w').write(txt)
 print("[dsn-sanitize] 净化 PN 字段 %d 处（引号 %d + 裸值 %d）" % (n1 + n2, n1, n2))
 
-# ---- 边缘 keepout 注入(一块实板 实证: FR 不认 KiCad board edge clearance
+# ---- 边缘 keepout 注入(实测: FR 不认 KiCad board edge clearance
 # 0.5 规则, 全局解 12 条贴边)。口径: keepout=禁布线**环带**(非内缩全板!):
 #   外框(boundary path)→ 内缩 m 的四边条; 孔/无铜矩形(KiCad 已导出
 #   keepout "" polygon signal)→ 外扩 m 的四边条。语法照抄 KiCad 原生

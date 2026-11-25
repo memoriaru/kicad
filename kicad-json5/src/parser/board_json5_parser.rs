@@ -323,7 +323,7 @@ fn parse_footprint_attr(v: Option<&Value>) -> Option<FootprintAttr> {
     match vals.as_slice() {
         [] => None,
         // 单元素数组按单值语义归一 (["smd"] 与 "smd" 等价, 不留 Other 外壳)
-        [one] => single(one).or_else(|| Some(FootprintAttr::Other(vals))),
+        [one] => single(one).or(Some(FootprintAttr::Other(vals))),
         _ => Some(FootprintAttr::Other(vals)),
     }
 }
@@ -1166,43 +1166,5 @@ mod tests {
         assert_eq!(b.models.len(), 1);
         assert_eq!(b.models[0].path, "${KIPRJMOD}/3d/B.wrl");
         assert_eq!(b.models[0].offset, (0.0, 0.0, 0.6));
-    }
-
-    #[test]
-    #[ignore = "generate_board_json5 not yet implemented — re-enable when Json5Generator::generate_board exists"]
-    fn test_round_trip_simple() {
-        // This test requires Json5Generator::generate_board() which is not yet implemented.
-        // When generate_board_json5 is properly implemented, re-enable this test body:
-        /*
-        let mut board = Board::new();
-        board.add_net("GND");
-        let vcc = board.add_net("+3V3");
-        board.footprints.push(Footprint::new("Device:R", "R1", "10k"));
-        board.footprints[0].position = (10.0, 20.0, 0.0);
-        board.footprints[0].pads.push(Pad {
-            number: "1".into(), pad_type: PadType::Smd, shape: PadShape::RoundRect,
-            position: (-0.5, 0.0, 0.0), size: (0.6, 0.8),
-            layers: vec!["F.Cu".into()], drill: None, net: Some(vcc),
-            net_name: None, pin_function: None, pin_type: None, roundrect_rratio: None,
-            solder_mask_margin: None, thermal_bridge_width: None, thermal_bridge_angle: None,
-            thermal_gap: None, clearance: None, zone_connect: None,
-        });
-        board.segments.push(Segment {
-            start: (10.0, 20.0), end: (20.0, 20.0),
-            width: 0.25, layer: "F.Cu".into(), net: vcc,
-        });
-
-        // IR → JSON5 → IR
-        let gen = crate::codegen::Json5Generator::new();
-        let json5 = gen.generate_board(&board).unwrap();
-        let board2 = parse_board_json5(&json5).unwrap();
-
-        assert_eq!(board2.nets.len(), board.nets.len());
-        assert_eq!(board2.footprints.len(), board.footprints.len());
-        assert_eq!(board2.footprints[0].reference, "R1");
-        assert_eq!(board2.footprints[0].pads[0].net, Some(vcc));
-        assert_eq!(board2.segments.len(), 1);
-        assert_eq!(board2.segments[0].net, vcc);
-        */
     }
 }

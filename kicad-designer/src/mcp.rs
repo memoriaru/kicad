@@ -750,11 +750,11 @@ fn call_tool(db: &ComponentDb, name: &str, args: Value) -> Result<Value> {
         "design_ic_board" => tool_design_ic_board(db, &args),
         "list_ic_types" => tool_list_ic_types(),
         "save_design" => tool_save_design(db, &args),
-        "load_design" => tool_load_design(&args),
+        "load_design" => tool_load_design(db, &args),
         "update_design" => tool_update_design(db, &args),
-        "list_designs" => tool_list_designs(),
-        "list_design_versions" => tool_list_design_versions(&args),
-        "restore_design_version" => tool_restore_design_version(&args),
+        "list_designs" => tool_list_designs(db),
+        "list_design_versions" => tool_list_design_versions(db, &args),
+        "restore_design_version" => tool_restore_design_version(db, &args),
         "review_report_html" => tool_review_report_html(&args),
         "check_hierarchy" => tool_check_hierarchy(&args),
         "analyze_pcb" => tool_analyze_pcb(&args),
@@ -1532,7 +1532,7 @@ fn tool_list_ic_types() -> Result<Value> {
     }))
 }
 
-fn tool_save_design(_db: &ComponentDb, args: &Value) -> Result<Value> {
+fn tool_save_design(db: &ComponentDb, args: &Value) -> Result<Value> {
     let name = args["name"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing name"))?;
@@ -1577,7 +1577,7 @@ fn tool_save_design(_db: &ComponentDb, args: &Value) -> Result<Value> {
         schematic,
     };
 
-    kicad_cdb::design_iteration::save_snapshot(&snapshot)?;
+    kicad_cdb::design_iteration::save_snapshot(&db.conn, &snapshot)?;
 
     Ok(json!({
         "design_id": id,
@@ -1587,12 +1587,12 @@ fn tool_save_design(_db: &ComponentDb, args: &Value) -> Result<Value> {
     }))
 }
 
-fn tool_load_design(args: &Value) -> Result<Value> {
+fn tool_load_design(db: &ComponentDb, args: &Value) -> Result<Value> {
     let design_id = args["design_id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing design_id"))?;
 
-    let snapshot = kicad_cdb::design_iteration::load_snapshot(design_id)?;
+    let snapshot = kicad_cdb::design_iteration::load_snapshot(&db.conn, design_id)?;
 
     Ok(json!({
         "id": snapshot.id,
@@ -1624,7 +1624,7 @@ fn tool_update_design(db: &ComponentDb, args: &Value) -> Result<Value> {
         anyhow::bail!("No valid numeric changes provided");
     }
 
-    let snapshot = kicad_cdb::design_iteration::load_snapshot(design_id)?;
+    let snapshot = kicad_cdb::design_iteration::load_snapshot(&db.conn, design_id)?;
     let (new_snapshot, diff) = kicad_cdb::design_iteration::update_design(db, &snapshot, &changes)?;
 
     // Optionally regenerate schematic
@@ -1642,7 +1642,7 @@ fn tool_update_design(db: &ComponentDb, args: &Value) -> Result<Value> {
     }
 
     // Save updated snapshot
-    kicad_cdb::design_iteration::save_snapshot(&new_snapshot)?;
+    kicad_cdb::design_iteration::save_snapshot(&db.conn, &new_snapshot)?;
 
     Ok(json!({
         "design_id": new_snapshot.id,
@@ -1657,8 +1657,8 @@ fn tool_update_design(db: &ComponentDb, args: &Value) -> Result<Value> {
     }))
 }
 
-fn tool_list_designs() -> Result<Value> {
-    let designs = kicad_cdb::design_iteration::list_snapshots()?;
+fn tool_list_designs(db: &ComponentDb) -> Result<Value> {
+    let designs = kicad_cdb::design_iteration::list_snapshots(&db.conn)?;
     Ok(json!({
         "designs": designs.iter().map(|(id, name, version, updated)| json!({
             "id": id,
@@ -1671,11 +1671,11 @@ fn tool_list_designs() -> Result<Value> {
 }
 
 /// List all versions of a design for rollback selection.
-fn tool_list_design_versions(args: &Value) -> Result<Value> {
+fn tool_list_design_versions(db: &ComponentDb, args: &Value) -> Result<Value> {
     let design_id = args["design_id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing design_id"))?;
-    let versions = kicad_cdb::design_iteration::list_snapshot_versions(design_id)?;
+    let versions = kicad_cdb::design_iteration::list_snapshot_versions(&db.conn, design_id)?;
     Ok(json!({
         "design_id": design_id,
         "versions": versions.iter().map(|(v, created, updated)| json!({
@@ -1688,14 +1688,15 @@ fn tool_list_design_versions(args: &Value) -> Result<Value> {
 }
 
 /// Restore a specific version of a design (rollback).
-fn tool_restore_design_version(args: &Value) -> Result<Value> {
+fn tool_restore_design_version(db: &ComponentDb, args: &Value) -> Result<Value> {
     let design_id = args["design_id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing design_id"))?;
     let version = args["version"]
         .as_i64()
         .ok_or_else(|| anyhow::anyhow!("Missing version"))? as u32;
-    let snapshot = kicad_cdb::design_iteration::load_snapshot_version(design_id, version)?;
+    let snapshot =
+        kicad_cdb::design_iteration::load_snapshot_version(&db.conn, design_id, version)?;
     Ok(json!({
         "id": snapshot.id,
         "name": snapshot.name,

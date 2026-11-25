@@ -1,4 +1,4 @@
-//! GND/PWR 连通性诊断器。
+//! GND / PWR 连通性诊断器。
 //!
 //! 复用 `router::export_wavefront_grid_dilated` 的 dilation 网格（障碍口径与
 //! 布线器一致：pad 物理缓冲 + trace 中心线 0.2mm CLR [+ 可选膨胀轮]），对目标
@@ -145,8 +145,9 @@ pub fn audit_ground(
         .enumerate()
         .map(|(i, s)| (s.as_str(), i))
         .collect();
+    let dbg = std::env::var_os("GROUND_AUDIT_DBG").is_some();
     for z in &board.zones {
-        if std::env::var("GROUND_AUDIT_DBG").is_ok() {
+        if dbg {
             eprintln!(
                 "[dbg] zone net='{}' filled={:?}",
                 z.net_name,
@@ -163,7 +164,6 @@ pub fn audit_ground(
         if !in_targets {
             continue;
         }
-        let dbg = std::env::var("GROUND_AUDIT_DBG").is_ok();
         let mut filled_cnt = 0usize;
         for fp in &z.filled_polygons {
             if let Some(&fli) = layer_index.get(fp.layer.as_str()) {
@@ -257,7 +257,7 @@ pub fn audit_ground(
             let v = export.grid_u32[i];
             // 层内 4 邻域
             for &(dr, dc) in &[(0i64, 1i64), (0, -1), (1, 0), (-1, 0)] {
-                let (rr, cc) = (r as i64 + dr as i64, c as i64 + dc as i64);
+                let (rr, cc) = (r as i64 + dr, c as i64 + dc);
                 if rr < 0 || cc < 0 || rr >= rows as i64 || cc >= cols as i64 {
                     continue;
                 }
@@ -347,7 +347,7 @@ pub fn audit_ground(
                 )
             })
             .collect();
-        contact_nets.sort_by(|a, b| b.1.cmp(&a.1));
+        contact_nets.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
         let has_pad_anchor = comp
             .iter()
             .any(|&i| (2..1_000_000).contains(&export.grid_u32[i]));
@@ -598,19 +598,6 @@ mod tests {
             agnd.region_count
         );
         let islands: Vec<_> = agnd.regions.iter().filter(|r| r.is_island).collect();
-        eprintln!(
-            "REGIONS {:?}",
-            agnd.regions
-                .iter()
-                .map(|r| (
-                    r.cells,
-                    r.area_mm2,
-                    r.is_island,
-                    r.bbox_mm,
-                    r.contact_nets.clone()
-                ))
-                .collect::<Vec<_>>()
-        );
         assert_eq!(islands.len(), 1, "right zone should be the single island");
         assert!(
             islands[0].contact_nets.iter().any(|(n, _)| n == "SIG"),

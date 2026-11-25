@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use crate::composition::{Composition, ModuleInstance, TopologyInputs};
 use crate::power_tree::{self, TreeNode};
 use crate::requirement::DesignSpec;
-use crate::schema;
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -42,17 +41,9 @@ pub struct ParamChange {
 }
 
 // ── Snapshot Persistence ─────────────────────────────────────────
+// 存档用调用方传入的连接 (和应用打开的是同一个库), 这里不自己按环境变量找库.
 
-fn get_connection() -> Result<rusqlite::Connection> {
-    let db_path = std::env::var("CDB_PATH").unwrap_or_else(|_| "components.db".to_string());
-    let conn = rusqlite::Connection::open(&db_path)
-        .with_context(|| format!("Failed to open DB: {}", db_path))?;
-    schema::run_migrations(&conn)?;
-    Ok(conn)
-}
-
-pub fn save_snapshot(snapshot: &DesignSnapshot) -> Result<()> {
-    let conn = get_connection()?;
+pub fn save_snapshot(conn: &rusqlite::Connection, snapshot: &DesignSnapshot) -> Result<()> {
     let spec_json = serde_json::to_string(&snapshot.spec)?;
     let comp_json = serde_json::to_string(&snapshot.composition)?;
     let tree_json = if snapshot.power_tree_nodes.is_empty() {
@@ -84,56 +75,83 @@ pub fn save_snapshot(snapshot: &DesignSnapshot) -> Result<()> {
     Ok(())
 }
 
-pub fn load_snapshot(id: &str) -> Result<DesignSnapshot> {
-    // Composite PK (id, version) — load the latest version for this id.
-    let conn = get_connection()?;
-    let result = conn.query_row(
-        "SELECT id, name, version, spec_json, composition_json, power_tree_json, pipeline_cache_json, schematic_json, created_at FROM design_snapshots WHERE id = ?1 ORDER BY version DESC LIMIT 1",
-        rusqlite::params![id],
-        |row| {
-            let id: String = row.get(0)?;
-            let name: String = row.get(1)?;
-            let version: u32 = row.get(2)?;
-            let spec_json: String = row.get(3)?;
-            let comp_json: String = row.get(4)?;
-            let tree_json: Option<String> = row.get(5)?;
-            let cache_json: Option<String> = row.get(6)?;
-            let sch_json: Option<String> = row.get(7)?;
-            let created_at: String = row.get(8)?;
-            Ok((id, name, version, spec_json, comp_json, tree_json, cache_json, sch_json, created_at))
-        },
-    ).with_context(|| format!("Design snapshot '{}' not found", id))?;
+/// `design_snapshots` 表的一行, JSON 列原样取出.
+struct SnapshotRow {
+    id: String,
+    name: String,
+    version: u32,
+    spec_json: String,
+    composition_json: String,
+    power_tree_json: Option<String>,
+    pipeline_cache_json: Option<String>,
+    schematic_json: Option<String>,
+    created_at: String,
+}
 
-    let (id, name, version, spec_json, comp_json, tree_json, cache_json, sch_json, created_at) =
-        result;
-    let spec: DesignSpec = serde_json::from_str(&spec_json)?;
-    let composition: Composition = serde_json::from_str(&comp_json)?;
-    let power_tree_nodes: Vec<TreeNode> = tree_json
-        .map(|s| serde_json::from_str(&s))
-        .transpose()?
-        .unwrap_or_default();
-    let module_pipeline_results: HashMap<String, HashMap<String, f64>> = cache_json
-        .map(|s| serde_json::from_str(&s))
-        .transpose()?
-        .unwrap_or_default();
+const SNAPSHOT_COLS: &str = "id, name, version, spec_json, composition_json, power_tree_json, pipeline_cache_json, schematic_json, created_at";
 
-    Ok(DesignSnapshot {
-        id,
-        name,
-        version,
-        created_at,
-        spec,
-        composition,
-        power_tree_nodes,
-        module_pipeline_results,
-        schematic: sch_json,
+fn read_snapshot_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotRow> {
+    Ok(SnapshotRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        version: row.get(2)?,
+        spec_json: row.get(3)?,
+        composition_json: row.get(4)?,
+        power_tree_json: row.get(5)?,
+        pipeline_cache_json: row.get(6)?,
+        schematic_json: row.get(7)?,
+        created_at: row.get(8)?,
     })
 }
 
-pub fn list_snapshots() -> Result<Vec<(String, String, u32, String)>> {
+impl SnapshotRow {
+    fn into_snapshot(self) -> Result<DesignSnapshot> {
+        let SnapshotRow {
+            id,
+            name,
+            version,
+            created_at,
+            spec_json,
+            composition_json,
+            power_tree_json,
+            pipeline_cache_json,
+            schematic_json,
+        } = self;
+        Ok(DesignSnapshot {
+            id,
+            name,
+            version,
+            created_at,
+            spec: serde_json::from_str(&spec_json)?,
+            composition: serde_json::from_str(&composition_json)?,
+            power_tree_nodes: power_tree_json
+                .map(|s| serde_json::from_str(&s))
+                .transpose()?
+                .unwrap_or_default(),
+            module_pipeline_results: pipeline_cache_json
+                .map(|s| serde_json::from_str(&s))
+                .transpose()?
+                .unwrap_or_default(),
+            schematic: schematic_json,
+        })
+    }
+}
+
+/// 取某个设计的最新版本.
+pub fn load_snapshot(conn: &rusqlite::Connection, id: &str) -> Result<DesignSnapshot> {
+    // Composite PK (id, version) — load the latest version for this id.
+    conn.query_row(
+        &format!("SELECT {SNAPSHOT_COLS} FROM design_snapshots WHERE id = ?1 ORDER BY version DESC LIMIT 1"),
+        rusqlite::params![id],
+        read_snapshot_row,
+    )
+    .with_context(|| format!("Design snapshot '{}' not found", id))?
+    .into_snapshot()
+}
+
+pub fn list_snapshots(conn: &rusqlite::Connection) -> Result<Vec<(String, String, u32, String)>> {
     // One row per (id, version). Deduplicate to latest version per id so
     // the top-level listing stays a design list, not a version list.
-    let conn = get_connection()?;
     let mut stmt = conn.prepare(
         "SELECT id, name, version, updated_at FROM design_snapshots
          WHERE version = (SELECT MAX(version) FROM design_snapshots s2 WHERE s2.id = design_snapshots.id)
@@ -151,8 +169,10 @@ pub fn list_snapshots() -> Result<Vec<(String, String, u32, String)>> {
 
 /// List all versions of a design, newest first.
 /// Returns (version, created_at, updated_at) tuples.
-pub fn list_snapshot_versions(id: &str) -> Result<Vec<(u32, String, String)>> {
-    let conn = get_connection()?;
+pub fn list_snapshot_versions(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<Vec<(u32, String, String)>> {
     let mut stmt = conn.prepare(
         "SELECT version, created_at, updated_at FROM design_snapshots WHERE id = ?1 ORDER BY version DESC",
     )?;
@@ -167,49 +187,18 @@ pub fn list_snapshot_versions(id: &str) -> Result<Vec<(u32, String, String)>> {
 }
 
 /// Load a specific version of a design (for rollback).
-pub fn load_snapshot_version(id: &str, version: u32) -> Result<DesignSnapshot> {
-    let conn = get_connection()?;
-    let result = conn.query_row(
-        "SELECT id, name, version, spec_json, composition_json, power_tree_json, pipeline_cache_json, schematic_json, created_at FROM design_snapshots WHERE id = ?1 AND version = ?2",
+pub fn load_snapshot_version(
+    conn: &rusqlite::Connection,
+    id: &str,
+    version: u32,
+) -> Result<DesignSnapshot> {
+    conn.query_row(
+        &format!("SELECT {SNAPSHOT_COLS} FROM design_snapshots WHERE id = ?1 AND version = ?2"),
         rusqlite::params![id, version],
-        |row| {
-            let id: String = row.get(0)?;
-            let name: String = row.get(1)?;
-            let version: u32 = row.get(2)?;
-            let spec_json: String = row.get(3)?;
-            let comp_json: String = row.get(4)?;
-            let tree_json: Option<String> = row.get(5)?;
-            let cache_json: Option<String> = row.get(6)?;
-            let sch_json: Option<String> = row.get(7)?;
-            let created_at: String = row.get(8)?;
-            Ok((id, name, version, spec_json, comp_json, tree_json, cache_json, sch_json, created_at))
-        },
-    ).with_context(|| format!("Design snapshot '{} v{}' not found", id, version))?;
-
-    let (id, name, version, spec_json, comp_json, tree_json, cache_json, sch_json, created_at) =
-        result;
-    let spec: DesignSpec = serde_json::from_str(&spec_json)?;
-    let composition: Composition = serde_json::from_str(&comp_json)?;
-    let power_tree_nodes: Vec<TreeNode> = tree_json
-        .map(|s| serde_json::from_str(&s))
-        .transpose()?
-        .unwrap_or_default();
-    let module_pipeline_results: HashMap<String, HashMap<String, f64>> = cache_json
-        .map(|s| serde_json::from_str(&s))
-        .transpose()?
-        .unwrap_or_default();
-
-    Ok(DesignSnapshot {
-        id,
-        name,
-        version,
-        created_at,
-        spec,
-        composition,
-        power_tree_nodes,
-        module_pipeline_results,
-        schematic: sch_json,
-    })
+        read_snapshot_row,
+    )
+    .with_context(|| format!("Design snapshot '{} v{}' not found", id, version))?
+    .into_snapshot()
 }
 
 // ── Change Detection ─────────────────────────────────────────────
@@ -607,14 +596,12 @@ mod tests {
 
     /// Verify version history is retained and specific versions loadable.
     /// Before the composite-PK fix, INSERT OR REPLACE on single `id` PK
-    /// silently discarded v1 when v2 was saved. Combined into one test to
-    /// avoid CDB_PATH env-var races between parallel test threads.
+    /// silently discarded v1 when v2 was saved.
     #[test]
     fn test_version_history_and_load() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("CDB_PATH", tmp.path());
-        let conn = get_connection().unwrap();
-        drop(conn);
+        let db = crate::ComponentDb::open(tmp.path().to_str().unwrap()).unwrap();
+        let conn = &db.conn;
 
         let mk_snap = |id: &str, version: u32, vin: f64| DesignSnapshot {
             id: id.into(),
@@ -639,21 +626,21 @@ mod tests {
         };
 
         // --- Part 1: version history retained ---
-        save_snapshot(&mk_snap("h1_hist", 1, 12.0)).unwrap();
-        save_snapshot(&mk_snap("h1_hist", 2, 24.0)).unwrap();
-        let versions = list_snapshot_versions("h1_hist").unwrap();
+        save_snapshot(conn, &mk_snap("h1_hist", 1, 12.0)).unwrap();
+        save_snapshot(conn, &mk_snap("h1_hist", 2, 24.0)).unwrap();
+        let versions = list_snapshot_versions(conn, "h1_hist").unwrap();
         assert_eq!(versions.len(), 2, "both versions must be retained");
         assert_eq!(versions[0].0, 2, "newest version first");
         assert_eq!(versions[1].0, 1, "old version preserved");
 
         // --- Part 2: load specific version (not just latest) ---
-        save_snapshot(&mk_snap("h1_load", 1, 5.0)).unwrap();
-        save_snapshot(&mk_snap("h1_load", 2, 12.0)).unwrap();
+        save_snapshot(conn, &mk_snap("h1_load", 1, 5.0)).unwrap();
+        save_snapshot(conn, &mk_snap("h1_load", 2, 12.0)).unwrap();
 
-        let latest = load_snapshot("h1_load").unwrap();
+        let latest = load_snapshot(conn, "h1_load").unwrap();
         assert_eq!(latest.version, 2, "load_snapshot returns latest");
 
-        let v1 = load_snapshot_version("h1_load", 1).unwrap();
+        let v1 = load_snapshot_version(conn, "h1_load", 1).unwrap();
         assert_eq!(
             v1.version, 1,
             "load_snapshot_version returns the requested version"
@@ -663,7 +650,5 @@ mod tests {
         } else {
             panic!("expected PowerBoard");
         }
-
-        std::env::remove_var("CDB_PATH");
     }
 }

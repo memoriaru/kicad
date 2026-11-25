@@ -1,8 +1,8 @@
-//! 分组等长约束（已定稿：the constraint schema proposal @ downstream project）
+//! 分组等长约束：声明式 schema（json5）→ 解析到板上的网 → 等长偏差报告。
 //!
-//! 判据来源：DDR 布线规范（数据组 11 根一组组内 ±25mil=0.635mm / DQS·时钟差分对内
-//! <5mil=0.127mm / 数据不换层 / fly-by 靠 CS 分时复用）、接口设计经验
-//! （USB2.0 无等长 / 百兆只对内 / SGMII 对间 ±100mil=2.54mm / 等长宁可做小）。
+//! 判据来源：DDR 布线规则（数据组 11 根一组、组内 ±25mil = 0.635mm / DQS·时钟差分对内
+//! <5mil = 0.127mm / 数据不换层 / fly-by 靠 CS 分时复用）、差分对与网络接口设计
+//! （USB2.0 无等长 / 百兆只对内 / SGMII 对间 ±100mil = 2.54mm / 等长宁可做小）。
 //!
 //! 一源三吃（三层分职）：
 //!   声明（本模块 schema，人或 AI 产）→ ①router 消费（BusGroupSpec 注入口=层协调
@@ -277,7 +277,7 @@ pub fn eval_length_matching(board: &Board, groups: &[ResolvedGroup]) -> Vec<Grou
                 (name_of(*id), l, v)
             })
             .collect();
-        // 基准网：参考网指定（不在组内则退最长——DDR 口径"时钟是最长基准"）
+        // 基准网：参考网指定（不在组内则退最长——"时钟是最长基准"）
         let longest = |lens: &[(String, f64, usize)]| -> (String, f64) {
             lens.iter()
                 .fold(None, |acc: Option<&(String, f64, usize)>, x| match acc {
@@ -400,7 +400,7 @@ mod tests {
     fn test_expand_net_spec() {
         assert_eq!(
             expand_net_spec("DQ0..3"),
-            vec!["DQ0", "DQ1", "DQ2", "DQ3"]
+            ["DQ0", "DQ1", "DQ2", "DQ3"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>()
@@ -416,7 +416,7 @@ mod tests {
     fn test_parse_and_template_ddr3() {
         let cs = template("ddr3-1600").expect("模板存在");
         let byte0 = cs.groups.iter().find(|g| g.name == "BYTE0").unwrap();
-        assert_eq!(byte0.nets.len(), 11, "数据组 11 根一组(口径)");
+        assert_eq!(byte0.nets.len(), 11, "数据组 11 根一组");
         assert!((byte0.tolerance_mm - 0.635).abs() < 1e-9, "±25mil");
         let dqs = cs.groups.iter().find(|g| g.name == "DQS_PAIRS").unwrap();
         assert!((dqs.tolerance_mm - 0.127).abs() < 1e-9, "对内 <5mil");
@@ -429,12 +429,13 @@ mod tests {
     }
 
     fn mkboard() -> Board {
-        let mut b = Board::default();
-        b.nets = vec![NetDef {
-            id: 0,
-            name: String::new(),
-        }];
-        b
+        Board {
+            nets: vec![NetDef {
+                id: 0,
+                name: String::new(),
+            }],
+            ..Default::default()
+        }
     }
 
     /// 评估器：组内偏差计算 + pass/warn(×0.7) + same_layer 换层违规。
@@ -512,7 +513,7 @@ mod tests {
             priority: 0,
             missing: vec![],
         };
-        let r2 = &eval_length_matching(&b, &[g2.clone()])[0];
+        let r2 = &eval_length_matching(&b, std::slice::from_ref(&g2))[0];
         assert!(r2.pass && r2.warn, "dev=tolerance 边界=黄牌");
 
         // 参考网指定: net:DQ0 ⇒ 基准 10.0, 全组最大偏差 = |10-9| = 1.0 (DQ1 最短)

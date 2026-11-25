@@ -341,7 +341,7 @@ impl Board {
                 let id = n[1].as_number().unwrap_or(0.0) as u32;
                 let name = n[2].as_string().unwrap_or("").to_string();
                 // KiCad 保留 netcode 0 = 未连接：命名网占用 id 0 会在装载/重存时被
-                // KiCad 重排（实测 P30b: net4 GND 孔被标成 VBAT_SW），这里告警。
+                // KiCad 重排（实测: 一颗接地过孔装载后被标成了别的网名），这里告警。
                 if id == 0 && !name.is_empty() {
                     eprintln!(
                         "警告: nets 表命名网占用保留码 0 (name=\"{}\")，KiCad 装载后网名会错乱；请改用非零 id",
@@ -2029,9 +2029,8 @@ pub struct Via {
     pub layers: Vec<String>,
     pub net: u32,
     /// KiCad via 类型 token: "" = through (默认), "blind"/"micro" 原样带出。
-    /// 回流自 downstream project an earlier change(2026-10-01): 起因=P3 analog-board v2.5 盲孔 via-in-pad
-    /// 落板——无类型 via 被 KiCad 归一化成通孔致 7~9 shorting; 历史快照 json5
-    /// 带 via_type:"blind" 真语义, 缺此字段=静默丢盲孔。
+    /// 盲孔 via-in-pad 落板时无类型 via 会被 KiCad 归一化成通孔 (实测造成多处 shorting);
+    /// 真源写了 via_type:"blind" / "micro" 而本字段缺失 = 反向编译静默丢盲孔。
     pub via_type: String,
 }
 
@@ -2158,10 +2157,10 @@ fn normalize_net_name_refs(node: &mut SExpr, nets: &mut Vec<NetDef>) {
 //
 // 布线器会在走线里留下两类"接缝", DRC 都不报, 在 gerber 里是零长度的 draw 或亚微米的缝:
 //   * 准零长度碎片: freerouting 回导的板, 在多条走线的交汇点上, 汇到同一点的两根线被写了两个差
-//     0.0001–0.01 mm 的坐标, 中间用一小段连起来 (2026-11-25 实测: analog-board 251 段 / carrier 16 段);
-//   * 端点差一点却不相等: 自研 astar 布的板有 4 处 (焊盘中心在 1/8 mm 栅格上, 走线端点在 0.01 mm
+//     0.0001–0.01 mm 的坐标, 中间用一小段连起来 (实测: 一块密集六层板 251 段 / 一块双层板 16 段);
+//   * 端点差一点却不相等: A* 栅格布线器布的板上有 4 处 (焊盘中心在 1/8 mm 栅格上, 走线端点在 0.01 mm
 //     栅格上), 两根线靠线宽重叠才连通.
-// downstream project 的三块板认证按"走线接缝 = 0"把关. SES 的解析在 pcbnew (C++) 那一侧, 碎片是 freerouting
+// 板级认证按"走线接缝 = 0"把关. SES 的解析在 pcbnew (C++) 那一侧, 碎片是 freerouting
 // 自己输出的; 本仓库能修的是"板数据进入生成器之前"这一关. [`Board::snap_trace_junctions`] 两个
 // 编译方向都做, 幂等:
 //   1. 删掉长度 < tol 的段;
@@ -2176,8 +2175,7 @@ fn normalize_net_name_refs(node: &mut SExpr, nets: &mut Vec<NetDef>) {
 // "精确"= 量化到 nm 后 dx = 0 或 dy = 0 或 |dx| = |dy| (容差 5 nm: 平移后的坐标是浮点加法). 不用"偏差
 // < 0.2° 算规整"的容差口径 —— 一段 2 mm 长的线偏 0.005 mm 只有 0.13°, 会被放过.
 // 坐标全部先量化到 nm 整数 (与 sexpr 生成 fmt_num 的口径一致), 结果确定、可复现.
-// 对拍基准是 downstream project 的 Python 版 (三块板实跑过, 同一算法):
-//   the Python prototype
+// 实现前先有一份同算法的 Python 原型, 在三块真实板上逐段对拍相同 (对拍过程两端互相揪出过几个 bug).
 
 /// [`Board::snap_trace_junctions`] 的结果统计。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -2200,6 +2198,30 @@ const GRID_EPS_NM: i64 = 5;
 const STRAIGHTEN_MAX_CHAIN: usize = 80;
 
 type Nm = (i64, i64);
+/// mm 坐标点
+type Pt = (f64, f64);
+/// 一条线段的两端 (start, end)
+type SegEnds = (Pt, Pt);
+/// 刚被并簇挪过的线端: 段下标, 哪一端 (0 = start / 1 = end)
+#[derive(Debug, Clone, Copy)]
+struct SnappedEnd {
+    seg: usize,
+    side: u8,
+}
+/// 锚点候选的排序键 (derive 出的字典序 = 比较优先级, 越小越好)
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct AnchorKey {
+    /// 挪完之后救不回来的线数 (另一端是过孔圆心)
+    hard: usize,
+    /// 挪完之后不精确的线数
+    off: usize,
+    /// 偏差角度总和 × 1e4
+    dev: i64,
+    /// 0 = 锚点是过孔圆心 / 焊盘中心
+    off_centre: u8,
+    /// 以锚点为端点的线端数, 取负
+    neg_deg: i64,
+}
 
 fn to_nm(p: (f64, f64)) -> Nm {
     ((p.0 * 1e6).round() as i64, (p.1 * 1e6).round() as i64)
@@ -2277,7 +2299,7 @@ fn seg_rect(a: (f64, f64), b: (f64, f64), hw: f64, hh: f64) -> f64 {
 }
 
 /// 圆帽线段 a→b (半宽 `half_w`) 到焊盘铜缘的距离. 圆角矩形按圆角算 (= 缩进 r 的矩形 ⊕ 半径 r 的圆),
-/// 椭圆按两端半圆算; 梯形 / custom 按包围矩形算 (偏严). 与 downstream project `p30geom.viol_roundrect` 同口径.
+/// 椭圆按两端半圆算; 梯形 / custom 按包围矩形算 (偏严).
 fn seg_pad_gap(fp: &Footprint, pad: &Pad, a: (f64, f64), b: (f64, f64), half_w: f64) -> f64 {
     let (cx, cy) = fp.pad_world_center(pad);
     let theta = (fp.position.2 + pad.position.2).to_radians();
@@ -2434,7 +2456,7 @@ impl Board {
 
     fn snap_trace_junctions_inner(&mut self, tol_mm: f64) -> SnapReport {
         let mut rep = SnapReport::default();
-        if !(tol_mm > 0.0) || self.segments.is_empty() {
+        if tol_mm.is_nan() || tol_mm <= 0.0 || self.segments.is_empty() {
             return rep;
         }
         let tol_nm = (tol_mm * 1e6).round().max(1.0) as i64;
@@ -2466,8 +2488,7 @@ impl Board {
     fn snap_once(&mut self, tol_nm: i64) -> SnapReport {
         let mut rep = SnapReport::default();
         // 每条线进入本轮时的两端 —— 保方向平移只认它 ("原来是否精确"、"原始方向")
-        let orig: Vec<((f64, f64), (f64, f64))> =
-            self.segments.iter().map(|s| (s.start, s.end)).collect();
+        let orig: Vec<SegEnds> = self.segments.iter().map(|s| (s.start, s.end)).collect();
         // ---- 点表: 同网的线端点 (去重). 度数 = 以它为端点的线端数 ----
         let mut deg: HashMap<(u32, Nm), usize> = HashMap::new();
         for s in &self.segments {
@@ -2541,7 +2562,7 @@ impl Board {
                 .collect()
         };
         let near = |c: Nm, coords: &[Nm]| coords.iter().any(|x| nm_dist2(c, *x) < tol_nm * tol_nm);
-        let mut absorbed: Vec<(usize, u8, (f64, f64), (f64, f64))> = Vec::new();
+        let mut absorbed: Vec<SnappedEnd> = Vec::new();
         let mut members_by_root: Vec<&Vec<usize>> = clusters.values().collect();
         members_by_root.sort(); // 确定性: 按成员下标排序
         for members in members_by_root {
@@ -2562,7 +2583,7 @@ impl Board {
                     cands.push(c);
                 }
             }
-            let mut best: Option<((usize, usize, i64, u8, i64), Nm)> = None;
+            let mut best: Option<(AnchorKey, Nm)> = None;
             for cand in &cands {
                 let cf = (cand.0 as f64 / 1e6, cand.1 as f64 / 1e6);
                 let (mut n_hard, mut n_off, mut dev_sum) = (0usize, 0usize, 0.0);
@@ -2585,13 +2606,13 @@ impl Board {
                     }
                 }
                 let centred = via_pts.contains(&(net, *cand)) || pad_pts.contains(&(net, *cand));
-                let key = (
-                    n_hard,
-                    n_off,
-                    (dev_sum * 1e4).round() as i64,
-                    if centred { 0 } else { 1 },
-                    -(*deg.get(&(net, *cand)).unwrap_or(&0) as i64),
-                );
+                let key = AnchorKey {
+                    hard: n_hard,
+                    off: n_off,
+                    dev: (dev_sum * 1e4).round() as i64,
+                    off_centre: u8::from(!centred),
+                    neg_deg: -(*deg.get(&(net, *cand)).unwrap_or(&0) as i64),
+                };
                 let better = match &best {
                     None => true,
                     Some((bk, bc)) => key < *bk || (key == *bk && *cand < *bc),
@@ -2608,7 +2629,6 @@ impl Board {
                     continue;
                 }
                 for (seg_i, side) in ends_of(self, net, q) {
-                    let qf = (q.0 as f64 / 1e6, q.1 as f64 / 1e6);
                     let ep = if side == 0 {
                         &mut self.segments[seg_i].start
                     } else {
@@ -2616,7 +2636,7 @@ impl Board {
                     };
                     *ep = af;
                     rep.endpoints_moved += 1;
-                    absorbed.push((seg_i, side, qf, af));
+                    absorbed.push(SnappedEnd { seg: seg_i, side });
                 }
             }
         }
@@ -2628,20 +2648,16 @@ impl Board {
         rep
     }
 
-    /// 保方向平移. `absorbed` 是刚被并过的线端 (段下标, 哪一端, 原坐标, 新坐标); `orig` 是每条线进入本轮时的两端.
+    /// 保方向平移. `absorbed` 是刚被并过的线端 (段下标, 哪一端); `orig` 是每条线进入本轮时的两端.
     /// 一条线原来精确、现在不精确: 把它的另一端挪到"吸附端当前坐标 + 原始方向向量" —— 线段 = 原线平移 (< tol).
     /// 以这一端为端点的同网线段那一端都跟着挪; 其中"原来精确、现在不精确"的继续往它们的另一端传, 一直到走线尽头.
     /// 焊盘里的端点可以挪, 但不许挪出焊盘. 碰到过孔圆心 (过孔不动) / 端点要挪出焊盘 / 链太长: 这一条整链回退,
     /// 线带着微小偏差留下. 返回 (修好的线数, 带动的线端数, 救不回来的线数).
     ///
-    /// "原来精确"和"原始方向"**只认 orig**. 拿当前坐标算会出两种错 (analog-board 上各实锤一次): 一条线已被前面某条线的
+    /// "原来精确"和"原始方向"**只认 orig**. 拿当前坐标算会出两种错 (真实板上各实锤一次): 一条线已被前面某条线的
     /// 平移链顺带修好, 仍被当成"歪了"再平移一次, 把整条链拉回去; 另一端已被挪过, 一条被弄歪的线被当成
     /// "本来就不精确"放过.
-    fn straighten(
-        &mut self,
-        absorbed: Vec<(usize, u8, (f64, f64), (f64, f64))>,
-        orig: &[((f64, f64), (f64, f64))],
-    ) -> (usize, usize, usize) {
+    fn straighten(&mut self, absorbed: Vec<SnappedEnd>, orig: &[SegEnds]) -> (usize, usize, usize) {
         let pads_by_net: HashMap<u32, Vec<(&Footprint, &Pad)>> = {
             let mut m: HashMap<u32, Vec<(&Footprint, &Pad)>> = HashMap::new();
             for fp in &self.footprints {
@@ -2679,18 +2695,18 @@ impl Board {
                 .collect()
         };
         // 量化到 nm (与 fmt_num 一致; 也与 Python 版对拍)
-        let q_nm = |v: f64| ((v * 1e6).round() / 1e6, 0.0).0;
+        let q_nm = |v: f64| (v * 1e6).round() / 1e6;
         let mut fixed = 0usize;
         let mut moved_total = 0usize;
         let mut leftover = 0usize;
-        for (seg_i, side, _q, _r) in absorbed {
+        let dbg = std::env::var_os("KICAD_JSON5_SNAP_DEBUG").is_some();
+        for SnappedEnd { seg: seg_i, side } in absorbed {
             let s = &self.segments[seg_i];
             let (q0, o0) = if side == 0 {
                 (orig[seg_i].0, orig[seg_i].1)
             } else {
                 (orig[seg_i].1, orig[seg_i].0)
             };
-            let dbg = std::env::var_os("KICAD_JSON5_SNAP_DEBUG").is_some();
             // 原来就不精确的 / 现在已经精确的 (可能已被前面某条线的平移链顺带修好): 不管
             if !on_grid(q0, o0) || on_grid(s.start, s.end) {
                 if dbg {
@@ -2729,7 +2745,7 @@ impl Board {
                     !fp.pad_contains(pad, x2)
                 });
                 if is_via || leaves_pad || trail.len() > STRAIGHTEN_MAX_CHAIN {
-                    if std::env::var_os("KICAD_JSON5_SNAP_DEBUG").is_some() {
+                    if dbg {
                         eprintln!(
                             "snap debug:   roll back at ({:.4},{:.4}) -> ({:.4},{:.4}): via {} leaves_pad {} trail {}",
                             x.0, x.1, x2.0, x2.1, is_via, leaves_pad, trail.len()
@@ -2759,7 +2775,7 @@ impl Board {
                     }
                 }
             }
-            // 平移会吃掉与邻线的间距 (analog-board 实测: 挪 0.001 之后 NET_A 与 NET_B 的间距 0.125 → 0.124): 成功的链还要过间距检查
+            // 平移会吃掉与邻线的间距 (实测: 挪 0.001 之后两条相邻线的间距 0.125 → 0.124): 成功的链还要过间距检查
             let mut why_clear = None;
             if ok && !trail.is_empty() {
                 let mut moved_idx: Vec<usize> = trail.iter().map(|x| x.0).collect();

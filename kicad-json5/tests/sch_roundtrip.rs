@@ -230,7 +230,7 @@ fn test_topology_tiny_scarab() {
 #[test]
 fn test_sch_generation_is_deterministic() {
     // 真源未给 uuid 的项 (页/属性/图元/元件) 旧实现每次 Uuid::new_v4(): 同一输入编译两次产物差上千行
-    // (merged-power-board 原理图实测 1496 行, 2026-11-24). 这里把能清的 uuid 全清掉, 模拟"真源不带 uuid".
+    // (实测: 一张多页原理图差 1496 行, 2026-11-24). 这里把能清的 uuid 全清掉, 模拟"真源不带 uuid".
     let mut original = parse_sch_from(&fixtures_dir(), "battery-power-board.kicad_sch");
     original.metadata.uuid = String::new();
     for c in &mut original.components {

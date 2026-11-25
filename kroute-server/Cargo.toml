@@ -18,8 +18,7 @@ futures = "0.3"
 async-stream = "0.3"
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
-rayon = "1.10"
-# 显存水位门：4090 是共享卡，CUDA 任务执行前查 free VRAM
+# 显存水位门：GPU 是共享卡，CUDA 任务执行前先查空闲显存
 nvml-wrapper = "0.10"
 # LayoutOptimize RPC：远程多 seed SA 布局（run_sa_seeds）
 kicad-cdb = { path = "../kicad-cdb" }
@@ -40,7 +39,7 @@ cudarc = { version = "0.19.9", optional = true, features = ["driver", "nvrtc"] }
 tonic-build = "0.13"
 
 [features]
-# 引擎阶梯：cuda（生产 4090）→ gpu=wgpu（本机 Metal/Vulkan/DX12）→ cpu（永远兜底）。
+# 引擎阶梯：cuda → gpu=wgpu（Metal/Vulkan/DX12）→ cpu（永远兜底）。
 # default 含 gpu：本机开箱即用 Metal；生产构建 --features cuda 后阶梯头是 CUDA。
 default = ["gpu"]
 gpu = ["wgpu", "bytemuck", "pollster"]

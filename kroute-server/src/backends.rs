@@ -1,7 +1,7 @@
 //! 执行后端：freerouting 全管线（FR）+ noop 冒烟。
 //!
-//! 管线移植自 `/path/to/tooling/fr-route.sh`（2026-09-01 定版流程），
-//! 差异点：每个 job 独立工作目录（服务端强制隔离，杜绝 fr-route.sh 固定文件名
+//! 管线移植自一份定版的 FreeRouting 路由脚本（流程定版于 2026-09-01），
+//! 差异点：每个 job 独立工作目录（服务端强制隔离，杜绝原脚本用固定文件名
 //! 并发互删 .sig/.pre-fr 的坑）；job 目录即沙箱，失败不回滚客户端板子。
 
 use crate::store::JobStore;

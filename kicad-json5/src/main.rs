@@ -224,7 +224,7 @@ fn run_pcb(args: &Args, source: &str) -> Result<(), Box<dyn std::error::Error>> 
     let mut board = board;
     // 走线接缝清理: 板数据进入生成器之前做一次, 两个方向都走 (freerouting 回导出的板转成 json5
     // 真源时是干净的; 带碎片的旧真源编译时顺手清掉), 幂等. 静默 —— 编译器成功时不出声.
-    // 间距规则: 板自带的 rules 优先, 没有就读同名的 .kicad_pro 有的板的规则面只在工程文件里); 只用于这次清理, 不写回板
+    // 间距规则: 板自带的 rules 优先, 没有就读同名的 .kicad_pro (有的板的规则面只写在工程文件里); 只用于这次清理, 不写回板
     let snap_clearance = board
         .rules
         .as_ref()

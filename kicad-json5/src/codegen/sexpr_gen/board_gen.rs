@@ -925,7 +925,7 @@ impl BoardSexprGenerator {
         // KiCad: .kicad_pcb 里 pad `(at rot)` 是 **世界角** = footprint 旋转 + pad 自身旋转
         // (pad.cpp GetFPRelativeOrientation = pad_world − fp; 库 clone 经 SetOrientation
         // 归一到世界角)。发射相对角会让所有旋转实例 lib parity 恒 mismatch
-        // (merged-power-board DRC 根因, 2026-11-12 实锤). IR 保持相对角, from_sexpr 对称回算.
+        // (实板 DRC 根因, 2026-11-12 实锤). IR 保持相对角, from_sexpr 对称回算.
         self.line(out, &Self::fmt_at(x, y, fp_rot + r));
         let (w, h) = pad.size;
         self.line(
@@ -1911,7 +1911,7 @@ mod tests {
 
     #[test]
     fn test_pad_rot_world_angle_roundtrip() {
-        // DRC lib-parity 根因(merged-power-board 2026-11-12 实锤): .kicad_pcb 里 pad `(at rot)`
+        // DRC lib-parity 根因(实板 2026-11-12 实锤): .kicad_pcb 里 pad `(at rot)`
         // 存的是 **世界角** = footprint 旋转 + pad 自身旋转(pad.cpp GetFPRelativeOrientation
         // = pad_world − fp; 库 clone 靠 FOOTPRINT::SetOrientation 把 pad 归一到世界角)。
         // 发射相对角 → 装载后旋转过的实例 pad 恒差 −fp_rot → 旋转件永远 mismatch。

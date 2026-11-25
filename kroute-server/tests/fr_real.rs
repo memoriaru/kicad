@@ -3,8 +3,8 @@
 //! 跑法（Mac 示例）：
 //! ```bash
 //! KROUTE_TEST_BOARD=/abs/path/board.kicad_pcb \
-//! KROUTE_TEST_JAVA=/path/to/tooling/jre/Contents/Home/bin/java \
-//! KROUTE_TEST_JAR=/path/to/tooling/freerouting-1.9.0.jar \
+//! KROUTE_TEST_JAVA=/path/to/jre/Contents/Home/bin/java \
+//! KROUTE_TEST_JAR=/path/to/freerouting-1.9.0.jar \
 //! cargo test --test fr_real -- --ignored --nocapture
 //! ```
 

@@ -390,9 +390,6 @@ fn extract_freq_param(query: &str, params: &mut HashMap<String, f64>) {
     }
 }
 
-#[allow(dead_code)]
-fn regex_lazy() {}
-
 fn find_last_voltage(s: &str) -> Option<f64> {
     let volts = find_all_voltages(s);
     volts.last().copied()

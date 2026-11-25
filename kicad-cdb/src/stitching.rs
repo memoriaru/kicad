@@ -1,11 +1,11 @@
-//! 换层缝合孔/缝合电容
+//! 换层缝合孔 / 缝合电容：审计 + 自动补孔。
 //!
-//! 判据来源：回流设计经验——"被迫破坏时的搭桥"：
+//! 判据来源 —— 参考平面"被迫破坏时的搭桥"：
 //!   - 换层到另一 GND 层 → **缝合地孔 stitching via**（通孔连两地，回流沿地孔走）
-//!   - 换层跨到 Power 层 → **缝合电容 stitching cap**（GND-PWR 搭桥；理论根基=
+//!   - 换层跨到 Power 层 → **缝合电容 stitching cap**（GND-PWR 搭桥；理论根基 =
 //!     高频下 Power 与 GND 等效短路，去耦电容串平面）
-//!   - 换层孔 100mil 范围内必打回流地孔（布线经验 卡，=2.54mm）
-//!   - 无缝合条件（周边无铜）→ 告警清单（挖槽/分割区，回流绕圈面积暴增）
+//!   - 换层孔 100mil 范围内必打回流地孔（= 2.54mm）
+//!   - 无缝合条件（周边无铜）→ 告警清单（挖槽 / 分割区，回流绕圈面积暴增）
 //!
 //! 三层分职：本模块=确定性判据与几何（找空位/碰撞检查）；"哪根是高速线"是语义
 //! 层——默认 net 名模式匹配，可 --nets/--all 覆盖。电容插入是器件级改动（BOM/
@@ -60,7 +60,7 @@ pub enum Verdict {
 
 #[derive(Debug, Clone)]
 pub struct StitchConfig {
-    /// 就近判定半径（mm），默认 2.54 = 100mil（口径）。
+    /// 就近判定半径（mm），默认 2.54 = 100mil。
     pub max_dist: f64,
     /// 高速网名模式（正则不走，简单 contains/后缀匹配已够）。
     pub net_patterns: Vec<String>,
@@ -137,14 +137,17 @@ pub fn point_in_poly(pt: (f64, f64), poly: &[(f64, f64)]) -> bool {
     inside
 }
 
+/// 标准六层序 (外到内到外), `copper_axis` 和制造规则审计共用.
+pub(crate) const SIX_LAYER_ORDER: [&str; 6] =
+    ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "B.Cu"];
+
 /// 实际铜层轴：F/B 恒在 ∪ 板上出现过铜的层（zone/segment/via 层），按标准六层序。
 /// ⚠ 不能用 board.layers——Board::default() 只有 F/B 两层声明（首版测试全挂的根因：
 /// 邻层轴塌缩成 [F.Cu, B.Cu]，In1 的 GND zone 永远不被看见）。两层板轴=[F,B]
 /// （F.Cu 邻=B.Cu ✓）；via 跨过的内层是活动铜层也入轴（信号的参考层查找必需）。
 pub fn copper_axis(board: &Board) -> Vec<String> {
-    const SIX: [&str; 6] = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "B.Cu"];
     let mut axis: Vec<String> = Vec::new();
-    for l in SIX {
+    for l in SIX_LAYER_ORDER {
         if l == "F.Cu" || l == "B.Cu" {
             axis.push(l.to_string());
             continue;
@@ -230,13 +233,6 @@ fn classify(net: &str) -> RefPlane {
     }
 }
 
-/// 六层序索引（层跨度归一用，当前留作扩展）。
-#[allow(dead_code)]
-fn layer_idx(layer: &str) -> usize {
-    const SIX: [&str; 6] = ["F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "B.Cu"];
-    SIX.iter().position(|l| *l == layer).unwrap_or(0)
-}
-
 /// 换层点提取：高速信号网的 via（层跨度端点层）。
 pub fn detect_transitions(board: &Board, cfg: &StitchConfig) -> Vec<LayerTransition> {
     let mut out = Vec::new();
@@ -282,14 +278,13 @@ pub fn audit_stitching(board: &Board, cfg: &StitchConfig) -> Vec<StitchFinding> 
 
         let verdict = match (&from_ref, &to_ref) {
             (RefPlane::None, _) | (_, RefPlane::None) => Verdict::NoReference,
-            (RefPlane::Ground(a), RefPlane::Ground(_)) => {
+            (RefPlane::Ground(_), RefPlane::Ground(_)) => {
                 let has_gnd_via = board.vias.iter().any(|v| {
                     let n = net_display(board, v.net);
                     n != tr.net
                         && is_ground(&n)
                         && (v.at.0 - tr.at.0).hypot(v.at.1 - tr.at.1) <= cfg.max_dist
                 });
-                let _ = a;
                 if has_gnd_via {
                     Verdict::Ok
                 } else {
@@ -306,7 +301,7 @@ pub fn audit_stitching(board: &Board, cfg: &StitchConfig) -> Vec<StitchFinding> 
                         .filter_map(|p| p.net_name.as_deref())
                         .collect();
                     nets.iter().any(|n| is_ground(n))
-                        && nets.iter().any(|n| *n == p.as_str())
+                        && nets.contains(&p.as_str())
                         && (fp.position.0 - tr.at.0).hypot(fp.position.1 - tr.at.1)
                             <= cfg.max_dist * 2.0
                 });
@@ -487,8 +482,6 @@ pub fn format_report(
     }
     s
 }
-
-// NOTE(layer_idx): 六层序索引留作扩展(按层对裁剪 via 跨度), 当前插入统一通孔。
 
 #[cfg(test)]
 mod tests {

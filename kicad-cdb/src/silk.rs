@@ -2,7 +2,7 @@
 //!
 //! The board generator emits bare pads with no assembly graphics:
 //! - no pin-1 marker (a SOT-23 mounted 180° is electrically a different circuit —
-//!   the battery board's Q1 S/D swap proved this bug class is real),
+//!   source and drain get swapped),
 //! - no polarity marking on electrolytic caps,
 //! - no courtyard (KiCad's component-overlap check goes blind).
 //!   Synthesizes all three from pad geometry, in footprint-local coordinates.
