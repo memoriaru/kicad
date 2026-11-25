@@ -1,22 +1,39 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::Value;
 
 use super::{ProductDetail, SearchResult};
 
-const BASE_URL: &str = "https://kiapi.eda.cn";
+/// 默认的接口地址. 环境变量 `HQAPI_BASE_URL` 可以覆盖 (测试里把它指向一个没人监听的本地端口,
+/// 这样"接口不可达时要优雅报错"的检查不必依赖真实网络).
+const DEFAULT_BASE_URL: &str = "https://kiapi.eda.cn";
+/// 建立连接的上限.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// 整个请求的上限. 调用方 (MCP 的 `serve`) 是同步循环, 一次网络调用不设上限地挂着,
+/// 整个服务就不应答了.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct HqClient {
     client: Client,
+    base_url: String,
 }
 
 impl HqClient {
     pub fn new() -> Result<Self> {
         let client = Client::builder()
             .user_agent("kicad-cdb/0.5")
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
             .build()
             .context("Failed to create HTTP client")?;
-        Ok(Self { client })
+        let base_url = std::env::var("HQAPI_BASE_URL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        let base_url = base_url.trim_end_matches('/').to_string();
+        Ok(Self { client, base_url })
     }
 
     /// Search components by keyword
@@ -109,7 +126,7 @@ impl HqClient {
     }
 
     fn post(&self, path: &str, body: &impl serde::Serialize) -> Result<Value> {
-        let url = format!("{}{}", BASE_URL, path);
+        let url = format!("{}{}", self.base_url, path);
 
         let resp = self
             .client

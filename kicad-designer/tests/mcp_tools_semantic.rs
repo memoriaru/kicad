@@ -25,16 +25,19 @@ impl Drop for Server {
     }
 }
 
-fn spawn_server(db_path: &std::path::Path) -> Server {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_kdesign"))
-        .arg("--db")
+/// 启动服务端进程. `envs`: 额外传给它的环境变量.
+fn spawn_server_with(db_path: &std::path::Path, envs: &[(&str, &str)]) -> Server {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_kdesign"));
+    cmd.arg("--db")
         .arg(db_path)
         .arg("serve")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .expect("spawn kdesign serve");
+        .stderr(Stdio::inherit());
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    let mut child = cmd.spawn().expect("spawn kdesign serve");
     let stdin = child.stdin.take().expect("stdin");
     let stdout = child.stdout.take().expect("stdout");
     let (tx, rx) = channel();
@@ -236,11 +239,15 @@ fn seed_db(path: &std::path::Path) {
 }
 
 fn setup(tag: &str) -> (std::path::PathBuf, Server) {
+    setup_with(tag, &[])
+}
+
+fn setup_with(tag: &str, envs: &[(&str, &str)]) -> (std::path::PathBuf, Server) {
     let dir = std::env::temp_dir().join(format!("kdesign-semantic-{}-{}", tag, std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let db = dir.join("components.db");
     seed_db(&db);
-    let srv = spawn_server(&db);
+    let srv = spawn_server_with(&db, envs);
     (db, srv)
 }
 
@@ -661,7 +668,10 @@ fn reference_design_lifecycle() {
 
 #[test]
 fn external_dependency_tools_fail_gracefully() {
-    let (_db, mut srv) = setup("ext");
+    // 不依赖真实网络: 在线接口指向一个没人监听的本地端口, 连接会被立刻拒绝.
+    // 默认接口在有的网络上会长时间不响应, 而 `serve` 是同步循环 —— 一次调用卡住,
+    // 整个服务都不应答 (CI 上就这样超时过). 客户端自身另有连接 / 请求超时兜底.
+    let (_db, mut srv) = setup_with("ext", &[("HQAPI_BASE_URL", "http://127.0.0.1:1")]);
     // kicad-cli 不存在/输入文件缺失 → 结构化 RPC 错误
     call(
         &mut srv,
@@ -681,8 +691,7 @@ fn external_dependency_tools_fail_gracefully() {
     let resp = read_last(&mut srv);
     assert_eq!(resp["error"]["code"], -32603, "graceful ERC error");
 
-    // 在线拉取(真实网络): 模糊搜索可能命中也可能拒绝——两者都是合法响应,
-    // 关键断言是响应为合法 JSON-RPC 且服务器随后仍存活
+    // 在线接口不可达 → 结构化 RPC 错误 (不是崩溃, 也不是挂住)
     call(
         &mut srv,
         "fetch_component",
@@ -691,8 +700,8 @@ fn external_dependency_tools_fail_gracefully() {
     );
     let resp = read_last(&mut srv);
     assert!(
-        resp["result"].is_object() || resp["error"].is_object(),
-        "fetch must yield a JSON-RPC response, got: {}",
+        resp["error"].is_object(),
+        "an unreachable API must yield a JSON-RPC error, got: {}",
         resp
     );
 
