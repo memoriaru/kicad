@@ -818,7 +818,7 @@ impl SexprGenerator {
             }
 
             // Both L-shapes conflict — try Z-shape (3-segment) routing
-            if self.emit_z_wire(
+            self.emit_z_wire(
                 output,
                 p1,
                 p2,
@@ -826,10 +826,7 @@ impl SexprGenerator {
                 wire_segments,
                 all_pins_with_net,
                 component_bodies,
-            ) {
-                return true;
-            }
-            false
+            )
         }
     }
 
