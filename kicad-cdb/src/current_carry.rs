@@ -653,9 +653,7 @@ pub fn seed_current_rules(db: &crate::ComponentDb) -> anyhow::Result<Vec<i64>> {
             check_expr: Some(check.to_string()),
             parameters: Some(params.to_string()),
             output_params: Some(outputs.to_string()),
-            source: Some(
-                "工程经验表(1oz/30°C 温升锚点) + PMU 输出保底 6 过孔".into(),
-            ),
+            source: Some("工程经验表(1oz/30°C 温升锚点) + PMU 输出保底 6 过孔".into()),
             domain: Some("power".into()),
             tags: Some("current,ampacity,ipc2221,calibrated".into()),
         })?;
