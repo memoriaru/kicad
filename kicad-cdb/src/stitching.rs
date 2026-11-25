@@ -77,10 +77,12 @@ impl Default for StitchConfig {
     fn default() -> Self {
         StitchConfig {
             max_dist: 2.54,
-            net_patterns: ["CLK", "LVDS", "USB", "DP", "DM", "MIPI", "DIFF", "SDA", "SCL"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            net_patterns: [
+                "CLK", "LVDS", "USB", "DP", "DM", "MIPI", "DIFF", "SDA", "SCL",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
             all_nets: false,
             clearance: 0.2,
             via_size: 0.6,
@@ -107,7 +109,10 @@ pub fn is_high_speed(net: &str, cfg: &StitchConfig) -> bool {
         || u.ends_with("_N")
         || u.ends_with("DP")
         || u.ends_with("DM")
-        || cfg.net_patterns.iter().any(|p| u.contains(&p.to_uppercase()))
+        || cfg
+            .net_patterns
+            .iter()
+            .any(|p| u.contains(&p.to_uppercase()))
 }
 
 /// 点在多边形内（射线法）。
@@ -156,7 +161,10 @@ pub fn copper_axis(board: &Board) -> Vec<String> {
         if d.name.ends_with(".Cu") && !axis.contains(&d.name) {
             let used = board.zones.iter().any(|z| z.layer == d.name)
                 || board.segments.iter().any(|s| s.layer == d.name)
-                || board.vias.iter().any(|v| v.layers.iter().any(|vl| vl == &d.name));
+                || board
+                    .vias
+                    .iter()
+                    .any(|v| v.layers.iter().any(|vl| vl == &d.name));
             if used {
                 axis.push(d.name.clone());
             }
@@ -244,7 +252,12 @@ pub fn detect_transitions(board: &Board, cfg: &StitchConfig) -> Vec<LayerTransit
             (Some(a), Some(b)) if a != b => (a.clone(), b.clone()),
             _ => ("F.Cu".to_string(), "B.Cu".to_string()), // 无 layers=通孔全跨
         };
-        out.push(LayerTransition { net, at: via.at, from_layer: from, to_layer: to });
+        out.push(LayerTransition {
+            net,
+            at: via.at,
+            from_layer: from,
+            to_layer: to,
+        });
     }
     out
 }
@@ -272,7 +285,9 @@ pub fn audit_stitching(board: &Board, cfg: &StitchConfig) -> Vec<StitchFinding> 
             (RefPlane::Ground(a), RefPlane::Ground(_)) => {
                 let has_gnd_via = board.vias.iter().any(|v| {
                     let n = net_display(board, v.net);
-                    n != tr.net && is_ground(&n) && (v.at.0 - tr.at.0).hypot(v.at.1 - tr.at.1) <= cfg.max_dist
+                    n != tr.net
+                        && is_ground(&n)
+                        && (v.at.0 - tr.at.0).hypot(v.at.1 - tr.at.1) <= cfg.max_dist
                 });
                 let _ = a;
                 if has_gnd_via {
@@ -281,11 +296,15 @@ pub fn audit_stitching(board: &Board, cfg: &StitchConfig) -> Vec<StitchFinding> 
                     Verdict::NeedVia
                 }
             }
-            (RefPlane::Ground(_), RefPlane::Power(p)) | (RefPlane::Power(p), RefPlane::Ground(_)) => {
+            (RefPlane::Ground(_), RefPlane::Power(p))
+            | (RefPlane::Power(p), RefPlane::Ground(_)) => {
                 // 附近已有搭桥电容（同时挂 GND 与该电源网的电容件）？
                 let has_cap = board.footprints.iter().any(|fp| {
-                    let nets: Vec<&str> =
-                        fp.pads.iter().filter_map(|p| p.net_name.as_deref()).collect();
+                    let nets: Vec<&str> = fp
+                        .pads
+                        .iter()
+                        .filter_map(|p| p.net_name.as_deref())
+                        .collect();
                     nets.iter().any(|n| is_ground(n))
                         && nets.iter().any(|n| *n == p.as_str())
                         && (fp.position.0 - tr.at.0).hypot(fp.position.1 - tr.at.1)
@@ -333,8 +352,10 @@ fn spot_free(board: &Board, at: (f64, f64), r: f64, clr: f64) -> bool {
     for s in &board.segments {
         let (x0, y0) = s.start;
         let (x1, y1) = s.end;
-        if at.0 < x0.min(x1) - r - clr || at.0 > x0.max(x1) + r + clr
-            || at.1 < y0.min(y1) - r - clr || at.1 > y0.max(y1) + r + clr
+        if at.0 < x0.min(x1) - r - clr
+            || at.0 > x0.max(x1) + r + clr
+            || at.1 < y0.min(y1) - r - clr
+            || at.1 > y0.max(y1) + r + clr
         {
             continue;
         }
@@ -398,7 +419,10 @@ pub fn apply_stitching_vias(
         }
         match placed {
             Some(v) => {
-                board.vias.push(Via { at: v.at, ..v.clone() });
+                board.vias.push(Via {
+                    at: v.at,
+                    ..v.clone()
+                });
                 inserted.push(v);
             }
             None => failed.push(f.at),
@@ -408,8 +432,14 @@ pub fn apply_stitching_vias(
 }
 
 /// 人读报告。
-pub fn format_report(findings: &[StitchFinding], inserted: &[Via], failed: &[(f64, f64)]) -> String {
-    let mut s = String::from("== 换层缝合审计（回流判据: GND→GND 补地孔 / GND↔PWR 补搭桥电容 / 无参考=告警） ==\n");
+pub fn format_report(
+    findings: &[StitchFinding],
+    inserted: &[Via],
+    failed: &[(f64, f64)],
+) -> String {
+    let mut s = String::from(
+        "== 换层缝合审计（回流判据: GND→GND 补地孔 / GND↔PWR 补搭桥电容 / 无参考=告警） ==\n",
+    );
     for f in findings {
         let v = match &f.verdict {
             Verdict::Ok => "✅ 已满足".to_string(),
@@ -426,18 +456,34 @@ pub fn format_report(findings: &[StitchFinding], inserted: &[Via], failed: &[(f6
         "\n汇总: {} 换层点 = {} ok / {} need-via / {} need-cap / {} no-ref\n",
         findings.len(),
         findings.iter().filter(|f| f.verdict == Verdict::Ok).count(),
-        findings.iter().filter(|f| f.verdict == Verdict::NeedVia).count(),
-        findings.iter().filter(|f| matches!(f.verdict, Verdict::NeedCap { .. })).count(),
-        findings.iter().filter(|f| f.verdict == Verdict::NoReference).count(),
+        findings
+            .iter()
+            .filter(|f| f.verdict == Verdict::NeedVia)
+            .count(),
+        findings
+            .iter()
+            .filter(|f| matches!(f.verdict, Verdict::NeedCap { .. }))
+            .count(),
+        findings
+            .iter()
+            .filter(|f| f.verdict == Verdict::NoReference)
+            .count(),
     ));
     if !inserted.is_empty() {
         s.push_str(&format!("已插入缝合 via {} 个:\n", inserted.len()));
         for v in inserted {
-            s.push_str(&format!("  ({:.2},{:.2}) size {}\n", v.at.0, v.at.1, v.size));
+            s.push_str(&format!(
+                "  ({:.2},{:.2}) size {}\n",
+                v.at.0, v.at.1, v.size
+            ));
         }
     }
     if !failed.is_empty() {
-        s.push_str(&format!("⚠️ 找不到空位的点 {} 个: {:?}\n", failed.len(), failed));
+        s.push_str(&format!(
+            "⚠️ 找不到空位的点 {} 个: {:?}\n",
+            failed.len(),
+            failed
+        ));
     }
     s
 }
@@ -451,12 +497,23 @@ mod tests {
     fn mkboard() -> Board {
         let mut b = Board::default();
         b.nets.clear();
-        b.nets.push(kicad_json5::ir::board::NetDef { id: 1, name: "GND".into() });
-        b.nets.push(kicad_json5::ir::board::NetDef { id: 2, name: "CLK_MAIN".into() });
+        b.nets.push(kicad_json5::ir::board::NetDef {
+            id: 1,
+            name: "GND".into(),
+        });
+        b.nets.push(kicad_json5::ir::board::NetDef {
+            id: 2,
+            name: "CLK_MAIN".into(),
+        });
         b
     }
 
-    fn zone(net_id: u32, net_name: &str, layer: &str, pts: Vec<(f64, f64)>) -> kicad_json5::ir::board::Zone {
+    fn zone(
+        net_id: u32,
+        net_name: &str,
+        layer: &str,
+        pts: Vec<(f64, f64)>,
+    ) -> kicad_json5::ir::board::Zone {
         kicad_json5::ir::board::Zone {
             net: net_id,
             net_name: net_name.into(),
@@ -487,36 +544,83 @@ mod tests {
     /// 判据三态：GND→GND 缺孔 / GND→PWR 缺容 / 跨分割告警 / 已有地孔=ok。
     #[test]
     fn test_audit_three_verdicts() {
-        let cfg = StitchConfig { all_nets: true, ..Default::default() };
+        let cfg = StitchConfig {
+            all_nets: true,
+            ..Default::default()
+        };
         // 板：In1 全板 GND；In2 左半 GND 右半 5V；B 侧信号 via 在右半（In2 参考=5V）
         let mut b = mkboard();
-        b.nets.push(kicad_json5::ir::board::NetDef { id: 3, name: "5V".into() });
-        b.zones.push(zone(1, "GND", "In1.Cu", vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)]));
-        b.zones.push(zone(1, "GND", "In2.Cu", vec![(0.0, 0.0), (40.0, 0.0), (40.0, 80.0), (0.0, 80.0)]));
-        b.zones.push(zone(3, "5V", "In2.Cu", vec![(40.0, 0.0), (80.0, 0.0), (80.0, 80.0), (40.0, 80.0)]));
+        b.nets.push(kicad_json5::ir::board::NetDef {
+            id: 3,
+            name: "5V".into(),
+        });
+        b.zones.push(zone(
+            1,
+            "GND",
+            "In1.Cu",
+            vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)],
+        ));
+        b.zones.push(zone(
+            1,
+            "GND",
+            "In2.Cu",
+            vec![(0.0, 0.0), (40.0, 0.0), (40.0, 80.0), (0.0, 80.0)],
+        ));
+        b.zones.push(zone(
+            3,
+            "5V",
+            "In2.Cu",
+            vec![(40.0, 0.0), (80.0, 0.0), (80.0, 80.0), (40.0, 80.0)],
+        ));
         // 信号 via @ (60,40): F.Cu→In2.Cu? 用 F→In3 跨度让 from 参考取 In1(GND) to 取 In2(5V)
         b.vias.push(Via {
-            at: (60.0, 40.0), size: 0.6, drill: 0.3,
-            layers: vec!["F.Cu".into(), "In3.Cu".into()], net: 2, via_type: String::new(),
+            at: (60.0, 40.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "In3.Cu".into()],
+            net: 2,
+            via_type: String::new(),
         });
         let f = audit_stitching(&b, &cfg);
         assert_eq!(f.len(), 1);
-        assert!(matches!(f[0].verdict, Verdict::NeedCap { .. }), "GND→5V 应判缺容: {:?}", f[0].verdict);
+        assert!(
+            matches!(f[0].verdict, Verdict::NeedCap { .. }),
+            "GND→5V 应判缺容: {:?}",
+            f[0].verdict
+        );
 
         // 同一点放一个 GND via 在 In2 也全 GND 的世界 → NeedVia; 已有近旁 GND via → Ok
         let mut b2 = mkboard();
-        b2.zones.push(zone(1, "GND", "In1.Cu", vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)]));
-        b2.zones.push(zone(1, "GND", "In2.Cu", vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)]));
+        b2.zones.push(zone(
+            1,
+            "GND",
+            "In1.Cu",
+            vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)],
+        ));
+        b2.zones.push(zone(
+            1,
+            "GND",
+            "In2.Cu",
+            vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)],
+        ));
         b2.vias.push(Via {
-            at: (60.0, 40.0), size: 0.6, drill: 0.3,
-            layers: vec!["F.Cu".into(), "In3.Cu".into()], net: 2, via_type: String::new(),
+            at: (60.0, 40.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "In3.Cu".into()],
+            net: 2,
+            via_type: String::new(),
         });
         let f2 = audit_stitching(&b2, &cfg);
         assert_eq!(f2[0].verdict, Verdict::NeedVia);
         // 近旁补 GND via → Ok
         b2.vias.push(Via {
-            at: (61.0, 40.0), size: 0.6, drill: 0.3,
-            layers: vec!["F.Cu".into(), "B.Cu".into()], net: 1, via_type: String::new(),
+            at: (61.0, 40.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "B.Cu".into()],
+            net: 1,
+            via_type: String::new(),
         });
         let f3 = audit_stitching(&b2, &cfg);
         assert_eq!(f3[0].verdict, Verdict::Ok);
@@ -524,8 +628,12 @@ mod tests {
         // 跨分割: 无任何 zone → NoReference
         let mut b3 = mkboard();
         b3.vias.push(Via {
-            at: (60.0, 40.0), size: 0.6, drill: 0.3,
-            layers: vec!["F.Cu".into(), "In3.Cu".into()], net: 2, via_type: String::new(),
+            at: (60.0, 40.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "In3.Cu".into()],
+            net: 2,
+            via_type: String::new(),
         });
         let f4 = audit_stitching(&b3, &cfg);
         assert_eq!(f4[0].verdict, Verdict::NoReference);
@@ -534,13 +642,30 @@ mod tests {
     /// 插孔：NeedVia 点旁自动落位且不撞信号 via 本体。
     #[test]
     fn test_apply_vias() {
-        let cfg = StitchConfig { all_nets: true, ..Default::default() };
+        let cfg = StitchConfig {
+            all_nets: true,
+            ..Default::default()
+        };
         let mut b = mkboard();
-        b.zones.push(zone(1, "GND", "In1.Cu", vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)]));
-        b.zones.push(zone(1, "GND", "In2.Cu", vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)]));
+        b.zones.push(zone(
+            1,
+            "GND",
+            "In1.Cu",
+            vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)],
+        ));
+        b.zones.push(zone(
+            1,
+            "GND",
+            "In2.Cu",
+            vec![(0.0, 0.0), (80.0, 0.0), (80.0, 80.0), (0.0, 80.0)],
+        ));
         b.vias.push(Via {
-            at: (60.0, 40.0), size: 0.6, drill: 0.3,
-            layers: vec!["F.Cu".into(), "In3.Cu".into()], net: 2, via_type: String::new(),
+            at: (60.0, 40.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "In3.Cu".into()],
+            net: 2,
+            via_type: String::new(),
         });
         let findings = audit_stitching(&b, &cfg);
         let (inserted, failed) = apply_stitching_vias(&mut b, &findings, &cfg);

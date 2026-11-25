@@ -204,7 +204,13 @@ impl Json5Generator {
             let pts: Vec<String> = pl
                 .points
                 .iter()
-                .map(|p| format!("[{}, {}]", Self::format_number(p.0), Self::format_number(p.1)))
+                .map(|p| {
+                    format!(
+                        "[{}, {}]",
+                        Self::format_number(p.0),
+                        Self::format_number(p.1)
+                    )
+                })
                 .collect();
             output.push_str(&format!(
                 "{}{{ pts: [{}], width: {}, type: \"{}\" }},\n",

@@ -29,7 +29,9 @@ pub fn flatten(tree: &ModuleTree) -> BTreeMap<String, Vec<String>> {
     let mut out = BTreeMap::new();
     fn walk(prefix: &str, m: &ModuleDef, out: &mut BTreeMap<String, Vec<String>>) {
         if !m.devices.is_empty() {
-            out.entry(prefix.to_string()).or_default().extend(m.devices.iter().cloned());
+            out.entry(prefix.to_string())
+                .or_default()
+                .extend(m.devices.iter().cloned());
         }
         for (name, child) in &m.children {
             walk(&format!("{prefix}/{name}"), child, out);
@@ -69,8 +71,10 @@ pub fn module_bbox(
         }
         // footprint position 本身入 bbox（body 中心），pad 世界坐标扩边
         let (px, py, _) = fp.position;
-        mm.0 = mm.0.min(px); mm.1 = mm.1.min(py);
-        mm.2 = mm.2.max(px); mm.3 = mm.3.max(py);
+        mm.0 = mm.0.min(px);
+        mm.1 = mm.1.min(py);
+        mm.2 = mm.2.max(px);
+        mm.3 = mm.3.max(py);
         any = true;
         for pad in &fp.pads {
             if pad.net.is_none() {
@@ -78,13 +82,19 @@ pub fn module_bbox(
             }
             let (ox, oy) = fp.pad_rotated_offset(pad);
             let (x, y) = (px + ox, py + oy);
-            mm.0 = mm.0.min(x); mm.1 = mm.1.min(y);
-            mm.2 = mm.2.max(x); mm.3 = mm.3.max(y);
+            mm.0 = mm.0.min(x);
+            mm.1 = mm.1.min(y);
+            mm.2 = mm.2.max(x);
+            mm.3 = mm.3.max(y);
             any = true;
         }
     }
     let _ = B::default; // 防未使用告警（无实际作用时移除）
-    if any { Some(mm) } else { None }
+    if any {
+        Some(mm)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -93,7 +103,8 @@ mod tests {
 
     #[test]
     fn flatten_and_index() {
-        let tree: ModuleTree = json5::from_str(r#"
+        let tree: ModuleTree = json5::from_str(
+            r#"
         {
             _meta: { note: "ignored" },
             modules: {
@@ -102,7 +113,9 @@ mod tests {
                 }},
                 digi: { devices: ["J1"] },
             },
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let flat = flatten(&tree);
         assert_eq!(flat["power"], vec!["U1", "C1"]);
         assert_eq!(flat["power/rail"], vec!["L1"]);

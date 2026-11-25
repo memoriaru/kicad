@@ -104,7 +104,14 @@ pub fn expand_net_spec(spec: &str) -> Vec<String> {
     if let Some((head, tail)) = spec.rsplit_once("..") {
         if let Ok(hi) = tail.trim().parse::<u32>() {
             // head = "DQ0"，取其尾部数字做 lo
-            let digits: String = head.chars().rev().take_while(|c| c.is_ascii_digit()).collect::<String>().chars().rev().collect();
+            let digits: String = head
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
             if !digits.is_empty() {
                 if let Ok(lo) = digits.parse::<u32>() {
                     let prefix = &head[..head.len() - digits.len()];
@@ -181,8 +188,7 @@ pub struct ResolvedGroup {
 }
 
 pub fn resolve(board: &Board, cs: &ConstraintSet) -> Vec<ResolvedGroup> {
-    let by_name: HashMap<&str, u32> =
-        board.nets.iter().map(|n| (n.name.as_str(), n.id)).collect();
+    let by_name: HashMap<&str, u32> = board.nets.iter().map(|n| (n.name.as_str(), n.id)).collect();
     let mut out = Vec::new();
     for g in &cs.groups {
         let mut ids = Vec::new();
@@ -289,7 +295,10 @@ pub fn eval_length_matching(board: &Board, groups: &[ResolvedGroup]) -> Vec<Grou
                 .unwrap_or_else(|| longest(&lens)),
             RefMode::Longest => longest(&lens),
         };
-        let max_dev = lens.iter().map(|(_, l, _)| (ref_len - l).abs()).fold(0.0, f64::max);
+        let max_dev = lens
+            .iter()
+            .map(|(_, l, _)| (ref_len - l).abs())
+            .fold(0.0, f64::max);
         let layer_changes = if g.topology == TopologyMode::SameLayer {
             lens.iter()
                 .filter(|(_, _, v)| *v > 0)
@@ -337,7 +346,11 @@ pub fn format_length_report(reports: &[GroupLengthReport], tolerance_hint: &str)
         for (n, l, v) in &r.net_lengths {
             s.push_str(&format!(
                 "      {n:<12} {l:>8.2}mm  via={v} {}\n",
-                if *v > 0 && r.layer_changes.contains(n) { "⚠️换层" } else { "" }
+                if *v > 0 && r.layer_changes.contains(n) {
+                    "⚠️换层"
+                } else {
+                    ""
+                }
             ));
         }
     }
@@ -387,7 +400,10 @@ mod tests {
     fn test_expand_net_spec() {
         assert_eq!(
             expand_net_spec("DQ0..3"),
-            vec!["DQ0", "DQ1", "DQ2", "DQ3"].iter().map(|s| s.to_string()).collect::<Vec<_>>()
+            vec!["DQ0", "DQ1", "DQ2", "DQ3"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
         );
         assert_eq!(expand_net_spec("A0..15").len(), 16);
         assert_eq!(expand_net_spec("CLK_P"), vec!["CLK_P"]);
@@ -414,7 +430,10 @@ mod tests {
 
     fn mkboard() -> Board {
         let mut b = Board::default();
-        b.nets = vec![NetDef { id: 0, name: String::new() }];
+        b.nets = vec![NetDef {
+            id: 0,
+            name: String::new(),
+        }];
         b
     }
 
@@ -424,14 +443,48 @@ mod tests {
         let mut b = mkboard();
         let names = ["DQ0", "DQ1", "DQ2", "DQS0_P"];
         for (i, n) in names.iter().enumerate() {
-            b.nets.push(NetDef { id: i as u32 + 1, name: n.to_string() });
+            b.nets.push(NetDef {
+                id: i as u32 + 1,
+                name: n.to_string(),
+            });
         }
         // 长度: DQ0=10, DQ1=9, DQ2=10.5(基准), DQS0_P=10.2; DQ1 加 1 via(same_layer 违规)
-        b.segments.push(Segment { start: (0.0, 0.0), end: (10.0, 0.0), width: 0.2, layer: "F.Cu".into(), net: 1 });
-        b.segments.push(Segment { start: (0.0, 1.0), end: (9.0, 1.0), width: 0.2, layer: "F.Cu".into(), net: 2 });
-        b.segments.push(Segment { start: (0.0, 2.0), end: (10.5, 2.0), width: 0.2, layer: "F.Cu".into(), net: 3 });
-        b.segments.push(Segment { start: (0.0, 3.0), end: (10.2, 3.0), width: 0.2, layer: "F.Cu".into(), net: 4 });
-        b.vias.push(Via { at: (4.5, 1.0), size: 0.6, drill: 0.3, layers: vec!["F.Cu".into(), "B.Cu".into()], net: 2, via_type: String::new() });
+        b.segments.push(Segment {
+            start: (0.0, 0.0),
+            end: (10.0, 0.0),
+            width: 0.2,
+            layer: "F.Cu".into(),
+            net: 1,
+        });
+        b.segments.push(Segment {
+            start: (0.0, 1.0),
+            end: (9.0, 1.0),
+            width: 0.2,
+            layer: "F.Cu".into(),
+            net: 2,
+        });
+        b.segments.push(Segment {
+            start: (0.0, 2.0),
+            end: (10.5, 2.0),
+            width: 0.2,
+            layer: "F.Cu".into(),
+            net: 3,
+        });
+        b.segments.push(Segment {
+            start: (0.0, 3.0),
+            end: (10.2, 3.0),
+            width: 0.2,
+            layer: "F.Cu".into(),
+            net: 4,
+        });
+        b.vias.push(Via {
+            at: (4.5, 1.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "B.Cu".into()],
+            net: 2,
+            via_type: String::new(),
+        });
 
         let cs = parse_constraints(
             r#"{ groups: [ { name: "BYTE0", nets: ["DQ0","DQ1","DQ2","DQS0_P"],

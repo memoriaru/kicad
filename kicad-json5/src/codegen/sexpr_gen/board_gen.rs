@@ -431,11 +431,7 @@ impl BoardSexprGenerator {
     fn write_net_class(&mut self, out: &mut String, nc: &crate::ir::board::NetClass) {
         self.line(
             out,
-            &format!(
-                "(net_class {} \"{}\"",
-                nc.name,
-                Self::esc(&nc.description)
-            ),
+            &format!("(net_class {} \"{}\"", nc.name, Self::esc(&nc.description)),
         );
         self.indent_level += 1;
         let num = |tag: &str, v: Option<f64>, out: &mut String, gen: &mut Self| {
@@ -533,7 +529,13 @@ impl BoardSexprGenerator {
                 FootprintAttr::Other(vals) => {
                     let vals: Vec<&str> = vals
                         .iter()
-                        .map(|v| if v == "thru_hole" { "through_hole" } else { v.as_str() })
+                        .map(|v| {
+                            if v == "thru_hole" {
+                                "through_hole"
+                            } else {
+                                v.as_str()
+                            }
+                        })
                         .collect();
                     self.line(out, &format!("(attr {})", vals.join(" ")));
                 }
@@ -1929,8 +1931,16 @@ mod tests {
 
         let out = BoardSexprGenerator::new().generate(&board).unwrap();
         // 发射端: 相对 + fp 角 = 世界角
-        assert!(out.contains("(at -0.9125 0 90)"), "pad1 world rot lost:\n{}", out);
-        assert!(out.contains("(at 0.9125 0 135)"), "pad2 world rot lost:\n{}", out);
+        assert!(
+            out.contains("(at -0.9125 0 90)"),
+            "pad1 world rot lost:\n{}",
+            out
+        );
+        assert!(
+            out.contains("(at 0.9125 0 135)"),
+            "pad2 world rot lost:\n{}",
+            out
+        );
 
         // 幂等: 二次往返文本级稳定(uuid 不入库, 生成器对无 uuid 源每次新造, 过滤后比)
         let board2 = crate::parse_board(&out).unwrap();
@@ -1941,6 +1951,10 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        assert_eq!(strip_uuid(&out), strip_uuid(&out2), "rot round trip not idempotent");
+        assert_eq!(
+            strip_uuid(&out),
+            strip_uuid(&out2),
+            "rot round trip not idempotent"
+        );
     }
 }

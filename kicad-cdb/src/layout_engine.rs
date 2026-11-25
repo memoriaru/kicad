@@ -1950,8 +1950,17 @@ pub fn build_extra_cost(
     let mut forbidden = Vec::new();
     for z in zones {
         for b in boxes {
-            if z.refs.iter().any(|r| b.reference.contains(r.as_str()) || b.lib_id.contains(r.as_str())) {
-                forbidden.push((boxes.iter().position(|x| x.reference == b.reference).unwrap(), z.rect));
+            if z.refs
+                .iter()
+                .any(|r| b.reference.contains(r.as_str()) || b.lib_id.contains(r.as_str()))
+            {
+                forbidden.push((
+                    boxes
+                        .iter()
+                        .position(|x| x.reference == b.reference)
+                        .unwrap(),
+                    z.rect,
+                ));
             }
         }
     }
@@ -2144,7 +2153,8 @@ fn evaluate_cost_fast(
     if weights.decoupling > 0.0 {
         if let Some(ex) = extra {
             for &(ci, ii, target) in &ex.decap {
-                let d = (positions[ci].0 - positions[ii].0).hypot(positions[ci].1 - positions[ii].1);
+                let d =
+                    (positions[ci].0 - positions[ii].0).hypot(positions[ci].1 - positions[ii].1);
                 if d > target {
                     decap_cost += d - target;
                 }
@@ -4616,8 +4626,18 @@ mod tests {
         let boxes = vec![mkbox("U1", 10.0, 10.0), mkbox("C1", 14.0, 10.0)];
         let (extra, missing) = build_extra_cost(
             &boxes,
-            &[DecapPair { cap_ref: "C1".into(), ic_ref: "U1".into(), target_mm: 2.0 },
-             DecapPair { cap_ref: "GHOST".into(), ic_ref: "U1".into(), target_mm: 1.0 }],
+            &[
+                DecapPair {
+                    cap_ref: "C1".into(),
+                    ic_ref: "U1".into(),
+                    target_mm: 2.0,
+                },
+                DecapPair {
+                    cap_ref: "GHOST".into(),
+                    ic_ref: "U1".into(),
+                    target_mm: 1.0,
+                },
+            ],
             &[ZoneExclusion {
                 refs: vec!["U1".into()],
                 rect: (0.0, 0.0, 5.0, 5.0),
@@ -4635,25 +4655,62 @@ mod tests {
         let positions = vec![(10.0f64, 10.0), (14.0, 10.0)];
         let rotations = vec![false, false];
         let call = |w: &SaCostWeights, ex: Option<&SaExtraCost>| -> f64 {
-            evaluate_cost_fast(&boxes, &positions, &rotations, &widths, &heights, &zones, w, &net_idx, ex)
+            evaluate_cost_fast(
+                &boxes, &positions, &rotations, &widths, &heights, &zones, w, &net_idx, ex,
+            )
         };
         let base_w = SaCostWeights::default();
         assert_eq!(base_w.decoupling, 0.0, "默认关(基线不变红线)");
         assert_eq!(base_w.zone_exclusion, 0.0, "默认关");
         let base = call(&base_w, Some(&extra));
         let base_none = call(&base_w, None);
-        assert!((base - base_none).abs() < 1e-12, "权重 0 时 extra 不得改变 cost");
+        assert!(
+            (base - base_none).abs() < 1e-12,
+            "权重 0 时 extra 不得改变 cost"
+        );
 
-        let dec_w = SaCostWeights { decoupling: 5.0, ..base_w.clone() };
+        let dec_w = SaCostWeights {
+            decoupling: 5.0,
+            ..base_w.clone()
+        };
         let d = call(&dec_w, Some(&extra)) - base;
-        assert!((d - 10.0).abs() < 1e-9, "decap 罚量 = (4-2)×5 = 10, got {d}");
+        assert!(
+            (d - 10.0).abs() < 1e-9,
+            "decap 罚量 = (4-2)×5 = 10, got {d}"
+        );
 
-        let zone_w = SaCostWeights { zone_exclusion: 3.0, ..base_w.clone() };
-        assert!((call(&zone_w, Some(&extra)) - base).abs() < 1e-12, "区外不罚");
+        let zone_w = SaCostWeights {
+            zone_exclusion: 3.0,
+            ..base_w.clone()
+        };
+        assert!(
+            (call(&zone_w, Some(&extra)) - base).abs() < 1e-12,
+            "区外不罚"
+        );
         let mut pos_in = positions.clone();
         pos_in[0] = (2.0, 2.0);
-        let z_in = evaluate_cost_fast(&boxes, &pos_in, &rotations, &widths, &heights, &zones, &zone_w, &net_idx, Some(&extra));
-        let b_in = evaluate_cost_fast(&boxes, &pos_in, &rotations, &widths, &heights, &zones, &base_w, &net_idx, Some(&extra));
+        let z_in = evaluate_cost_fast(
+            &boxes,
+            &pos_in,
+            &rotations,
+            &widths,
+            &heights,
+            &zones,
+            &zone_w,
+            &net_idx,
+            Some(&extra),
+        );
+        let b_in = evaluate_cost_fast(
+            &boxes,
+            &pos_in,
+            &rotations,
+            &widths,
+            &heights,
+            &zones,
+            &base_w,
+            &net_idx,
+            Some(&extra),
+        );
         assert!((z_in - b_in - 3.0).abs() < 1e-9, "入区罚 3");
     }
 

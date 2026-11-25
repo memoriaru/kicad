@@ -2240,7 +2240,11 @@ pub fn auto_route_signal_nets_with_config(
     // ROUTER_TURN_COST env (experiment/A-B channel) > TURN_COST default.
     grid.turn_cost = directives
         .turn_cost_override
-        .or_else(|| std::env::var("ROUTER_TURN_COST").ok().and_then(|v| v.parse().ok()))
+        .or_else(|| {
+            std::env::var("ROUTER_TURN_COST")
+                .ok()
+                .and_then(|v| v.parse().ok())
+        })
         .unwrap_or(TURN_COST);
     grid.mark_component_bodies(board);
     grid.mark_pads(board);

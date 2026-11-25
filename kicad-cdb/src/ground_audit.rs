@@ -61,7 +61,10 @@ pub struct GroundReport {
 
 impl GroundReport {
     pub fn total_islands(&self) -> usize {
-        self.nets.iter().map(|n| n.regions.iter().filter(|r| r.is_island).count()).sum()
+        self.nets
+            .iter()
+            .map(|n| n.regions.iter().filter(|r| r.is_island).count())
+            .sum()
     }
 }
 
@@ -98,16 +101,10 @@ pub fn audit_ground(
     let n_layers = export.layers.len();
     let (ox, oy) = export.origin_mm;
 
-    let net_id_of: BTreeMap<&str, u32> = board
-        .nets
-        .iter()
-        .map(|n| (n.name.as_str(), n.id))
-        .collect();
-    let name_of: BTreeMap<u32, String> = board
-        .nets
-        .iter()
-        .map(|n| (n.id, n.name.clone()))
-        .collect();
+    let net_id_of: BTreeMap<&str, u32> =
+        board.nets.iter().map(|n| (n.name.as_str(), n.id)).collect();
+    let name_of: BTreeMap<u32, String> =
+        board.nets.iter().map(|n| (n.id, n.name.clone())).collect();
     let mut target_ids: BTreeMap<u32, String> = BTreeMap::new();
     for t in targets {
         let id = *net_id_of
@@ -153,7 +150,10 @@ pub fn audit_ground(
             eprintln!(
                 "[dbg] zone net='{}' filled={:?}",
                 z.net_name,
-                z.filled_polygons.iter().map(|f| (f.layer.clone(), f.points.len())).collect::<Vec<_>>()
+                z.filled_polygons
+                    .iter()
+                    .map(|f| (f.layer.clone(), f.points.len()))
+                    .collect::<Vec<_>>()
             );
         }
         let in_targets = net_id_of
@@ -173,11 +173,17 @@ pub fn audit_ground(
                     filled_cnt += 1;
                 });
             } else if dbg {
-                eprintln!("[dbg] zone '{}' polygon layer '{}' NOT in signal layers", z.net_name, fp.layer);
+                eprintln!(
+                    "[dbg] zone '{}' polygon layer '{}' NOT in signal layers",
+                    z.net_name, fp.layer
+                );
             }
         }
         if dbg {
-            eprintln!("[dbg] zone '{}' rasterized {} cells", z.net_name, filled_cnt);
+            eprintln!(
+                "[dbg] zone '{}' rasterized {} cells",
+                z.net_name, filled_cnt
+            );
         }
     }
 
@@ -238,170 +244,175 @@ pub fn audit_ground(
             continue;
         }
         let cur_net = copper[start];
-            let mut comp: Vec<usize> = Vec::new();
-            let mut q = VecDeque::new();
-            seen[start] = true;
-            q.push_back(start);
-            while let Some(i) = q.pop_front() {
-                comp.push(i);
-                let l = i / per_layer;
-                let rc = i % per_layer;
-                let r = rc / cols;
-                let c = rc % cols;
-                let v = export.grid_u32[i];
-                // 层内 4 邻域
-                for &(dr, dc) in &[(0i64, 1i64), (0, -1), (1, 0), (-1, 0)] {
-                    let (rr, cc) = (r as i64 + dr as i64, c as i64 + dc as i64);
-                    if rr < 0 || cc < 0 || rr >= rows as i64 || cc >= cols as i64 {
-                        continue;
-                    }
-                    let j = l * per_layer + rr as usize * cols + cc as usize;
-                    if copper[j] == cur_net && !seen[j] {
+        let mut comp: Vec<usize> = Vec::new();
+        let mut q = VecDeque::new();
+        seen[start] = true;
+        q.push_back(start);
+        while let Some(i) = q.pop_front() {
+            comp.push(i);
+            let l = i / per_layer;
+            let rc = i % per_layer;
+            let r = rc / cols;
+            let c = rc % cols;
+            let v = export.grid_u32[i];
+            // 层内 4 邻域
+            for &(dr, dc) in &[(0i64, 1i64), (0, -1), (1, 0), (-1, 0)] {
+                let (rr, cc) = (r as i64 + dr as i64, c as i64 + dc as i64);
+                if rr < 0 || cc < 0 || rr >= rows as i64 || cc >= cols as i64 {
+                    continue;
+                }
+                let j = l * per_layer + rr as usize * cols + cc as usize;
+                if copper[j] == cur_net && !seen[j] {
+                    seen[j] = true;
+                    q.push_back(j);
+                }
+            }
+            // 跨层桥：同 (r,c) 的 via 格（任意层，同网）
+            if is_via[i] {
+                for l2 in 0..n_layers {
+                    let j = l2 * per_layer + rc;
+                    if j != i && copper[j] == cur_net && !seen[j] {
                         seen[j] = true;
                         q.push_back(j);
                     }
                 }
-                // 跨层桥：同 (r,c) 的 via 格（任意层，同网）
-                if is_via[i] {
-                    for l2 in 0..n_layers {
-                        let j = l2 * per_layer + rc;
-                        if j != i && copper[j] == cur_net && !seen[j] {
-                            seen[j] = true;
-                            q.push_back(j);
-                        }
-                    }
-                }
-                // 跨层桥：ThruHole pad——同 (r,c) 多层皆为 Pad 身份即贯穿（同网）
-                // （SMD pad 只标声明层，不会误连独立层走线）
-                if (2..1_000_000).contains(&v) {
-                    for l2 in 0..n_layers {
-                        let j = l2 * per_layer + rc;
-                        if j != i
-                            && copper[j] == cur_net
-                            && !seen[j]
-                            && (2..1_000_000).contains(&export.grid_u32[j])
-                        {
-                            seen[j] = true;
-                            q.push_back(j);
-                        }
+            }
+            // 跨层桥：ThruHole pad——同 (r,c) 多层皆为 Pad 身份即贯穿（同网）
+            // （SMD pad 只标声明层，不会误连独立层走线）
+            if (2..1_000_000).contains(&v) {
+                for l2 in 0..n_layers {
+                    let j = l2 * per_layer + rc;
+                    if j != i
+                        && copper[j] == cur_net
+                        && !seen[j]
+                        && (2..1_000_000).contains(&export.grid_u32[j])
+                    {
+                        seen[j] = true;
+                        q.push_back(j);
                     }
                 }
             }
-            let (min_r, min_c, max_r, max_c) = comp.iter().fold(
-                (usize::MAX, usize::MAX, 0usize, 0usize),
-                |(a, b, c, d), &i| {
-                    let rc = i % per_layer;
-                    let (r, cc) = (rc / cols, rc % cols);
-                    (a.min(r), b.min(cc), c.max(r), d.max(cc))
-                },
-            );
-            let mut contacts: BTreeMap<u32, usize> = BTreeMap::new();
-            for &i in &comp {
-                let l = i / per_layer;
+        }
+        let (min_r, min_c, max_r, max_c) = comp.iter().fold(
+            (usize::MAX, usize::MAX, 0usize, 0usize),
+            |(a, b, c, d), &i| {
                 let rc = i % per_layer;
-                let r = rc / cols;
-                let c = rc % cols;
-                for &(dr, dc) in &[
-                    (0i64, 1i64),
-                    (0, -1),
-                    (1, 0),
-                    (-1, 0),
-                    (1, 1),
-                    (1, -1),
-                    (-1, 1),
-                    (-1, -1),
-                ] {
-                    let (rr, cc) = (r as i64 + dr, c as i64 + dc);
-                    if rr < 0 || cc < 0 || rr >= rows as i64 || cc >= cols as i64 {
-                        continue;
-                    }
-                    let j = l * per_layer + rr as usize * cols + cc as usize;
-                    let v = export.grid_u32[j];
-                    if v < 2 {
-                        continue; // Free / Blocked：无净身份，不归因
-                    }
-                    let nid = if v >= 2_000_000 {
-                        v - 2_000_000 // Via
-                    } else if v >= 1_000_000 {
-                        v - 1_000_000 // Trace
-                    } else {
-                        v - 2 // Pad
-                    };
-                    if nid != cur_net {
-                        *contacts.entry(nid).or_default() += 1;
-                    }
+                let (r, cc) = (rc / cols, rc % cols);
+                (a.min(r), b.min(cc), c.max(r), d.max(cc))
+            },
+        );
+        let mut contacts: BTreeMap<u32, usize> = BTreeMap::new();
+        for &i in &comp {
+            let l = i / per_layer;
+            let rc = i % per_layer;
+            let r = rc / cols;
+            let c = rc % cols;
+            for &(dr, dc) in &[
+                (0i64, 1i64),
+                (0, -1),
+                (1, 0),
+                (-1, 0),
+                (1, 1),
+                (1, -1),
+                (-1, 1),
+                (-1, -1),
+            ] {
+                let (rr, cc) = (r as i64 + dr, c as i64 + dc);
+                if rr < 0 || cc < 0 || rr >= rows as i64 || cc >= cols as i64 {
+                    continue;
+                }
+                let j = l * per_layer + rr as usize * cols + cc as usize;
+                let v = export.grid_u32[j];
+                if v < 2 {
+                    continue; // Free / Blocked：无净身份，不归因
+                }
+                let nid = if v >= 2_000_000 {
+                    v - 2_000_000 // Via
+                } else if v >= 1_000_000 {
+                    v - 1_000_000 // Trace
+                } else {
+                    v - 2 // Pad
+                };
+                if nid != cur_net {
+                    *contacts.entry(nid).or_default() += 1;
                 }
             }
-            let mut contact_nets: Vec<(String, usize)> = contacts
-                .into_iter()
-                .map(|(id, n)| (name_of.get(&id).cloned().unwrap_or_else(|| id.to_string()), n))
-                .collect();
-            contact_nets.sort_by(|a, b| b.1.cmp(&a.1));
-            let has_pad_anchor = comp
-                .iter()
-                .any(|&i| (2..1_000_000).contains(&export.grid_u32[i]));
-            let has_via_anchor = comp.iter().any(|&i| export.grid_u32[i] >= 2_000_000);
-            // 走线连接：分量含同网 Trace 格即连网（uc=0 口径下 trace 必接 pad）
-            let has_trace_connect = comp
-                .iter()
-                .any(|&i| (1_000_000..2_000_000).contains(&export.grid_u32[i]));
-            let (mut zone_cells, mut trace_cells, mut pad_cells, mut via_cells) =
-                (0usize, 0usize, 0usize, 0usize);
-            for &i in &comp {
-                let v = export.grid_u32[i];
-                match v {
-                    0 => zone_cells += 1, // grid 无身份、由 zone 栅格化入组
-                    1 => {}               // Blocked（元件体），zone 铜叠其上
-                    2..1_000_000 => pad_cells += 1,
-                    1_000_000..2_000_000 => trace_cells += 1,
-                    _ => via_cells += 1,
-                }
-            }
-            let region = GroundRegion {
-                net_name: name_of.get(&cur_net).cloned().unwrap_or_default(),
-                layer: export.layers[comp[0] / per_layer].clone(),
-                is_island: !(has_pad_anchor || has_via_anchor || has_trace_connect),
-                cells: comp.len(),
-                area_mm2: comp.len() as f64 * res * res,
-                bbox_mm: (
-                    ox + min_c as f64 * res,
-                    oy + min_r as f64 * res,
-                    ox + (max_c + 1) as f64 * res,
-                    oy + (max_r + 1) as f64 * res,
-                ),
-                contact_nets: contact_nets.into_iter().take(5).collect(),
-                zone_cells,
-                trace_cells,
-                pad_cells,
-                via_cells,
-                module: String::new(),
-            };
-            *cells_by_net.entry(cur_net).or_default() += comp.len();
-            by_net.entry(cur_net).or_default().push(region);
         }
-
-        // ---- 按目标网组装报告 ----
-        let mut report = GroundReport {
-            grid_res_mm: export.grid_res_mm,
-            layers: export.layers.clone(),
-            nets: Vec::new(),
+        let mut contact_nets: Vec<(String, usize)> = contacts
+            .into_iter()
+            .map(|(id, n)| {
+                (
+                    name_of.get(&id).cloned().unwrap_or_else(|| id.to_string()),
+                    n,
+                )
+            })
+            .collect();
+        contact_nets.sort_by(|a, b| b.1.cmp(&a.1));
+        let has_pad_anchor = comp
+            .iter()
+            .any(|&i| (2..1_000_000).contains(&export.grid_u32[i]));
+        let has_via_anchor = comp.iter().any(|&i| export.grid_u32[i] >= 2_000_000);
+        // 走线连接：分量含同网 Trace 格即连网（uc=0 口径下 trace 必接 pad）
+        let has_trace_connect = comp
+            .iter()
+            .any(|&i| (1_000_000..2_000_000).contains(&export.grid_u32[i]));
+        let (mut zone_cells, mut trace_cells, mut pad_cells, mut via_cells) =
+            (0usize, 0usize, 0usize, 0usize);
+        for &i in &comp {
+            let v = export.grid_u32[i];
+            match v {
+                0 => zone_cells += 1, // grid 无身份、由 zone 栅格化入组
+                1 => {}               // Blocked（元件体），zone 铜叠其上
+                2..1_000_000 => pad_cells += 1,
+                1_000_000..2_000_000 => trace_cells += 1,
+                _ => via_cells += 1,
+            }
+        }
+        let region = GroundRegion {
+            net_name: name_of.get(&cur_net).cloned().unwrap_or_default(),
+            layer: export.layers[comp[0] / per_layer].clone(),
+            is_island: !(has_pad_anchor || has_via_anchor || has_trace_connect),
+            cells: comp.len(),
+            area_mm2: comp.len() as f64 * res * res,
+            bbox_mm: (
+                ox + min_c as f64 * res,
+                oy + min_r as f64 * res,
+                ox + (max_c + 1) as f64 * res,
+                oy + (max_r + 1) as f64 * res,
+            ),
+            contact_nets: contact_nets.into_iter().take(5).collect(),
+            zone_cells,
+            trace_cells,
+            pad_cells,
+            via_cells,
+            module: String::new(),
         };
-        for (&nid, tname) in &target_ids {
-            let mut regions = by_net.remove(&nid).unwrap_or_default();
-            regions.sort_by(|a, b| b.area_mm2.total_cmp(&a.area_mm2));
-            let rep = GroundNetReport {
-                net_name: tname.clone(),
-                anchor_pads: *anchor_pads.get(&nid).unwrap_or(&0),
-                anchor_vias: *anchor_vias.get(&nid).unwrap_or(&0),
-                copper_cells: *cells_by_net.get(&nid).unwrap_or(&0),
-                region_count: regions.len(),
-                regions,
-            };
-            report.nets.push(rep);
-        }
-
-        Ok(report)
+        *cells_by_net.entry(cur_net).or_default() += comp.len();
+        by_net.entry(cur_net).or_default().push(region);
     }
+
+    // ---- 按目标网组装报告 ----
+    let mut report = GroundReport {
+        grid_res_mm: export.grid_res_mm,
+        layers: export.layers.clone(),
+        nets: Vec::new(),
+    };
+    for (&nid, tname) in &target_ids {
+        let mut regions = by_net.remove(&nid).unwrap_or_default();
+        regions.sort_by(|a, b| b.area_mm2.total_cmp(&a.area_mm2));
+        let rep = GroundNetReport {
+            net_name: tname.clone(),
+            anchor_pads: *anchor_pads.get(&nid).unwrap_or(&0),
+            anchor_vias: *anchor_vias.get(&nid).unwrap_or(&0),
+            copper_cells: *cells_by_net.get(&nid).unwrap_or(&0),
+            region_count: regions.len(),
+            regions,
+        };
+        report.nets.push(rep);
+    }
+
+    Ok(report)
+}
 
 /// 扫描线多边形栅格化（格中心采样，偶奇填充）。
 fn rasterize_polygon(
@@ -456,8 +467,14 @@ mod tests {
 
     fn small_board() -> Board {
         let mut b = Board::default();
-        b.nets.push(NetDef { id: 1, name: "AGND".into() });
-        b.nets.push(NetDef { id: 2, name: "SIG".into() });
+        b.nets.push(NetDef {
+            id: 1,
+            name: "AGND".into(),
+        });
+        b.nets.push(NetDef {
+            id: 2,
+            name: "SIG".into(),
+        });
         b
     }
 
@@ -513,7 +530,11 @@ mod tests {
             position: (0.0, 0.0, 0.0),
             size: (1.0, 1.0),
             layers: vec!["*.Cu".into()],
-            drill: Some(DrillDef { diameter: 0.6, width: None, offset: None }),
+            drill: Some(DrillDef {
+                diameter: 0.6,
+                width: None,
+                offset: None,
+            }),
             net: Some(1),
             net_name: Some("AGND".into()),
             pin_function: None,
@@ -540,7 +561,11 @@ mod tests {
             position: (0.0, 0.0, 0.0),
             size: (1.0, 1.0),
             layers: vec!["*.Cu".into()],
-            drill: Some(DrillDef { diameter: 0.6, width: None, offset: None }),
+            drill: Some(DrillDef {
+                diameter: 0.6,
+                width: None,
+                offset: None,
+            }),
             net: None,
             net_name: None,
             pin_function: None,
@@ -567,9 +592,25 @@ mod tests {
         )
         .unwrap();
         let agnd = report.nets.iter().find(|n| n.net_name == "AGND").unwrap();
-        assert!(agnd.region_count >= 2, "expected >=2 regions, got {}", agnd.region_count);
+        assert!(
+            agnd.region_count >= 2,
+            "expected >=2 regions, got {}",
+            agnd.region_count
+        );
         let islands: Vec<_> = agnd.regions.iter().filter(|r| r.is_island).collect();
-        eprintln!("REGIONS {:?}", agnd.regions.iter().map(|r| (r.cells, r.area_mm2, r.is_island, r.bbox_mm, r.contact_nets.clone())).collect::<Vec<_>>());
+        eprintln!(
+            "REGIONS {:?}",
+            agnd.regions
+                .iter()
+                .map(|r| (
+                    r.cells,
+                    r.area_mm2,
+                    r.is_island,
+                    r.bbox_mm,
+                    r.contact_nets.clone()
+                ))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(islands.len(), 1, "right zone should be the single island");
         assert!(
             islands[0].contact_nets.iter().any(|(n, _)| n == "SIG"),

@@ -70,7 +70,11 @@ fn board_json5_roundtrip() {
     assert_eq!(board2.segments.len(), seg_count, "segment count");
     assert_eq!(board2.vias.len(), via_count, "via count");
     assert_eq!(board2.zones.len(), zone_count, "zone count");
-    assert_eq!(nets_no0(&board2).len(), net_count, "net count (不含 net 0 占位)");
+    assert_eq!(
+        nets_no0(&board2).len(),
+        net_count,
+        "net count (不含 net 0 占位)"
+    );
     assert_eq!(board2.graphics.len(), gr_count, "graphics count");
 
     for (i, (n1, n2)) in nets_no0(&board)

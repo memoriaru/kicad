@@ -9,7 +9,9 @@ fn main() {
     let path = match args.iter().find(|a| !a.starts_with("--")) {
         Some(p) => p.clone(),
         None => {
-            eprintln!("usage: reflow_audit <board.kicad_pcb> [--all] [--nets A,B] [--island-mm2 2]");
+            eprintln!(
+                "usage: reflow_audit <board.kicad_pcb> [--all] [--nets A,B] [--island-mm2 2]"
+            );
             std::process::exit(2);
         }
     };

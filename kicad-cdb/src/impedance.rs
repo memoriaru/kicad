@@ -80,7 +80,15 @@ pub fn impedance(g: &Geom, kind: LineKind, diff: bool) -> f64 {
 
 /// 单端：给定目标 Z0 解线宽（mm）。Z(w) 单调递减 ⇒ 二分 [0.02, 5]。
 /// 差分：先由 S/H 拆出所需单端 Z0（耦合系数只吃 s/h 比），再解线宽。
-pub fn solve_width(target_z: f64, s: f64, h: f64, t: f64, er: f64, kind: LineKind, diff: bool) -> f64 {
+pub fn solve_width(
+    target_z: f64,
+    s: f64,
+    h: f64,
+    t: f64,
+    er: f64,
+    kind: LineKind,
+    diff: bool,
+) -> f64 {
     let z_of_w = |w: f64| -> f64 {
         let g = Geom { w, s, h, t, er };
         impedance(&g, kind, diff)
@@ -136,7 +144,14 @@ pub fn common_stackups() -> Vec<(&'static str, &'static str, Vec<(LineKind, f64,
 // ---------------------------------------------------------------------------
 
 /// 阻抗规则集：微带单端 + 微带差分（闭式可全量表达：sqrt/ln/exp 均支持）。
-pub fn builtin_impedance_rules() -> Vec<(&'static str, &'static str, &'static str, &'static str, &'static str, &'static str)> {
+pub fn builtin_impedance_rules() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+)> {
     vec![
         (
             "ipc2141_microstrip_z0",
@@ -168,7 +183,13 @@ mod tests {
     /// 单调性与边界（公式结构性正确性）。
     #[test]
     fn test_monotonicity_and_bounds() {
-        let base = Geom { w: 0.2, s: 0.2, h: 0.21, t: 0.035, er: 4.4 };
+        let base = Geom {
+            w: 0.2,
+            s: 0.2,
+            h: 0.21,
+            t: 0.035,
+            er: 4.4,
+        };
         // w↑ ⇒ Z0↓
         let wide = Geom { w: 0.5, ..base };
         assert!(microstrip_z0(&wide) < microstrip_z0(&base));
@@ -195,8 +216,19 @@ mod tests {
         let out = ctx
             .eval_formula("z0 = (87 / sqrt(er + 1.41)) * ln(5.98 * h_mm / (0.8 * w_mm + t_mm))")
             .unwrap();
-        let mine = microstrip_z0(&Geom { w: 0.2, s: 0.2, h: 0.21, t: 0.035, er: 4.4 });
-        assert!((out[0].1 - mine).abs() < 1e-9, "engine={} mine={}", out[0].1, mine);
+        let mine = microstrip_z0(&Geom {
+            w: 0.2,
+            s: 0.2,
+            h: 0.21,
+            t: 0.035,
+            er: 4.4,
+        });
+        assert!(
+            (out[0].1 - mine).abs() < 1e-9,
+            "engine={} mine={}",
+            out[0].1,
+            mine
+        );
     }
 
     /// 三组外部对照（验收口径，诚实记账）：
@@ -211,7 +243,11 @@ mod tests {
         // ② W/H 区间
         let w50 = solve_width(50.0, 0.2, 0.21, 0.035, 4.4, LineKind::Microstrip, false);
         let ratio = w50 / 0.21;
-        assert!(ratio > 1.5 && ratio < 2.1, "50Ω W/H={} (rule-of-thumb ≈2)", ratio);
+        assert!(
+            ratio > 1.5 && ratio < 2.1,
+            "50Ω W/H={} (rule-of-thumb ≈2)",
+            ratio
+        );
         // ③ EDABoard 参考 14-16mil (0.356-0.406mm) @ er4.3/8mil
         let w_ref = solve_width(50.0, 0.2, 0.2032, 0.035, 4.3, LineKind::Microstrip, false);
         assert!(
@@ -237,8 +273,25 @@ mod tests {
                 (_, true) => 100.0,
             };
             let w = solve_width(target, 0.2, 0.21, 0.035, 4.4, kind, diff);
-            let z = impedance(&Geom { w, s: 0.2, h: 0.21, t: 0.035, er: 4.4 }, kind, diff);
-            assert!((z - target).abs() < 0.5, "{:?} diff={} w={} z={}", kind, diff, w, z);
+            let z = impedance(
+                &Geom {
+                    w,
+                    s: 0.2,
+                    h: 0.21,
+                    t: 0.035,
+                    er: 4.4,
+                },
+                kind,
+                diff,
+            );
+            assert!(
+                (z - target).abs() < 0.5,
+                "{:?} diff={} w={} z={}",
+                kind,
+                diff,
+                w,
+                z
+            );
         }
     }
 }

@@ -195,14 +195,8 @@ pub fn generate_board_json5(board: &ir::Board) -> Result<String> {
             s.push_str("    ],\n");
         }
         for (key, v) in [
-            (
-                "pad_to_mask_clearance",
-                board.setup.pad_to_mask_clearance,
-            ),
-            (
-                "pad_to_paste_clearance",
-                board.setup.pad_to_paste_clearance,
-            ),
+            ("pad_to_mask_clearance", board.setup.pad_to_mask_clearance),
+            ("pad_to_paste_clearance", board.setup.pad_to_paste_clearance),
             (
                 "pad_to_paste_clearance_ratio",
                 board.setup.pad_to_paste_clearance_ratio,

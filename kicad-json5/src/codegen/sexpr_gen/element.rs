@@ -137,10 +137,11 @@ impl SexprGenerator {
         // Reference/Value fallback — json5 顶层 ref/value 字段必须落成实例 property,
         // 否则 KiCad 显示默认 "U?"、ERC/BOM 全认不出(sch 真源链实锤 2026-11-12;
         // 与 pcb 侧 properties_ext 优先教训互为镜像: 无显式 properties 时发射端合成)
-        for (name, val) in [("Reference", &component.reference), ("Value", &component.value)] {
-            if val.is_empty()
-                || component.properties_ext.iter().any(|p| p.name == name)
-            {
+        for (name, val) in [
+            ("Reference", &component.reference),
+            ("Value", &component.value),
+        ] {
+            if val.is_empty() || component.properties_ext.iter().any(|p| p.name == name) {
                 continue;
             }
             let mut prop = crate::ir::Property::new(name, val.clone());
@@ -296,7 +297,10 @@ impl SexprGenerator {
         // KiCad 官方形态: (text "内容" (exclude_from_sim no) ...) —— text 与字符串同行。
         // 91b2062 首版写成两行 (text\n"内容"), sexpr 虽等价但测试断言 contains 跨行必挂
         // (该 commit "132 测试全绿"声称与现实分裂的假绿账, 本行即根修)。
-        self.write_line(output, &format!("(text \"{}\"", Self::escape_string(&item.text)));
+        self.write_line(
+            output,
+            &format!("(text \"{}\"", Self::escape_string(&item.text)),
+        );
         self.indent_level += 1;
         self.write_line(output, "(exclude_from_sim no)");
         self.write_line(

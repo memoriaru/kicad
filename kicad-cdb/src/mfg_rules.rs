@@ -156,12 +156,16 @@ pub fn check_20h(board: &Board, layer_gap_mm: f64) -> Vec<ShrinkViolation> {
         if is_ground(&pz.net_name) || pv.is_none() {
             continue;
         }
-        let Some(pbb) = bbox(&pz.outline) else { continue };
+        let Some(pbb) = bbox(&pz.outline) else {
+            continue;
+        };
         for gz in &board.zones {
             if !is_ground(&gz.net_name) || gz.layer == pz.layer {
                 continue;
             }
-            let Some(gbb) = bbox(&gz.outline) else { continue };
+            let Some(gbb) = bbox(&gz.outline) else {
+                continue;
+            };
             // 四向余量（各自 ≥0 才合法；20H=电源须落在地内缩 inset 后的界内）
             let slack = (pbb.0 - (gbb.0 + inset))
                 .min(pbb.1 - (gbb.1 + inset))
@@ -214,13 +218,19 @@ pub fn find_ac_coupling_caps(board: &Board, cfg: &StitchConfig) -> Vec<AcCapVoid
             let u = n.to_uppercase();
             for suf in ["_DP", "_DM", "DP", "DM", "_P", "_N"] {
                 if let Some(r) = u.strip_suffix(suf) {
-                    let tag = if suf.ends_with("P") || suf.ends_with("DP") { "P" } else { "N" };
+                    let tag = if suf.ends_with("P") || suf.ends_with("DP") {
+                        "P"
+                    } else {
+                        "N"
+                    };
                     return Some((r.to_string(), tag));
                 }
             }
             None
         };
-        let (Some((r1, t1)), Some((r2, t2))) = (root_of(&n1), root_of(&n2)) else { continue };
+        let (Some((r1, t1)), Some((r2, t2))) = (root_of(&n1), root_of(&n2)) else {
+            continue;
+        };
         if r1 != r2 || t1 == t2 || !is_high_speed(&n1, cfg) {
             continue; // 根不同或同极性 → 不是差分对
         }
@@ -297,8 +307,7 @@ pub fn format_report(
     for v in voids {
         s.push_str(&format!(
             "  🔧 {} ({}/{}) 参考层 {} 挖空区 ({:.2},{:.2})~({:.2},{:.2})\n",
-            v.refdes, v.pair.0, v.pair.1, v.ref_layer,
-            v.rect.0, v.rect.1, v.rect.2, v.rect.3
+            v.refdes, v.pair.0, v.pair.1, v.ref_layer, v.rect.0, v.rect.1, v.rect.2, v.rect.3
         ));
     }
     s
@@ -334,30 +343,40 @@ mod tests {
     #[test]
     fn test_via_fence_and_fanout_grid() {
         let grid = fanout_grid(0.5, 0.75);
-        assert!(grid.contains(&(0.125, 0.125)), "格点=pitch/2=0.25, 首点半格偏移 0.125");
+        assert!(
+            grid.contains(&(0.125, 0.125)),
+            "格点=pitch/2=0.25, 首点半格偏移 0.125"
+        );
         // 格点=pitch/2=0.25 且半格偏移(BGA"眼点"口径), 即 (x-0.125) 落 0.25 整数倍
         assert!(grid
             .iter()
             .all(|(x, _)| ((x - 0.125) / 0.25 - ((x - 0.125) / 0.25).round()).abs() < 1e-9));
 
         let mut b = Board::default();
-        b.nets = vec![NetDef { id: 0, name: "GND".into() }];
+        b.nets = vec![NetDef {
+            id: 0,
+            name: "GND".into(),
+        }];
         // 同 y 横排 6 孔（pitch 0.5）——齐排
         for k in 0..6 {
             b.vias.push(Via {
                 at: (10.0 + k as f64 * 0.5, 20.0),
-                size: 0.3, drill: 0.15,
+                size: 0.3,
+                drill: 0.15,
                 layers: vec!["F.Cu".into(), "B.Cu".into()],
-                net: 0, via_type: String::new(),
+                net: 0,
+                via_type: String::new(),
             });
         }
         // 错开的一组 4 孔（每孔 y 各异=真错开；首版数据 k%2 有一半恰好同 y 仍共线被自己抓包）
         for k in 0..4 {
             b.vias.push(Via {
                 at: (30.0 + k as f64 * 0.5, 25.0 + k as f64 * 0.25),
-                size: 0.3, drill: 0.15,
+                size: 0.3,
+                drill: 0.15,
                 layers: vec!["F.Cu".into(), "B.Cu".into()],
-                net: 0, via_type: String::new(),
+                net: 0,
+                via_type: String::new(),
             });
         }
         let fences = detect_via_fences(&b, 5, 0.1);
@@ -371,15 +390,25 @@ mod tests {
     fn test_20h() {
         let mut b = Board::default();
         b.nets = vec![
-            NetDef { id: 0, name: "GND".into() },
-            NetDef { id: 1, name: "5V".into() },
+            NetDef {
+                id: 0,
+                name: "GND".into(),
+            },
+            NetDef {
+                id: 1,
+                name: "5V".into(),
+            },
         ];
         // 地 100×100 @In2, 电源 100×100 @In3（零内缩）⇒ 违规 over=40
-        b.zones.push(mkzone("GND", "In2.Cu", 0.0, 0.0, 100.0, 100.0));
+        b.zones
+            .push(mkzone("GND", "In2.Cu", 0.0, 0.0, 100.0, 100.0));
         b.zones.push(mkzone("5V", "In3.Cu", 0.0, 0.0, 100.0, 100.0));
         let v = check_20h(&b, 2.0);
         assert_eq!(v.len(), 1);
-        assert!((v[0].overshoot_mm - 40.0).abs() < 1e-9, "2mm 层距⇒20H=40mm, 零内缩超界恰 40");
+        assert!(
+            (v[0].overshoot_mm - 40.0).abs() < 1e-9,
+            "2mm 层距⇒20H=40mm, 零内缩超界恰 40"
+        );
         assert!((v[0].required_inset_mm - 40.0).abs() < 1e-9);
         // 电源内缩 40 ⇒ 通过
         b.zones.pop();
@@ -393,10 +422,22 @@ mod tests {
         let cfg = StitchConfig::default();
         let mut b = Board::default();
         b.nets = vec![
-            NetDef { id: 0, name: "GND".into() },
-            NetDef { id: 1, name: "USB_DP".into() },
-            NetDef { id: 2, name: "USB_DM".into() },
-            NetDef { id: 3, name: "SPI_CS".into() },
+            NetDef {
+                id: 0,
+                name: "GND".into(),
+            },
+            NetDef {
+                id: 1,
+                name: "USB_DP".into(),
+            },
+            NetDef {
+                id: 2,
+                name: "USB_DM".into(),
+            },
+            NetDef {
+                id: 3,
+                name: "SPI_CS".into(),
+            },
         ];
         let mut cap = Footprint {
             lib_id: "Device:C".into(),
@@ -404,28 +445,67 @@ mod tests {
             value: "100nF".into(),
             position: (50.0, 50.0, 0.0),
             layer: "F.Cu".into(),
-            uuid: None, locked: false, descr: None, tags: None, path: None,
-            sheetname: None, sheetfile: None, attr: None, solder_mask_margin: None,
-            solder_paste_margin: None, solder_paste_ratio: None, clearance: None,
-            zone_connect: None, thermal_bridge_width: None, thermal_bridge_angle: None,
+            uuid: None,
+            locked: false,
+            descr: None,
+            tags: None,
+            path: None,
+            sheetname: None,
+            sheetfile: None,
+            attr: None,
+            solder_mask_margin: None,
+            solder_paste_margin: None,
+            solder_paste_ratio: None,
+            clearance: None,
+            zone_connect: None,
+            thermal_bridge_width: None,
+            thermal_bridge_angle: None,
             pads: vec![
                 Pad {
-                    number: "1".into(), pad_type: PadType::Smd, shape: PadShape::Rect,
-                    position: (-0.5, 0.0, 0.0), size: (0.6, 0.8), layers: vec!["F.Cu".into()],
-                    drill: None, net: Some(1), net_name: Some("USB_DP".into()),
-                    pin_function: None, pin_type: None, roundrect_rratio: None,
-                    solder_mask_margin: None, thermal_bridge_width: None,
-                    thermal_bridge_angle: None, thermal_gap: None, clearance: None,
-                    zone_connect: None, remove_unused_layers: None, options: None, primitives: vec![],
+                    number: "1".into(),
+                    pad_type: PadType::Smd,
+                    shape: PadShape::Rect,
+                    position: (-0.5, 0.0, 0.0),
+                    size: (0.6, 0.8),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    net: Some(1),
+                    net_name: Some("USB_DP".into()),
+                    pin_function: None,
+                    pin_type: None,
+                    roundrect_rratio: None,
+                    solder_mask_margin: None,
+                    thermal_bridge_width: None,
+                    thermal_bridge_angle: None,
+                    thermal_gap: None,
+                    clearance: None,
+                    zone_connect: None,
+                    remove_unused_layers: None,
+                    options: None,
+                    primitives: vec![],
                 },
                 Pad {
-                    number: "2".into(), pad_type: PadType::Smd, shape: PadShape::Rect,
-                    position: (0.5, 0.0, 0.0), size: (0.6, 0.8), layers: vec!["F.Cu".into()],
-                    drill: None, net: Some(2), net_name: Some("USB_DM".into()),
-                    pin_function: None, pin_type: None, roundrect_rratio: None,
-                    solder_mask_margin: None, thermal_bridge_width: None,
-                    thermal_bridge_angle: None, thermal_gap: None, clearance: None,
-                    zone_connect: None, remove_unused_layers: None, options: None, primitives: vec![],
+                    number: "2".into(),
+                    pad_type: PadType::Smd,
+                    shape: PadShape::Rect,
+                    position: (0.5, 0.0, 0.0),
+                    size: (0.6, 0.8),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    net: Some(2),
+                    net_name: Some("USB_DM".into()),
+                    pin_function: None,
+                    pin_type: None,
+                    roundrect_rratio: None,
+                    solder_mask_margin: None,
+                    thermal_bridge_width: None,
+                    thermal_bridge_angle: None,
+                    thermal_gap: None,
+                    clearance: None,
+                    zone_connect: None,
+                    remove_unused_layers: None,
+                    options: None,
+                    primitives: vec![],
                 },
             ],
             ..Footprint::default()
@@ -438,7 +518,10 @@ mod tests {
         assert_eq!(v.refdes, "C9");
         // pad 组 bbox: x∈[49.2,50.8](±0.5中心±0.3) 外扩 0.5 ⇒ [48.7, 51.3]
         assert!((v.rect.0 - 48.7).abs() < 1e-9 && (v.rect.2 - 51.3).abs() < 1e-9);
-        assert_eq!(v.ref_layer, "B.Cu", "两层轴 F.Cu 的邻参考=B.Cu(轴塌缩时 B 是唯一邻层)");
+        assert_eq!(
+            v.ref_layer, "B.Cu",
+            "两层轴 F.Cu 的邻参考=B.Cu(轴塌缩时 B 是唯一邻层)"
+        );
         // 非差分对电容不识别: SPI_CS 串阻性电容
         let mut other = b.footprints[0].clone();
         other.reference = "C10".into();

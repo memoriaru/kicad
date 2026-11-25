@@ -19,8 +19,8 @@ use crate::stitching::{copper_axis, is_high_speed, net_display, point_in_poly, S
 pub struct ReflowBreak {
     pub net: String,
     pub at: (f64, f64),
-    pub layer: String,      // 信号所在层
-    pub ref_layer: String,  // 参考层
+    pub layer: String,     // 信号所在层
+    pub ref_layer: String, // 参考层
     pub cause: BreakCause,
 }
 
@@ -37,7 +37,7 @@ pub enum BreakCause {
 /// 包地线检查结果。
 #[derive(Debug, Clone)]
 pub struct GuardTrace {
-    pub net: String,         // 被包的信号网
+    pub net: String, // 被包的信号网
     pub layer: String,
     /// guard 线段范围（近似中点+长度）。
     pub at: (f64, f64),
@@ -64,10 +64,18 @@ fn seg_len(s: &kicad_json5::ir::board::Segment) -> f64 {
 }
 
 /// 信号层在给定点的参考层（铜层轴邻层中有铜者；多候选取首个）。
-fn ref_layer_at(board: &Board, axis: &[String], layer: &str, at: (f64, f64)) -> Option<(String, bool)> {
+fn ref_layer_at(
+    board: &Board,
+    axis: &[String],
+    layer: &str,
+    at: (f64, f64),
+) -> Option<(String, bool)> {
     // 返回 (参考层, outline 覆盖但填充缺失)
     let idx = axis.iter().position(|l| l == layer)?;
-    for cand in [idx.checked_sub(1), Some(idx + 1).filter(|i| *i < axis.len())] {
+    for cand in [
+        idx.checked_sub(1),
+        Some(idx + 1).filter(|i| *i < axis.len()),
+    ] {
         let Some(ci) = cand else { continue };
         let cl = &axis[ci];
         let mut outline_hit = false;
@@ -75,7 +83,10 @@ fn ref_layer_at(board: &Board, axis: &[String], layer: &str, at: (f64, f64)) -> 
             if z.layer != *cl {
                 continue;
             }
-            if z.filled_polygons.iter().any(|fp| fp.layer == *cl && point_in_poly(at, &fp.points)) {
+            if z.filled_polygons
+                .iter()
+                .any(|fp| fp.layer == *cl && point_in_poly(at, &fp.points))
+            {
                 return Some((cl.clone(), false));
             }
             if !outline_hit && point_in_poly(at, &z.outline) {
@@ -206,7 +217,10 @@ pub fn audit_guards(board: &Board, cfg: &StitchConfig) -> Vec<GuardTrace> {
             }
             // 中点距离 <2mm 且长度足够 → 视作包地
             let gm = ((g.start.0 + g.end.0) / 2.0, (g.start.1 + g.end.1) / 2.0);
-            let sm = ((seg.start.0 + seg.end.0) / 2.0, (seg.start.1 + seg.end.1) / 2.0);
+            let sm = (
+                (seg.start.0 + seg.end.0) / 2.0,
+                (seg.start.1 + seg.end.1) / 2.0,
+            );
             let dist = (gm.0 - sm.0).hypot(gm.1 - sm.1);
             let glen = seg_len(g);
             if dist > 2.0 || glen < 5.0 {
@@ -233,8 +247,7 @@ pub fn audit_guards(board: &Board, cfg: &StitchConfig) -> Vec<GuardTrace> {
                 })
                 .map(|ci| {
                     board.zones.iter().any(|z| {
-                        z.layer == axis[ci]
-                            && (z.net_name == "GND" || z.net_name.ends_with("GND"))
+                        z.layer == axis[ci] && (z.net_name == "GND" || z.net_name.ends_with("GND"))
                     })
                 })
                 .unwrap_or(false);
@@ -243,7 +256,9 @@ pub fn audit_guards(board: &Board, cfg: &StitchConfig) -> Vec<GuardTrace> {
             } else if !v_ground {
                 GuardVerdict::NoVerticalGround
             } else {
-                GuardVerdict::Ok3D { via_rate_mm: glen / stitch.max(1) as f64 }
+                GuardVerdict::Ok3D {
+                    via_rate_mm: glen / stitch.max(1) as f64,
+                }
             };
             out.push(GuardTrace {
                 net: net.clone(),
@@ -307,12 +322,18 @@ fn centroid(pts: &[(f64, f64)]) -> (f64, f64) {
     if pts.is_empty() {
         return (0.0, 0.0);
     }
-    let (sx, sy) = pts.iter().fold((0.0, 0.0), |acc, p| (acc.0 + p.0, acc.1 + p.1));
+    let (sx, sy) = pts
+        .iter()
+        .fold((0.0, 0.0), |acc, p| (acc.0 + p.0, acc.1 + p.1));
     (sx / pts.len() as f64, sy / pts.len() as f64)
 }
 
 /// 人读报告。
-pub fn format_report(breaks: &[ReflowBreak], guards: &[GuardTrace], islands: &[(String, (f64, f64), f64)]) -> String {
+pub fn format_report(
+    breaks: &[ReflowBreak],
+    guards: &[GuardTrace],
+    islands: &[(String, (f64, f64), f64)],
+) -> String {
     let mut s = String::from("== 回流路径连续性审计 ==\n");
     if breaks.is_empty() {
         s.push_str("  ✅ 高速网投影带参考铜连续，无割断\n");
@@ -334,7 +355,9 @@ pub fn format_report(breaks: &[ReflowBreak], guards: &[GuardTrace], islands: &[(
     }
     for g in guards {
         let v = match &g.verdict {
-            GuardVerdict::Ok3D { via_rate_mm } => format!("✅ 立体包地(每 {via_rate_mm:.1}mm 一孔)"),
+            GuardVerdict::Ok3D { via_rate_mm } => {
+                format!("✅ 立体包地(每 {via_rate_mm:.1}mm 一孔)")
+            }
             GuardVerdict::AntennaNoVias => "⚠️ 包地未打孔=天线(建议补孔或删除)".to_string(),
             GuardVerdict::NoVerticalGround => "⚠️ 纵向邻层非地——半立体(建议删或补)".to_string(),
         };
@@ -348,7 +371,10 @@ pub fn format_report(breaks: &[ReflowBreak], guards: &[GuardTrace], islands: &[(
         s.push_str("  ✅ 无小面积孤岛\n");
     }
     for (layer, c, a) in islands {
-        s.push_str(&format!("  ⚠️ {} @({:.2},{:.2}) 面积 {a:.2}mm²\n", layer, c.0, c.1));
+        s.push_str(&format!(
+            "  ⚠️ {} @({:.2},{:.2}) 面积 {a:.2}mm²\n",
+            layer, c.0, c.1
+        ));
     }
     s
 }
@@ -385,10 +411,22 @@ mod tests {
     /// 三归因：无平面 / 挖槽(outline 有填充缺) / 齐排孔。
     #[test]
     fn test_reflow_break_causes() {
-        let cfg = StitchConfig { all_nets: true, ..Default::default() };
+        let cfg = StitchConfig {
+            all_nets: true,
+            ..Default::default()
+        };
         // B.Cu 全 GND 填充 x∈[0,20]；x∈[20,40] 只有 outline 无填充（挖槽区）
         let mut b = Board::default();
-        b.nets = vec![NetDef { id: 0, name: "GND".into() }, NetDef { id: 1, name: "CLK_X".into() }];
+        b.nets = vec![
+            NetDef {
+                id: 0,
+                name: "GND".into(),
+            },
+            NetDef {
+                id: 1,
+                name: "CLK_X".into(),
+            },
+        ];
         b.zones.push(zone_gnd("B.Cu", 0.0, 20.0));
         b.zones.push(Zone {
             outline: vec![(20.0, 0.0), (40.0, 0.0), (40.0, 40.0), (20.0, 40.0)],
@@ -397,14 +435,19 @@ mod tests {
         });
         // 高速线 F.Cu 0→40 横穿
         b.segments.push(Segment {
-            start: (0.0, 20.0), end: (40.0, 20.0), width: 0.2, layer: "F.Cu".into(), net: 1,
+            start: (0.0, 20.0),
+            end: (40.0, 20.0),
+            width: 0.2,
+            layer: "F.Cu".into(),
+            net: 1,
         });
         let br = audit_reflow(&b, &cfg);
         // 应有: x>20 区域断(挖槽) 或 NoPlane——挖槽区 outline 命中 ⇒ SlotOrIsland
         assert!(!br.is_empty(), "挖槽区必须报断");
         assert!(br.iter().all(|x| x.net == "CLK_X"));
         assert!(
-            br.iter().any(|x| matches!(x.cause, BreakCause::SlotOrIsland | BreakCause::NoPlane)),
+            br.iter()
+                .any(|x| matches!(x.cause, BreakCause::SlotOrIsland | BreakCause::NoPlane)),
             "归因应为挖槽或无平面: {:?}",
             br.iter().map(|x| &x.cause).collect::<Vec<_>>()
         );
@@ -415,14 +458,17 @@ mod tests {
         for k in 0..4 {
             b.vias.push(kicad_json5::ir::board::Via {
                 at: (25.0 + k as f64 * 0.3, 20.0),
-                size: 0.6, drill: 0.3,
+                size: 0.6,
+                drill: 0.3,
                 layers: vec!["F.Cu".into(), "B.Cu".into()],
-                net: 0, via_type: String::new(),
+                net: 0,
+                via_type: String::new(),
             });
         }
         let br2 = audit_reflow(&b, &cfg);
         assert!(
-            br2.iter().any(|x| matches!(x.cause, BreakCause::ViaFence { .. })),
+            br2.iter()
+                .any(|x| matches!(x.cause, BreakCause::ViaFence { .. })),
             "via 密集区应归因齐排孔: {:?}",
             br2.iter().map(|x| &x.cause).collect::<Vec<_>>()
         );
@@ -431,39 +477,75 @@ mod tests {
     /// 三态：不打孔=天线 / 打孔+纵向地=立体。
     #[test]
     fn test_guard_verdicts() {
-        let cfg = StitchConfig { all_nets: true, ..Default::default() };
+        let cfg = StitchConfig {
+            all_nets: true,
+            ..Default::default()
+        };
         let mut b = Board::default();
-        b.nets = vec![NetDef { id: 0, name: "GND".into() }, NetDef { id: 1, name: "CLK_X".into() }];
+        b.nets = vec![
+            NetDef {
+                id: 0,
+                name: "GND".into(),
+            },
+            NetDef {
+                id: 1,
+                name: "CLK_X".into(),
+            },
+        ];
         // 高速线 + 平行 GND guard 距 1mm，长 10mm
         b.segments.push(Segment {
-            start: (0.0, 10.0), end: (10.0, 10.0), width: 0.2, layer: "F.Cu".into(), net: 1,
+            start: (0.0, 10.0),
+            end: (10.0, 10.0),
+            width: 0.2,
+            layer: "F.Cu".into(),
+            net: 1,
         });
         b.segments.push(Segment {
-            start: (0.0, 11.0), end: (10.0, 11.0), width: 0.2, layer: "F.Cu".into(), net: 0,
+            start: (0.0, 11.0),
+            end: (10.0, 11.0),
+            width: 0.2,
+            layer: "F.Cu".into(),
+            net: 0,
         });
         let g = audit_guards(&b, &cfg);
         assert_eq!(g.len(), 1);
-        assert_eq!(g[0].verdict, GuardVerdict::AntennaNoVias, "无孔无纵向地应判天线");
+        assert_eq!(
+            g[0].verdict,
+            GuardVerdict::AntennaNoVias,
+            "无孔无纵向地应判天线"
+        );
 
         // 补孔 + B.Cu GND → 立体
         b.vias.push(kicad_json5::ir::board::Via {
-            at: (5.0, 11.0), size: 0.6, drill: 0.3,
-            layers: vec!["F.Cu".into(), "B.Cu".into()], net: 0, via_type: String::new(),
+            at: (5.0, 11.0),
+            size: 0.6,
+            drill: 0.3,
+            layers: vec!["F.Cu".into(), "B.Cu".into()],
+            net: 0,
+            via_type: String::new(),
         });
         b.zones.push(zone_gnd("B.Cu", 0.0, 40.0));
         let g2 = audit_guards(&b, &cfg);
-        assert!(matches!(g2[0].verdict, GuardVerdict::Ok3D { .. }), "打孔+纵向地=立体: {:?}", g2[0].verdict);
+        assert!(
+            matches!(g2[0].verdict, GuardVerdict::Ok3D { .. }),
+            "打孔+纵向地=立体: {:?}",
+            g2[0].verdict
+        );
     }
 
     #[test]
     fn test_ground_islands() {
         let mut b = Board::default();
-        b.nets = vec![NetDef { id: 0, name: "GND".into() }];
+        b.nets = vec![NetDef {
+            id: 0,
+            name: "GND".into(),
+        }];
         let mut z = zone_gnd("B.Cu", 0.0, 40.0);
-        z.filled_polygons.push(kicad_json5::ir::board::FilledPolygon {
-            layer: "B.Cu".into(),
-            points: vec![(5.0, 5.0), (6.0, 5.0), (6.0, 6.0), (5.0, 6.0)], // 1mm² 孤岛
-        });
+        z.filled_polygons
+            .push(kicad_json5::ir::board::FilledPolygon {
+                layer: "B.Cu".into(),
+                points: vec![(5.0, 5.0), (6.0, 5.0), (6.0, 6.0), (5.0, 6.0)], // 1mm² 孤岛
+            });
         b.zones.push(z);
         let isles = find_ground_islands(&b, 2.0);
         assert_eq!(isles.len(), 1);

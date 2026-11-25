@@ -38,10 +38,7 @@ fn parse_point(v: &Value) -> Option<(f64, f64)> {
 }
 
 /// `[x, y]` or `{x:, y:}` — setup origins accept either spelling.
-fn parse_point_or_none(
-    obj: &serde_json::Map<String, Value>,
-    key: &str,
-) -> Option<(f64, f64)> {
+fn parse_point_or_none(obj: &serde_json::Map<String, Value>, key: &str) -> Option<(f64, f64)> {
     let v = obj.get(key)?;
     if let Some(p) = parse_point(v) {
         return Some(p);
@@ -50,7 +47,8 @@ fn parse_point_or_none(
     Some((o.get("x")?.as_f64()?, o.get("y")?.as_f64()?))
 }
 
-fn parse_position(obj: &serde_json::Map<String, Value>) -> (f64, f64, f64) {    let x = obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+fn parse_position(obj: &serde_json::Map<String, Value>) -> (f64, f64, f64) {
+    let x = obj.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let y = obj.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let r = obj.get("rotation").and_then(|v| v.as_f64()).unwrap_or(0.0);
     (x, y, r)
@@ -149,10 +147,8 @@ fn value_to_board(value: &Value) -> Result<Board> {
                 }
             }
         }
-        board.setup.pad_to_mask_clearance =
-            get_f64(so, "pad_to_mask_clearance").unwrap_or(0.0);
-        board.setup.pad_to_paste_clearance =
-            get_f64(so, "pad_to_paste_clearance").unwrap_or(0.0);
+        board.setup.pad_to_mask_clearance = get_f64(so, "pad_to_mask_clearance").unwrap_or(0.0);
+        board.setup.pad_to_paste_clearance = get_f64(so, "pad_to_paste_clearance").unwrap_or(0.0);
         board.setup.pad_to_paste_clearance_ratio =
             get_f64(so, "pad_to_paste_clearance_ratio").unwrap_or(0.0);
         board.setup.aux_axis_origin = parse_point_or_none(so, "aux_axis_origin");
@@ -271,7 +267,12 @@ fn value_to_board(value: &Value) -> Result<Board> {
                         None => "不是对象".to_string(),
                         Some(o) => match get_str(o, "type").or_else(|| get_str(o, "kind")) {
                             None => "没写 type".to_string(),
-                            Some(t) if !matches!(t, "line" | "arc" | "circle" | "rect" | "poly" | "text") => {
+                            Some(t)
+                                if !matches!(
+                                    t,
+                                    "line" | "arc" | "circle" | "rect" | "poly" | "text"
+                                ) =>
+                            {
                                 format!("type 不认识: {:?}", t)
                             }
                             Some(t) => format!("type {:?} 缺必要字段 (start/end/mid/center)", t),
@@ -316,10 +317,7 @@ fn parse_footprint_attr(v: Option<&Value>) -> Option<FootprintAttr> {
             }
             s.split_whitespace().map(norm).collect()
         }
-        Some(Value::Array(arr)) => arr
-            .iter()
-            .filter_map(|x| x.as_str().map(norm))
-            .collect(),
+        Some(Value::Array(arr)) => arr.iter().filter_map(|x| x.as_str().map(norm)).collect(),
         _ => return None,
     };
     match vals.as_slice() {
@@ -946,14 +944,24 @@ mod tests {
     fn reference_double_write_disagreement_is_an_error() {
         let ok = r#"{ version: "20240108", footprints: [ { lib_id: "L:R", reference: "R1", value: "1k",
             properties: [ { name: "Reference", value: "R1" }, { name: "Value", value: "1k" } ] } ] }"#;
-        assert!(parse_board_json5(ok).is_ok(), "两处一致 (以及只有 properties 没有顶层) 都要能过");
+        assert!(
+            parse_board_json5(ok).is_ok(),
+            "两处一致 (以及只有 properties 没有顶层) 都要能过"
+        );
         let only_props = r#"{ version: "20240108", footprints: [ { lib_id: "L:R",
             properties: [ { name: "Reference", value: "R1" } ] } ] }"#;
-        assert!(parse_board_json5(only_props).is_ok(), "没写顶层字段不算不一致");
+        assert!(
+            parse_board_json5(only_props).is_ok(),
+            "没写顶层字段不算不一致"
+        );
         let bad_ref = r#"{ version: "20240108", footprints: [ { lib_id: "L:R", reference: "R1", value: "1k",
             properties: [ { name: "Reference", value: "R17" } ] } ] }"#;
         let e = parse_board_json5(bad_ref).unwrap_err().to_string();
-        assert!(e.contains("footprints[0] reference") && e.contains("R17"), "{}", e);
+        assert!(
+            e.contains("footprints[0] reference") && e.contains("R17"),
+            "{}",
+            e
+        );
         let bad_val = r#"{ version: "20240108", footprints: [ { lib_id: "L:R", reference: "R1", value: "1k",
             properties: [ { name: "Value", value: "10k" } ] } ] }"#;
         let e = parse_board_json5(bad_val).unwrap_err().to_string();
@@ -968,9 +976,18 @@ mod tests {
             { kind: "line", start: [0, 0], end: [1, 0], layer: "F.SilkS" } ] }"#;
         assert_eq!(parse_board_json5(ok).unwrap().graphics.len(), 2);
         for (src, needle) in [
-            (r#"{ version: "20240108", graphics: [ { start: [0, 0], end: [10, 10], layer: "Edge.Cuts" } ] }"#, "没写 type"),
-            (r#"{ version: "20240108", graphics: [ { type: "blob", start: [0, 0] } ] }"#, "type 不认识"),
-            (r#"{ version: "20240108", graphics: [ { type: "line", layer: "F.SilkS" } ] }"#, "缺必要字段"),
+            (
+                r#"{ version: "20240108", graphics: [ { start: [0, 0], end: [10, 10], layer: "Edge.Cuts" } ] }"#,
+                "没写 type",
+            ),
+            (
+                r#"{ version: "20240108", graphics: [ { type: "blob", start: [0, 0] } ] }"#,
+                "type 不认识",
+            ),
+            (
+                r#"{ version: "20240108", graphics: [ { type: "line", layer: "F.SilkS" } ] }"#,
+                "缺必要字段",
+            ),
         ] {
             let e = parse_board_json5(src).unwrap_err().to_string();
             assert!(e.contains("graphics[0]") && e.contains(needle), "{}", e);

@@ -641,7 +641,10 @@ mod tests {
         assert!(result.contains("(property \"Value\""));
         assert!(result.contains("\"10k\""));
         // auto-wire 兑现: SIG 网络至少画出 wire/label
-        assert!(result.contains("(wire"), "auto-wire 未画出 SIG 网络:\n{result}");
+        assert!(
+            result.contains("(wire"),
+            "auto-wire 未画出 SIG 网络:\n{result}"
+        );
         assert!(result.contains("SIG"));
     }
 
@@ -675,11 +678,23 @@ mod tests {
         let result = generator.generate(&sch).unwrap();
         // pin2 世界坐标 = cy − (−5.08) = 55.88 (symbol-local y-up 惯例):
         // SIG 的 wire/label 必须落在 55.88, 而不是启发式 5.81 口径的 56.61
-        assert!(result.contains("55.88"), "auto-wire 未用 graphics 几何(端点应为 55.88):\n{result}");
-        assert!(!result.contains("56.61"), "端点仍走 ±5.81 启发式(出现 56.61):\n{result}");
+        assert!(
+            result.contains("55.88"),
+            "auto-wire 未用 graphics 几何(端点应为 55.88):\n{result}"
+        );
+        assert!(
+            !result.contains("56.61"),
+            "端点仍走 ±5.81 启发式(出现 56.61):\n{result}"
+        );
         // GND global 标签同理应落 45.72 (=50.8−5.08) 而非 44.99
-        assert!(result.contains("45.72"), "global 标签未用 graphics 几何(应为 45.72)");
-        assert!(!result.contains("44.99"), "标签仍走 ±5.81 启发式(出现 44.99)");
+        assert!(
+            result.contains("45.72"),
+            "global 标签未用 graphics 几何(应为 45.72)"
+        );
+        assert!(
+            !result.contains("44.99"),
+            "标签仍走 ±5.81 启发式(出现 44.99)"
+        );
     }
 
     #[test]
@@ -706,21 +721,33 @@ mod tests {
         }"#;
         let sch = crate::parser::json5_parser::parse_json5(src).unwrap();
         let sym = &sch.lib_symbols[0];
-        let non_pin = sym.graphics.iter()
-            .filter(|g| !matches!(g, crate::ir::GraphicElement::Pin(_))).count();
-        assert_eq!(non_pin, 2, "json5 graphics 非 pin 体几何未入 IR(rect/line 被 skip)");
+        let non_pin = sym
+            .graphics
+            .iter()
+            .filter(|g| !matches!(g, crate::ir::GraphicElement::Pin(_)))
+            .count();
+        assert_eq!(
+            non_pin, 2,
+            "json5 graphics 非 pin 体几何未入 IR(rect/line 被 skip)"
+        );
         let mut generator = SexprGenerator::new();
         let result = generator.generate(&sch).unwrap();
         assert!(result.contains("(rectangle"), "rectangle 未发射:\n{result}");
-        assert!(result.contains("(start -2.54 -3.81)") && result.contains("(end 2.54 3.81)"),
-                "rectangle start/end 口径不对(end 应为 at+size)");
+        assert!(
+            result.contains("(start -2.54 -3.81)") && result.contains("(end 2.54 3.81)"),
+            "rectangle start/end 口径不对(end 应为 at+size)"
+        );
         assert!(result.contains("(polyline"), "line(pts) 未发射为 polyline");
         // 非 power 有 pin 符号: 体图形入 _0_1, pin 入 _1_1
-        assert!(result.contains("(symbol \"R_0_1\"") && result.contains("(symbol \"R_1_1\""),
-                "unit 拆分缺失(_0_1 图形 / _1_1 pin)");
+        assert!(
+            result.contains("(symbol \"R_0_1\"") && result.contains("(symbol \"R_1_1\""),
+            "unit 拆分缺失(_0_1 图形 / _1_1 pin)"
+        );
         let g0 = result.split("(symbol \"R_1_1\"").next().unwrap();
-        assert!(g0.contains("(rectangle") && !g0.contains("(pin "),
-                "_0_1 应只含图形不含 pin");
+        assert!(
+            g0.contains("(rectangle") && !g0.contains("(pin "),
+            "_0_1 应只含图形不含 pin"
+        );
     }
 
     #[test]
@@ -741,11 +768,17 @@ mod tests {
         assert_eq!(sch.polylines.len(), 1, "顶层 polylines 未入 IR");
         let mut generator = SexprGenerator::new();
         let result = generator.generate(&sch).unwrap();
-        assert!(result.contains("(text \"电力输入\""), "顶层 text 未发射:\n{result}");
+        assert!(
+            result.contains("(text \"电力输入\""),
+            "顶层 text 未发射:\n{result}"
+        );
         assert!(result.contains("(at 20.32 29.21 0)"), "text at 未发射");
         assert!(result.contains("(polyline"), "顶层 polyline 未发射");
         assert!(result.contains("(type dash)"), "stroke dash 未发射");
-        assert!(result.contains("(fill (type none))"), "polyline fill 未发射");
+        assert!(
+            result.contains("(fill (type none))"),
+            "polyline fill 未发射"
+        );
     }
 
     #[test]

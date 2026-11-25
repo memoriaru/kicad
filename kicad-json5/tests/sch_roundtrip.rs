@@ -260,6 +260,9 @@ fn test_sch_generation_is_deterministic() {
         let b = id.as_bytes();
         assert_eq!(id.len(), 36, "uuid 形态错: {id}");
         assert_eq!(b[14], b'4', "非 v4 版本位: {id}");
-        assert!(matches!(b[19], b'8' | b'9' | b'a' | b'b'), "非 RFC 4122 变体位: {id}");
+        assert!(
+            matches!(b[19], b'8' | b'9' | b'a' | b'b'),
+            "非 RFC 4122 变体位: {id}"
+        );
     }
 }

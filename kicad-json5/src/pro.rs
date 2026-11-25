@@ -110,12 +110,11 @@ pub fn write_pro_for(pcb_path: &Path, rules: &DesignRules) -> Result<PathBuf> {
         .and_then(|s| s.to_str())
         .unwrap_or("board.kicad_pro")
         .to_string();
-    std::fs::write(&pro_path, rules_to_pro_json(&name, rules))
-        .map_err(|e| Error::ParserError {
-            line: 0,
-            column: 0,
-            message: format!("cannot write {}: {}", pro_path.display(), e),
-        })?;
+    std::fs::write(&pro_path, rules_to_pro_json(&name, rules)).map_err(|e| Error::ParserError {
+        line: 0,
+        column: 0,
+        message: format!("cannot write {}: {}", pro_path.display(), e),
+    })?;
     Ok(pro_path)
 }
 
@@ -134,7 +133,8 @@ pub fn pro_is_generated(pro_path: &Path) -> bool {
     };
     obj.len() == 2
         && obj.contains_key("meta")
-        && obj.get("board")
+        && obj
+            .get("board")
             .and_then(|b| b.as_object())
             .map(|b| b.len() == 1 && b.contains_key("design_settings"))
             .unwrap_or(false)
@@ -144,7 +144,11 @@ pub fn pro_is_generated(pro_path: &Path) -> bool {
 pub fn read_rules_pro(pro_path: &Path) -> Option<DesignRules> {
     let src = std::fs::read_to_string(pro_path).ok()?;
     let root: Value = serde_json::from_str(&src).ok()?;
-    let rules = root.get("board")?.get("design_settings")?.get("rules")?.as_object()?;
+    let rules = root
+        .get("board")?
+        .get("design_settings")?
+        .get("rules")?
+        .as_object()?;
     let parsed = rules_from_map(rules);
     if parsed.is_empty() {
         None

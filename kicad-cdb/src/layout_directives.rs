@@ -495,4 +495,3 @@ pub struct ZoneExclusion {
     pub rect: (f64, f64, f64, f64),
     pub reason: String,
 }
-

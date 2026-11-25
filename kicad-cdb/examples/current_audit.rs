@@ -14,7 +14,9 @@ fn main() {
     let path = match args.iter().find(|a| !a.starts_with("--")) {
         Some(p) => p.clone(),
         None => {
-            eprintln!("usage: current_audit <board.kicad_pcb> [--oz 1] [--dt 30] [--net NAME=A,...]");
+            eprintln!(
+                "usage: current_audit <board.kicad_pcb> [--oz 1] [--dt 30] [--net NAME=A,...]"
+            );
             std::process::exit(2);
         }
     };
@@ -56,7 +58,11 @@ fn main() {
     let ov = CurrentOverrides {
         net_current: net_cur,
         source_current: src_cur,
-        copper: CopperParams { oz, dt_c: dt, internal: false },
+        copper: CopperParams {
+            oz,
+            dt_c: dt,
+            internal: false,
+        },
         ..Default::default()
     };
     let vrms = extract_power_tree(&board, &ov);

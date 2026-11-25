@@ -589,11 +589,24 @@ fn test_rule_plane_sexpr_roundtrip() {
     let board = parse_board(RULE_SRC).unwrap();
 
     assert_eq!(board.setup.stackup.len(), 4, "stackup 层被静默丢弃");
-    let cu = board.setup.stackup.iter().find(|l| l.name == "F.Cu").unwrap();
+    let cu = board
+        .setup
+        .stackup
+        .iter()
+        .find(|l| l.name == "F.Cu")
+        .unwrap();
     assert_eq!(cu.layer_type, "copper");
     assert_eq!(cu.thickness, Some(0.03));
-    let pp = board.setup.stackup.iter().find(|l| l.name == "ppki").unwrap();
-    assert_eq!(pp.layer_type, "semi-prepreg", "(type ident) 与 (type \"str\") 都要收");
+    let pp = board
+        .setup
+        .stackup
+        .iter()
+        .find(|l| l.name == "ppki")
+        .unwrap();
+    assert_eq!(
+        pp.layer_type, "semi-prepreg",
+        "(type ident) 与 (type \"str\") 都要收"
+    );
     assert_eq!(pp.material.as_deref(), Some("SemiPREPREG"));
     assert_eq!(pp.epsilon_r, Some(4.3));
     assert_eq!(pp.loss_tangent, Some(0.015));
@@ -605,7 +618,10 @@ fn test_rule_plane_sexpr_roundtrip() {
     // KiCad 写的类名是裸 ident(无引号), 必须同样收进来
     assert_eq!(board.net_classes[0].name, "Default");
     assert_eq!(board.net_classes[0].clearance, Some(0.2));
-    assert_eq!(board.net_classes[0].nets, vec!["GND".to_string(), "SPI_CLK".to_string()]);
+    assert_eq!(
+        board.net_classes[0].nets,
+        vec!["GND".to_string(), "SPI_CLK".to_string()]
+    );
     let sig = &board.net_classes[1];
     assert_eq!(sig.name, "SIG127");
     assert_eq!(sig.clearance, Some(0.127));
@@ -639,7 +655,14 @@ fn test_rule_plane_sexpr_roundtrip() {
 fn test_rule_plane_json5_roundtrip() {
     let board = parse_board(RULE_SRC).unwrap();
     let json5 = generate_board_json5(&board).unwrap();
-    for needle in ["setup:", "stackup:", "net_classes:", "epsilon_r: 4.3", "(min", "SIG127"] {
+    for needle in [
+        "setup:",
+        "stackup:",
+        "net_classes:",
+        "epsilon_r: 4.3",
+        "(min",
+        "SIG127",
+    ] {
         if needle == "(min" {
             continue; // rules 未声明时不该出现, 下面单独测
         }
@@ -648,13 +671,21 @@ fn test_rule_plane_json5_roundtrip() {
     let re = parse_board_json5(&json5).unwrap();
     assert_eq!(re.setup.stackup.len(), 4, "json5 反向丢 stackup");
     assert_eq!(
-        re.setup.stackup.iter().find(|l| l.name == "ppki").unwrap().epsilon_r,
+        re.setup
+            .stackup
+            .iter()
+            .find(|l| l.name == "ppki")
+            .unwrap()
+            .epsilon_r,
         Some(4.3)
     );
     assert_eq!(re.net_classes.len(), 2, "json5 反向丢 net_class");
     assert_eq!(re.net_classes[0].clearance, Some(0.2));
     assert_eq!(re.net_classes[0].nets.len(), 2);
-    assert_eq!(re.net_classes[1].uvia_dia, None, "未声明的规则字段不得凭空造值");
+    assert_eq!(
+        re.net_classes[1].uvia_dia, None,
+        "未声明的规则字段不得凭空造值"
+    );
     assert_eq!(re.setup.pad_to_mask_clearance, 0.05);
     assert_eq!(re.setup.grid_origin, Some((108.5, 65.0)));
 }
@@ -680,10 +711,19 @@ fn test_rule_plane_rules_to_json5_and_pro() {
     let pcb = dir.join("b.kicad_pcb");
     let pro = kicad_json5::pro::write_pro_for(&pcb, &rules).unwrap();
     assert_eq!(pro, dir.join("b.kicad_pro"));
-    assert_eq!(kicad_json5::pro::read_rules_pro(&pro).as_ref(), Some(&rules));
-    assert!(kicad_json5::pro::pro_is_generated(&pro), "自家生成的 pro 应可安全覆写");
-    std::fs::write(&pro, r#"{"board":{"design_settings":{"rules":{}},"other":1},"meta":{},"x":1}"#)
-        .unwrap();
+    assert_eq!(
+        kicad_json5::pro::read_rules_pro(&pro).as_ref(),
+        Some(&rules)
+    );
+    assert!(
+        kicad_json5::pro::pro_is_generated(&pro),
+        "自家生成的 pro 应可安全覆写"
+    );
+    std::fs::write(
+        &pro,
+        r#"{"board":{"design_settings":{"rules":{}},"other":1},"meta":{},"x":1}"#,
+    )
+    .unwrap();
     assert!(
         !kicad_json5::pro::pro_is_generated(&pro),
         "手写 KiCad 工程文件不得被编译覆盖"
@@ -701,7 +741,10 @@ fn test_footprint_attr_json5_multivalue() {
         // 落板 token 必须是 through_hole: 旧写法 thru_hole KiCad 10 整板拒载 (最小板实锤)
         (r#"attr: "thru_hole""#, "(attr through_hole)"),
         (r#"attr: "through_hole""#, "(attr through_hole)"),
-        (r#"attr: ["thru_hole", "exclude_from_bom"]"#, "(attr through_hole exclude_from_bom)"),
+        (
+            r#"attr: ["thru_hole", "exclude_from_bom"]"#,
+            "(attr through_hole exclude_from_bom)",
+        ),
         (
             r#"attr: "exclude_from_pos_files exclude_from_bom""#,
             "(attr exclude_from_pos_files exclude_from_bom)",
@@ -715,15 +758,26 @@ fn test_footprint_attr_json5_multivalue() {
     ] {
         let json5 = format!(r#"{{ footprints: [ {{ lib_id: "x:y", reference: "R1", {src} }} ] }}"#);
         let board = parse_board_json5(&json5).unwrap();
-        let sexpr = codegen::BoardSexprGenerator::new().generate(&board).unwrap();
+        let sexpr = codegen::BoardSexprGenerator::new()
+            .generate(&board)
+            .unwrap();
         assert!(sexpr.contains(expect), "attr 未进板: {src} → 期望 {expect}");
-        assert!(!sexpr.contains("(attr thru_hole"), "落板发射了 KiCad 10 拒载的旧 token: {src}");
+        assert!(
+            !sexpr.contains("(attr thru_hole"),
+            "落板发射了 KiCad 10 拒载的旧 token: {src}"
+        );
         // json5 再往返不漂移
         let b2 = parse_board_json5(&generate_board_json5(&board).unwrap()).unwrap();
-        assert_eq!(b2.footprints[0].attr, board.footprints[0].attr, "attr 往返漂移: {src}");
+        assert_eq!(
+            b2.footprints[0].attr, board.footprints[0].attr,
+            "attr 往返漂移: {src}"
+        );
         // 板文件再解析回来也不漂移
         let b3 = parse_board(&sexpr).unwrap();
-        assert_eq!(b3.footprints[0].attr, board.footprints[0].attr, "attr 板往返漂移: {src}");
+        assert_eq!(
+            b3.footprints[0].attr, board.footprints[0].attr,
+            "attr 板往返漂移: {src}"
+        );
     }
     // 未声明不得凭空造值
     let b = parse_board_json5(r#"{ footprints: [ { lib_id: "x:y", reference: "R1" } ] }"#).unwrap();

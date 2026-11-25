@@ -380,7 +380,11 @@ impl Board {
                     if li.first().and_then(|h| h.as_ident()) != Some("layer") {
                         continue;
                     }
-                    let name = li.get(1).and_then(|v| v.as_string()).unwrap_or("").to_string();
+                    let name = li
+                        .get(1)
+                        .and_then(|v| v.as_string())
+                        .unwrap_or("")
+                        .to_string();
                     // `(type top)` (ident) and `(type "top")` (string) both occur
                     let layer_type = li
                         .get(2)
@@ -394,7 +398,9 @@ impl Board {
                         })
                         .unwrap_or_else(|| "dielectric".to_string());
                     let num = |tag: &str| {
-                        find_child(&li[2..], tag).and_then(|c| c.get(1)).and_then(|v| v.as_number())
+                        find_child(&li[2..], tag)
+                            .and_then(|c| c.get(1))
+                            .and_then(|v| v.as_number())
                     };
                     board.setup.stackup.push(StackupLayer {
                         name,
@@ -418,15 +424,20 @@ impl Board {
                 .and_then(|c| c.get(1))
                 .and_then(|v| v.as_number())
                 .unwrap_or(0.0);
-            board.setup.pad_to_paste_clearance_ratio = find_child(si, "pad_to_paste_clearance_ratio")
-                .and_then(|c| c.get(1))
-                .and_then(|v| v.as_number())
-                .unwrap_or(0.0);
+            board.setup.pad_to_paste_clearance_ratio =
+                find_child(si, "pad_to_paste_clearance_ratio")
+                    .and_then(|c| c.get(1))
+                    .and_then(|v| v.as_number())
+                    .unwrap_or(0.0);
             let origin = |tag: &str| {
                 find_child(si, tag)
                     .and_then(|c| c.get(1))
                     .and_then(|v| v.as_number())
-                    .zip(find_child(si, tag).and_then(|c| c.get(2)).and_then(|v| v.as_number()))
+                    .zip(
+                        find_child(si, tag)
+                            .and_then(|c| c.get(2))
+                            .and_then(|v| v.as_number()),
+                    )
             };
             board.setup.aux_axis_origin = origin("aux_axis_origin");
             board.setup.grid_origin = origin("grid_origin");
@@ -436,7 +447,10 @@ impl Board {
         // parser used to) means a reverse compile erases the board's clearance
         // and via rules, same failure class as the via_type incident.
         for n in find_children(items, "net_class") {
-            let Some(name) = n.get(1).and_then(|v| v.as_string().or_else(|| v.as_ident())) else {
+            let Some(name) = n
+                .get(1)
+                .and_then(|v| v.as_string().or_else(|| v.as_ident()))
+            else {
                 continue;
             };
             let mut nc = NetClass {
@@ -532,9 +546,9 @@ impl Board {
                 via_type: via_node
                     .get(1)
                     .and_then(|t| match t {
-                        crate::parser::ast::SExpr::Atom(crate::parser::ast::Atom::Identifier(s)) => {
-                            Some(s.as_str())
-                        }
+                        crate::parser::ast::SExpr::Atom(crate::parser::ast::Atom::Identifier(
+                            s,
+                        )) => Some(s.as_str()),
                         _ => None,
                     })
                     .filter(|s| *s == "blind" || *s == "micro")
@@ -802,10 +816,7 @@ impl Board {
                         let justify_mirror = find_child(&e[1..], "justify")
                             .map(|j| {
                                 j[1..].iter().any(|i| {
-                                    let s = i
-                                        .as_string()
-                                        .or_else(|| i.as_ident())
-                                        .unwrap_or("");
+                                    let s = i.as_string().or_else(|| i.as_ident()).unwrap_or("");
                                     s == "mirror"
                                 })
                             })
@@ -1219,7 +1230,7 @@ impl Board {
             .map(|t| match t {
                 SExpr::Atom(Atom::Identifier(s)) => s.clone(),
                 SExpr::Atom(Atom::Bool(true)) => "yes".to_string(),
-                SExpr::Atom(Atom::Bool(false)) => "no".to_string(),   // KiCad 10 connect_pads 词表 yes/no/clearance
+                SExpr::Atom(Atom::Bool(false)) => "no".to_string(), // KiCad 10 connect_pads 词表 yes/no/clearance
                 _ => String::new(),
             })
             .unwrap_or_default();

@@ -55,8 +55,7 @@ fn interp_log(table: &[(f64, f64)], x: f64) -> f64 {
 }
 
 /// 过孔载流工程表（保守口径，30°C）：0.2mm→0.5A … 0.8mm→2.5A（孔径=drill）。
-const VIA_ANCHOR: [(f64, f64); 5] =
-    [(0.2, 0.5), (0.3, 0.8), (0.4, 1.2), (0.5, 1.5), (0.8, 2.5)];
+const VIA_ANCHOR: [(f64, f64); 5] = [(0.2, 0.5), (0.3, 0.8), (0.4, 1.2), (0.5, 1.5), (0.8, 2.5)];
 
 /// 铜厚参数（oz）、温升 ΔT(°C)、是否内层。
 #[derive(Debug, Clone, Copy)]
@@ -68,7 +67,11 @@ pub struct CopperParams {
 
 impl Default for CopperParams {
     fn default() -> Self {
-        CopperParams { oz: 1.0, dt_c: 30.0, internal: false }
+        CopperParams {
+            oz: 1.0,
+            dt_c: 30.0,
+            internal: false,
+        }
     }
 }
 
@@ -193,7 +196,7 @@ pub fn net_voltage(name: &str) -> Option<f64> {
     }
     let sign = |v: f64| if neg { -v } else { v };
     let tail = &rest[1..]; // V 之后
-    // "整数V整数" 形态（尾段以数字开头，允许 _STBY 等后缀）：3V3 / 3V3_STBY → 3.3
+                           // "整数V整数" 形态（尾段以数字开头，允许 _STBY 等后缀）：3V3 / 3V3_STBY → 3.3
     if !head.contains('.') {
         let frac: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !frac.is_empty() {
@@ -214,13 +217,17 @@ pub fn is_ground(name: &str) -> bool {
 /// 实锤案：TPS61088 pin1 VCC_AUX = 内部 LDO 输出（挂去耦），被首版误判成 boost 输入。
 pub fn is_internal_rail(name: &str) -> bool {
     let u = name.trim().to_uppercase();
-    ["VCC", "VDD", "VREF", "VINT", "VLDO"].iter().any(|p| u == *p || u.starts_with(&format!("{}_", p)))
+    ["VCC", "VDD", "VREF", "VINT", "VLDO"]
+        .iter()
+        .any(|p| u == *p || u.starts_with(&format!("{}_", p)))
 }
 
 /// 源轨判定——电池/系统输入母线（VBAT/VIN/VBUS/VSYS/PWR 前缀），VRM 输入端最优先。
 pub fn is_source_rail(name: &str) -> bool {
     let u = name.trim().to_uppercase();
-    ["VBAT", "VIN", "VBUS", "VSYS", "VINL", "VINH"].iter().any(|p| u == *p || u.starts_with(&format!("{}_", p)))
+    ["VBAT", "VIN", "VBUS", "VSYS", "VINL", "VINH"]
+        .iter()
+        .any(|p| u == *p || u.starts_with(&format!("{}_", p)))
 }
 
 /// 开关节点/控制信号网判定——VRM pads 上这些网不是电源候选（SW/BOOT/FB/EN/…）。
@@ -234,7 +241,10 @@ pub fn is_signal_net(name: &str) -> bool {
         "SW", "BOOT", "FB", "EN", "SS", "COMP", "LX", "PG", "NC", "ILIM", "FREQ", "ADDR", "TS",
         "BYP", "CT", "SENSE", "IPK",
     ];
-    SIGNAL_PREFIX.iter().any(|s| u == *s || u.starts_with(&format!("{}_", s))) || u.ends_with("_EN")
+    SIGNAL_PREFIX
+        .iter()
+        .any(|s| u == *s || u.starts_with(&format!("{}_", s)))
+        || u.ends_with("_EN")
 }
 
 /// 识别出的 VRM（电源树节点）。
@@ -383,7 +393,11 @@ pub fn extract_power_tree(board: &Board, ov: &CurrentOverrides) -> Vec<VrmNode> 
 }
 
 /// 逐电源网审计：需求电流 vs 板上实际线宽/过孔。
-pub fn audit_current_carry(board: &Board, vrms: &[VrmNode], ov: &CurrentOverrides) -> Vec<PowerNetAudit> {
+pub fn audit_current_carry(
+    board: &Board,
+    vrms: &[VrmNode],
+    ov: &CurrentOverrides,
+) -> Vec<PowerNetAudit> {
     let copper = &ov.copper;
     // 每网统计：最窄段 / 段数 / via 数 / 负载数
     let mut nets: HashMap<String, (f64, usize, usize, f64)> = HashMap::new(); // (min_w, segs, vias, min_drill)
@@ -392,13 +406,17 @@ pub fn audit_current_carry(board: &Board, vrms: &[VrmNode], ov: &CurrentOverride
 
     for seg in &board.segments {
         let name = net_display(board, seg.net);
-        let e = nets.entry(name).or_insert((f64::INFINITY, 0, 0, f64::INFINITY));
+        let e = nets
+            .entry(name)
+            .or_insert((f64::INFINITY, 0, 0, f64::INFINITY));
         e.0 = e.0.min(seg.width);
         e.1 += 1;
     }
     for via in &board.vias {
         let name = net_display(board, via.net);
-        let e = nets.entry(name).or_insert((f64::INFINITY, 0, 0, f64::INFINITY));
+        let e = nets
+            .entry(name)
+            .or_insert((f64::INFINITY, 0, 0, f64::INFINITY));
         e.2 += 1;
         e.3 = e.3.min(via.drill);
     }
@@ -484,7 +502,11 @@ pub fn audit_current_carry(board: &Board, vrms: &[VrmNode], ov: &CurrentOverride
                 need_i = Some(*i);
             }
         }
-        let have_i = if st.0.is_finite() { Some(ampacity(st.0, copper)) } else { None };
+        let have_i = if st.0.is_finite() {
+            Some(ampacity(st.0, copper))
+        } else {
+            None
+        };
         let need_w = need_i.map(|i| width_for_current(i, copper));
         let pass = match (have_i, need_i) {
             (Some(h), Some(n)) => Some(h + 1e-9 >= n),
@@ -525,13 +547,25 @@ pub fn format_report(audits: &[PowerNetAudit], vrms: &[VrmNode], ov: &CurrentOve
     for v in vrms {
         s.push_str(&format!(
             "  {} [{}] {}({:?}V) → {}({:?}V)  铭牌 {}A\n",
-            v.refdes, v.role.as_str(), v.vin_net, v.vin_v, v.vout_net, v.vout_v, v.iout_rating
+            v.refdes,
+            v.role.as_str(),
+            v.vin_net,
+            v.vin_v,
+            v.vout_net,
+            v.vout_v,
+            v.iout_rating
         ));
     }
     s.push_str("\n== 载流审计（铜参数 ");
     s.push_str(&format!(
         "{}oz/ΔT{}°C/{}） ==\n",
-        ov.copper.oz, ov.copper.dt_c, if ov.copper.internal { "内层" } else { "外层" }
+        ov.copper.oz,
+        ov.copper.dt_c,
+        if ov.copper.internal {
+            "内层"
+        } else {
+            "外层"
+        }
     ));
     for a in audits {
         let verdict = match a.pass {
@@ -568,7 +602,14 @@ pub fn format_report(audits: &[PowerNetAudit], vrms: &[VrmNode], ov: &CurrentOve
 /// 载流规则集（IPC-2221 幂律形态，k 已按审查清单锚点表校准：mm 系 k=2.46，
 /// 使 0.25mm/1oz/30°C 精确命中 0.9A；0.5/0.8mm 端幂律略低于人工表=保守方向）。
 /// 返回 (name, description, parameters, formula_expr, check_expr, output_params)。
-pub fn builtin_current_rules() -> Vec<(&'static str, &'static str, &'static str, &'static str, &'static str, &'static str)> {
+pub fn builtin_current_rules() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+)> {
     vec![
         (
             "ipc2221_external_ampacity",
@@ -654,7 +695,11 @@ mod tests {
         let p = CopperParams::default();
         assert!(ampacity(0.25, &p) < 1.0, "0.25mm 必须扛不住 1A");
         let w = width_for_current(3.0, &p);
-        assert!(w > 0.7 && w < 1.1, "3A 需求线宽 got {}mm, expect 0.8-1.0", w);
+        assert!(
+            w > 0.7 && w < 1.1,
+            "3A 需求线宽 got {}mm, expect 0.8-1.0",
+            w
+        );
     }
 
     #[test]
@@ -665,7 +710,10 @@ mod tests {
         let r = ampacity(0.5, &two_oz) / ampacity(0.5, &base);
         assert!((r - 1.65).abs() < 0.05, "2oz scale = {:.3}", r);
         // 内层减半
-        let inner = CopperParams { internal: true, ..base };
+        let inner = CopperParams {
+            internal: true,
+            ..base
+        };
         assert!((ampacity(0.5, &inner) / ampacity(0.5, &base) - 0.5).abs() < 1e-9);
         // ΔT=10°C ≈ (10/30)^0.44 ≈ 0.61
         let cool = CopperParams { dt_c: 10.0, ..base };
@@ -710,10 +758,7 @@ mod tests {
         assert_eq!((vi.as_str(), vo.as_str()), ("-9V", "-6V"));
         // ③ 反相 DC-DC + CT/SENSE 信号网混入时输出位不被 None 网抢占：
         //    MC34063 候选=VBAT(None)+CT(None)+-9V(known)
-        let (vi, _, vo, _) = pick_direction(
-            VrmRole::Buck,
-            &[n("VBAT_SW"), n("CT"), n("-9V")],
-        );
+        let (vi, _, vo, _) = pick_direction(VrmRole::Buck, &[n("VBAT_SW"), n("CT"), n("-9V")]);
         assert_eq!((vi.as_str(), vo.as_str()), ("VBAT_SW", "-9V"));
         // ④ 全已知 buck 高|V|→低|V|：SY8120 12V→5V
         let (vi, _, vo, _) = pick_direction(VrmRole::Buck, &[n("12V"), n("5V")]);
@@ -730,7 +775,10 @@ mod tests {
         let ids = seed_current_rules(&db).unwrap();
         assert_eq!(ids.len(), 3);
 
-        let rule = db.get_rule_by_name("current_min_width_check").unwrap().unwrap();
+        let rule = db
+            .get_rule_by_name("current_min_width_check")
+            .unwrap()
+            .unwrap();
         // 0.25mm/1oz/30°C 需 0.9A：恰好在锚点上 → pass（i_max≈0.9 ≥ 0.9）
         let ok = db
             .apply_rule(
@@ -740,7 +788,11 @@ mod tests {
                 None,
             )
             .unwrap();
-        assert!(ok.pass, "0.25mm 扛 0.9A 应压线通过, i_max={:?}", ok.outputs.get("i_max"));
+        assert!(
+            ok.pass,
+            "0.25mm 扛 0.9A 应压线通过, i_max={:?}",
+            ok.outputs.get("i_max")
+        );
         // battery 5V 主干案例：0.25mm 需 3A → fail
         let bad = db
             .apply_rule(
@@ -776,14 +828,18 @@ mod tests {
         ctx.set("dt_c", 30.0);
         ctx.set("oz", 1.0);
         let out = ctx
-            .eval_formula("i_max = 2.46 * pow(dt_c / 30, 0.44) * pow(width_mm, 0.725) * pow(oz, 0.725)")
+            .eval_formula(
+                "i_max = 2.46 * pow(dt_c / 30, 0.44) * pow(width_mm, 0.725) * pow(oz, 0.725)",
+            )
             .unwrap();
         // 校准系数 2.46 下 0.25mm/30°C/1oz → 精确命中锚点 0.9A
         let i = out[0].1;
         assert!((i - 0.9).abs() < 0.02, "k_cal gives {}A", i);
         // 过孔表拟合：0.3mm 孔 → ~0.8A
         ctx.set("drill_mm", 0.3);
-        let v = ctx.eval_formula("i_via = 3.25 * pow(drill_mm, 1.16)").unwrap();
+        let v = ctx
+            .eval_formula("i_via = 3.25 * pow(drill_mm, 1.16)")
+            .unwrap();
         assert!((v[0].1 - 0.8).abs() < 0.05, "via 0.3mm gives {}A", v[0].1);
     }
 }

@@ -173,13 +173,21 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
     // texts (schematic-level text notes: zone titles, annotations)
     if let Some(texts) = obj.get("texts").and_then(|v| v.as_array()) {
         for tv in texts {
-            if let Some(t) = tv.as_object().and_then(|o| o.get("text")).and_then(|v| v.as_str()) {
+            if let Some(t) = tv
+                .as_object()
+                .and_then(|o| o.get("text"))
+                .and_then(|v| v.as_str())
+            {
                 let mut item = crate::ir::TextItem {
                     text: t.to_string(),
                     position: (0.0, 0.0, 0.0),
                     effects: crate::ir::TextEffects::default(),
                 };
-                if let Some(at) = tv.as_object().and_then(|o| o.get("at")).and_then(|v| v.as_array()) {
+                if let Some(at) = tv
+                    .as_object()
+                    .and_then(|o| o.get("at"))
+                    .and_then(|v| v.as_array())
+                {
                     let xs: Vec<Option<f64>> = at.iter().map(|v| v.as_f64()).collect();
                     if !xs.is_empty() {
                         item.position = (
@@ -189,7 +197,11 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
                         );
                     }
                 }
-                if let Some(sz) = tv.as_object().and_then(|o| o.get("size")).and_then(|v| v.as_array()) {
+                if let Some(sz) = tv
+                    .as_object()
+                    .and_then(|o| o.get("size"))
+                    .and_then(|v| v.as_array())
+                {
                     if sz.len() == 2 {
                         let h = sz[0].as_f64().unwrap_or(1.27);
                         let w = sz[1].as_f64().unwrap_or(h);
@@ -226,10 +238,18 @@ fn value_to_schematic(value: &Value) -> Result<Schematic> {
             }
             let mut pl = crate::ir::Polyline::new();
             pl.points = pts;
-            if let Some(w) = pv.as_object().and_then(|o| o.get("width")).and_then(|v| v.as_f64()) {
+            if let Some(w) = pv
+                .as_object()
+                .and_then(|o| o.get("width"))
+                .and_then(|v| v.as_f64())
+            {
                 pl.stroke.width = w;
             }
-            if let Some(t) = pv.as_object().and_then(|o| o.get("type")).and_then(|v| v.as_str()) {
+            if let Some(t) = pv
+                .as_object()
+                .and_then(|o| o.get("type"))
+                .and_then(|v| v.as_str())
+            {
                 pl.stroke.stroke_type = crate::ir::StrokeType::from_str(t);
             }
             schematic.polylines.push(pl);
@@ -355,10 +375,16 @@ fn value_to_symbol(value: &Value) -> Symbol {
                 if gtype != "pin" {
                     // rect / line / polyline: shared stroke/fill parsing
                     let mut stroke = crate::ir::Stroke::default();
-                    if let Some(w) = go.and_then(|o| o.get("stroke_width")).and_then(|v| v.as_f64()) {
+                    if let Some(w) = go
+                        .and_then(|o| o.get("stroke_width"))
+                        .and_then(|v| v.as_f64())
+                    {
                         stroke.width = w;
                     }
-                    if let Some(st) = go.and_then(|o| o.get("stroke_type")).and_then(|v| v.as_str()) {
+                    if let Some(st) = go
+                        .and_then(|o| o.get("stroke_type"))
+                        .and_then(|v| v.as_str())
+                    {
                         stroke.stroke_type = crate::ir::StrokeType::from_str(st);
                     }
                     let fill = match go.and_then(|o| o.get("fill")).and_then(|v| v.as_str()) {
@@ -389,10 +415,13 @@ fn value_to_symbol(value: &Value) -> Symbol {
                                     }
                                 });
                             if let (Some((x0, y0)), Some((dx, dy))) = (at, size) {
-                                let mut rect = crate::ir::Rectangle::new((x0, y0), (x0 + dx, y0 + dy));
+                                let mut rect =
+                                    crate::ir::Rectangle::new((x0, y0), (x0 + dx, y0 + dy));
                                 rect.stroke = stroke;
                                 rect.fill = fill;
-                                symbol.graphics.push(crate::ir::GraphicElement::Rectangle(rect));
+                                symbol
+                                    .graphics
+                                    .push(crate::ir::GraphicElement::Rectangle(rect));
                             }
                         }
                         "line" | "polyline" => {
@@ -417,7 +446,9 @@ fn value_to_symbol(value: &Value) -> Symbol {
                                 pl.points = pts;
                                 pl.stroke = stroke;
                                 pl.fill = fill;
-                                symbol.graphics.push(crate::ir::GraphicElement::Polyline(pl));
+                                symbol
+                                    .graphics
+                                    .push(crate::ir::GraphicElement::Polyline(pl));
                             }
                         }
                         _ => {}
@@ -591,9 +622,8 @@ fn value_to_component(
                         .cloned()
                         .or_else(|| po.and_then(|o| get_str(o, "net_name")));
                     // 只写 net_name(无数字 net)时按 nets 表反查补 net_id
-                    let net_id = net_id.or_else(|| {
-                        net_name.as_deref().and_then(|nm| name2id.get(nm).copied())
-                    });
+                    let net_id = net_id
+                        .or_else(|| net_name.as_deref().and_then(|nm| name2id.get(nm).copied()));
 
                     comp.pins.push(PinInstance {
                         number,
@@ -623,9 +653,8 @@ fn value_to_component(
                         .cloned()
                         .or_else(|| po.and_then(|o| get_str(o, "net_name")));
                     // 只写 net_name(无数字 net)时按 nets 表反查补 net_id
-                    let net_id = net_id.or_else(|| {
-                        net_name.as_deref().and_then(|nm| name2id.get(nm).copied())
-                    });
+                    let net_id = net_id
+                        .or_else(|| net_name.as_deref().and_then(|nm| name2id.get(nm).copied()));
 
                     comp.pins.push(PinInstance {
                         number: num.clone(),
